@@ -1,0 +1,96 @@
+import pandas as pd
+import itertools
+from typing import Any
+import copy
+
+from .policy import CreditPolicy
+from .stages import CutoffStage, RateStage, FilterStage
+from .stress import AggravationStress
+from .simulation import run_simulation, SimulationMethod
+
+def run_tradeoff_analysis(
+    data: pd.DataFrame,
+    base_policy: CreditPolicy,
+    vary_params: dict[str, list[Any]],
+    parallel: bool = False,
+) -> pd.DataFrame:
+    """Run a trade-off analysis simulation over a grid of parameters.
+    
+    Args:
+        data: Applicant data.
+        base_policy: The template policy.
+        vary_params: Dictionary mapping parameter names to lists of values.
+        parallel: Whether to run in parallel using concurrent.futures.
+        
+    Returns:
+        DataFrame containing results.
+    """
+    keys = list(vary_params.keys())
+    values = list(vary_params.values())
+    
+    # Create parameter grid
+    grid = [dict(zip(keys, v)) for v in itertools.product(*values)]
+    
+    def _run_single(params: dict[str, Any]) -> dict[str, Any]:
+        temp_policy = copy.deepcopy(base_policy)
+        
+        # 1. Handle Cutoffs
+        cutoff_params = {k: v for k, v in params.items() if k.endswith("_cutoff")}
+        if cutoff_params:
+            actual_cutoffs = {}
+            for k, v in cutoff_params.items():
+                col_name = k.replace("_cutoff", "")
+                if col_name in data.columns:
+                    actual_cutoffs[col_name] = v
+                    
+            if actual_cutoffs:
+                temp_policy = temp_policy.add_stage(
+                    CutoffStage(name="dynamic_cutoffs", cutoffs=actual_cutoffs)
+                )
+                
+        # 2. Handle Aggravation Factor
+        if "aggravation_factor" in params:
+            agg_stress = AggravationStress(factor=params["aggravation_factor"])
+            # Replace stress scenarios
+            import dataclasses
+            temp_policy = dataclasses.replace(temp_policy, stress_scenarios=(agg_stress,))
+            
+        # 3. Handle Dynamic Base Rates
+        base_rate_params = {k: v for k, v in params.items() if k.endswith("_base_rate")}
+        if base_rate_params:
+            stages_list = list(temp_policy.stages)
+            for k, v in base_rate_params.items():
+                stage_name = k.replace("_base_rate", "")
+                for i, stage in enumerate(stages_list):
+                    if stage.name == stage_name and isinstance(stage, RateStage):
+                        stages_list[i] = RateStage(name=stage.name, base_rate=v, variable=stage.variable)
+                        
+            import dataclasses
+            temp_policy = dataclasses.replace(temp_policy, stages=tuple(stages_list))
+            
+        # Run simulation
+        sim_results = run_simulation(data, temp_policy, method=SimulationMethod.ANALYTICAL)
+        final_data = sim_results.data
+        
+        app_sum = final_data["new_approval"].sum()
+        total = len(final_data)
+        approval_rate = app_sum / total if total > 0 else 0.0
+        
+        if app_sum > 0:
+            bad_rate = (final_data["simulated_default"] * final_data["new_approval"]).sum() / app_sum
+        else:
+            bad_rate = 0.0
+            
+        result = dict(params)
+        result["approval_rate"] = approval_rate
+        result["default_rate"] = bad_rate
+        return result
+        
+    if parallel:
+        import concurrent.futures
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            results = list(executor.map(_run_single, grid))
+    else:
+        results = [_run_single(p) for p in grid]
+        
+    return pd.DataFrame(results)
