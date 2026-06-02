@@ -67,14 +67,15 @@ def generate_sample_data(
 
     s = -y
 
-    # Calibrated noise settings to hit targets
+    # Calibrated noise settings to hit targets: Legacy KS ~25%, Score_5 KS ~30% (Delta ~5.1%)
     noises = {
-        "score_2": 4.0,
-        "score_3": 3.5,
-        "score_4": 3.0,
-        "score_5": 2.6,
+        "score_2": 6.0,
+        "score_3": 5.4,
+        "score_4": 4.8,
+        "score_5": 4.2,
         "legacy_score": 2.8
     }
+
 
     for name, noise in noises.items():
         latent = s + rng.normal(0, noise, n_applicants)

@@ -155,11 +155,11 @@ A estrutura de Ratings resultante e sua validação temporal:
 
 | Rating | Faixa de Score 5 | Inad. DEV | Inad. OOT | Vol. DEV (Aprovados) | Vol. OOT (Aprovados) |
 | :---: | :---: | :---: | :---: | :---: | :---: |
-| **A** | `990` a `1000` | 2.72% | 2.69% | 9,903 | 4,645 |
-| **B** | `951` a `989` | 5.90% | 6.03% | 18,152 | 8,811 |
-| **C** | `885` a `950` | 9.23% | 9.85% | 37,789 | 18,498 |
-| **D** | `836` a `884` | 13.59% | 14.13% | 41,935 | 20,611 |
-| **E** | `751` a `835` | 17.13% | 17.71% | 32,454 | 15,534 |
+| **A** | `967` a `1000` | 2.80% | 2.93% | 14,700 | 6,963 |
+| **B** | `919` a `966` | 6.67% | 6.99% | 32,915 | 16,138 |
+| **C** | `878` a `918` | 9.87% | 10.45% | 28,060 | 13,576 |
+| **D** | `828` a `877` | 13.15% | 13.87% | 32,639 | 16,121 |
+| **E** | `751` a `827` | 16.47% | 16.76% | 32,599 | 15,591 |
 
 Abaixo, plotamos a estabilidade temporal das safras de performance observada dos aprovados sob a nova política, provando que a segregação se mantém robusta e livre de sobreposições ao longo de todo o histórico:
 
@@ -172,9 +172,9 @@ A transição de modelo altera a composição da carteira. Avaliamos a performan
 
 | Quadrante | Vol. Contratado Esperado | Taxa de Inadimplência | Origem dos Dados |
 | :--- | :---: | :---: | :--- |
-| **Keep In** | 41,504 | 2.64% | Observado (`actual_default`) |
-| **Swap In** | 59,632 | 4.49% | Simulado Estressado (Angulado) |
-| **Swap Out** | 78,837 | 9.93% | Observado Histórico Legado |
+| **Keep In** | 42,555 | 2.52% | Observado (`actual_default`) |
+| **Swap In** | 59,064 | 4.31% | Simulado Estressado (Angulado) |
+| **Swap Out** | 77,026 | 10.20% | Observado Histórico Legado |
 | **Keep Out** | 0 | N/A | Sem dados (Rejeitados por ambas) |
 
 > [!NOTE]
@@ -188,12 +188,12 @@ A transição de modelo altera a composição da carteira. Avaliamos a performan
 ---
 
 ### 6. O Paradoxo do Volume de Contratos
-Uma análise atenta da Tabela Delta revela um comportamento aparentemente paradoxal: **por que o volume contratado esperado cai (-15.9%) se a taxa de aprovação subiu levemente (+0.39%)?**
+Uma análise atenta da Tabela Delta revela um comportamento aparentemente paradoxal: **por que o volume contratado esperado cai (-15.0%) se a taxa de aprovação subiu levemente (+0.49%)?**
 
 Este comportamento decorre do impacto da calibragem da **taxa de conversão (take-up rate)** na nova carteira:
 1. **Adversão na Conversão**: Clientes com score de crédito alto e baixo risco (como a maioria dos aprovados no novo modelo) são muito disputados no mercado de crédito. Portanto, a taxa de fechamento de contrato (*take-up rate*) deles é menor, variando de **45% a 65%**.
-2. **Seleção Inversa no Legado**: O modelo antigo (de baixo poder discriminatório) aprovava em massa clientes de score médio e baixo (Swap Out). Por possuírem poucas ofertas alternativas de financiamento, esses clientes convertem a taxas de **80% a 90%**, trazendo um grande volume de contratos, mas carregando uma inadimplência de **9.93%**.
-3. **Decisão Estratégica**: Ao trocarmos o Swap Out (conversão alta, risco péssimo) pelo Swap In (conversão moderada, risco ótimo), aceitamos uma carteira contratada ligeiramente menor em volume absoluto, mas imensamente mais saudável, reduzindo a inadimplência total contratada de **7.43% para 3.73%**.
+2. **Seleção Inversa no Legado**: O modelo antigo (de baixo poder discriminatório) aprovava em massa clientes de score médio e baixo (Swap Out). Por possuírem poucas ofertas alternativas de financiamento, esses clientes convertem a taxas de **80% a 90%**, trazendo um grande volume de contratos, mas carregando uma inadimplência de **10.20%**.
+3. **Decisão Estratégica**: Ao trocarmos o Swap Out (conversão alta, risco péssimo) pelo Swap In (conversão moderada, risco ótimo), aceitamos uma carteira contratada ligeiramente menor em volume absoluto, mas imensamente mais saudável, reduzindo a inadimplência total contratada de **7.49% para 3.56%**.
 
 ---
 
@@ -203,9 +203,9 @@ A comparação consolidada entre as políticas prova o sucesso do novo motor de 
 
 | Métrica | Política Legada | Nova Política (V14) | Delta Absoluto | Delta Relativo |
 | :--- | :---: | :---: | :---: | :---: |
-| **Aprovação Global (% ToF)** | 20.44% | **20.83%** | **+0.39%** | **+1.9%** |
-| **Inadimplência Contratada (P&L)** | 7.43% | **3.73%** | **-3.70%** | **-49.8%** |
-| **Volume Contratado Esperado** | 120,251 | **101,136** | **-19,115** | **-15.9%** |
+| **Aprovação Global (% ToF)** | 20.44% | **20.93%** | **+0.49%** | **+2.4%** |
+| **Inadimplência Contratada (P&L)** | 7.49% | **3.56%** | **-3.93%** | **-52.5%** |
+| **Volume Contratado Esperado** | 119,518 | **101,620** | **-17,898** | **-15.0%** |
 
 ---
 
@@ -214,7 +214,8 @@ Como a performance dos Swap Ins é simulada, realizamos um teste de estresse sev
 
 ![Crash Test](images/crash_test.png)
 
-*O **ponto de breakeven é atingido em 3.75x**. Isto significa que a inadimplência real do público Swap In teria de ser **3.75 vezes maior** do que a estimada pelo modelo para que a perda agregada da nova carteira subisse até os **7.43%** da política antiga. Esse amplo colchão de resiliência prova a alta segurança operacional da nova política.*
+*O **ponto de breakeven é atingido em 3.75x**. Isto significa que a inadimplência real do público Swap In teria de ser **3.75 vezes maior** do que a estimada pelo modelo para que a perda agregada da nova carteira subisse até os **7.49%** da política antiga. Esse amplo colchão de resiliência prova a alta segurança operacional da nova política.*
+
 ---
 
 ## 🛠️ Contribuir e Desenvolver

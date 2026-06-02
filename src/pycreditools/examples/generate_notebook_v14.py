@@ -87,14 +87,15 @@ cells.append(c_code("""def gerar_base(n=1_000_000):
 
     s = -y
 
-    # Calibrated noise settings to hit targets: Legacy KS ~26%, Score_5 KS ~31%
+    # Calibrated noise settings to hit targets: Legacy KS ~25%, Score_5 KS ~30% (Delta ~5.1%)
     noises = {
-        "score_2": 6.5,
-        "score_3": 5.8,
-        "score_4": 5.1,
-        "score_5": 4.5,
+        "score_2": 6.0,
+        "score_3": 5.4,
+        "score_4": 4.8,
+        "score_5": 4.2,
         "legacy_score": 2.8
     }
+
 
     for name, noise in noises.items():
         latent = s + rng.normal(0, noise, n)
