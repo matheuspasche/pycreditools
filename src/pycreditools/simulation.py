@@ -6,6 +6,7 @@ from typing import Any
 import warnings
 
 from .policy import CreditPolicy
+from .stages import RateStage
 from ._types import SimulationMethod, Quadrant
 
 @dataclass
@@ -48,6 +49,10 @@ def run_simulation(
     stage_approval_cols = []
     df["pass_prob_funnel"] = 1.0
     
+    # Track the last non-RateStage probability for "Approved" (pre-take-up)
+    # so we can distinguish Approved vs Hired in the summary.
+    last_filter_prob = pd.Series(1.0, index=df.index)
+    
     if policy.stages:
         for i, stage in enumerate(policy.stages):
             stage_output_col = f"stage_{i}_{stage.name}"
@@ -60,14 +65,22 @@ def run_simulation(
             df["pass_prob_funnel"] = df["pass_prob_funnel"] * stage_res
             df[stage_output_col] = df["pass_prob_funnel"]
             
+            # Record cumulative probability before any RateStage kicks in
+            if not isinstance(stage, RateStage):
+                last_filter_prob = df["pass_prob_funnel"].copy()
+            
     if method == SimulationMethod.STOCHASTIC:
         if not stage_approval_cols:
             df["new_approval"] = 1
+            df["approved"] = 1
         else:
-            # Must have passed all stages
             df["new_approval"] = df[stage_approval_cols].fillna(0).min(axis=1).astype(int)
+            # "approved" = passed all filter/cutoff stages (before rate stages)
+            df["approved_pre_rate"] = (last_filter_prob > 0).astype(int)
     else:
         df["new_approval"] = df["pass_prob_funnel"]
+        # In analytical mode, approved_pre_rate is the probability up to last non-rate stage
+        df["approved_pre_rate"] = last_filter_prob
         
     del df["pass_prob_funnel"]
     
@@ -114,72 +127,103 @@ def _assign_simulated_defaults(
     method: SimulationMethod
 ) -> pd.DataFrame:
     """Assign default outcomes for the final approved population."""
-    swap_in_defaults = _simulate_swap_in_defaults(df, policy, method)
+    swap_ins = df[df["scenario"] == Quadrant.SWAP_IN.value]
     
-    if not swap_in_defaults.empty:
-        df = df.merge(swap_in_defaults, on=policy.applicant_id_col, how="left")
-    else:
-        df["swap_in_default"] = np.nan
+    # Initialize simulated_default as float to prevent dtype warnings
+    df["simulated_default"] = np.nan
+    
+    # Keep_in gets actual default
+    keep_in_mask = df["scenario"] == Quadrant.KEEP_IN.value
+    df.loc[keep_in_mask, "simulated_default"] = df.loc[keep_in_mask, policy.actual_default_col].astype(float)
+    
+    if not swap_ins.empty:
+        # Per-client baseline PD (score-calibrated)
+        baseline_pd = _estimate_swap_in_baseline_pd(df, swap_ins, policy)
         
-    conditions = [
-        df["scenario"] == Quadrant.KEEP_IN.value,
-        df["scenario"] == Quadrant.SWAP_IN.value,
-    ]
-    
-    choices = [
-        df[policy.actual_default_col],
-        df["swap_in_default"],
-    ]
-    
-    df["simulated_default"] = np.select(conditions, choices, default=np.nan)
-    del df["swap_in_default"]
-    
+        if not policy.stress_scenarios:
+            final_probs = baseline_pd
+        else:
+            prob_matrix = pd.DataFrame(index=swap_ins.index)
+            # Create a copy to prevent warnings when modifying
+            swap_ins_temp = swap_ins.copy()
+            swap_ins_temp["__baseline_pd"] = baseline_pd.values
+            for i, scenario in enumerate(policy.stress_scenarios):
+                prob_matrix[f"prob_{i}"] = scenario.apply(swap_ins_temp, "__baseline_pd")
+            final_probs = prob_matrix.max(axis=1)
+            
+        final_probs = final_probs.clip(0.0, 1.0)
+        
+        if method == SimulationMethod.STOCHASTIC:
+            random_draws = np.random.random(len(swap_ins))
+            outcomes = (random_draws < final_probs).astype(float)
+        else:
+            outcomes = final_probs
+            
+        df.loc[swap_ins.index, "simulated_default"] = outcomes
+        
     return df
 
-def _simulate_swap_in_defaults(
-    df: pd.DataFrame, 
-    policy: CreditPolicy, 
-    method: SimulationMethod
-) -> pd.DataFrame:
-    """Simulate default outcomes for swap-in applicants."""
-    swap_ins = df[df["scenario"] == Quadrant.SWAP_IN.value].copy()
+def _estimate_swap_in_baseline_pd(
+    df: pd.DataFrame,
+    swap_ins: pd.DataFrame,
+    policy: CreditPolicy,
+) -> pd.Series:
+    """Estimate per-client baseline PD for Swap Ins using a score→PD
+    local calibration built from the Keep In population.
+    """
+    keep_ins_mask = df["scenario"] == Quadrant.KEEP_IN.value
     
-    if swap_ins.empty:
-        return pd.DataFrame(columns=[policy.applicant_id_col, "swap_in_default"])
-        
-    if not policy.stress_scenarios:
-        # Neutral scenario (1.0x) using historical average
-        global_mask = df[policy.current_approval_col] == 1
-        global_pd = df.loc[global_mask, policy.actual_default_col].mean()
+    # Identify primary score column (last = best model)
+    primary_score = None
+    if policy.score_cols:
+        for sc in reversed(policy.score_cols):
+            if sc in df.columns:
+                primary_score = sc
+                break
+
+    actual_default_col = policy.actual_default_col
+
+    if primary_score is None or keep_ins_mask.sum() < 50:
+        global_pd = df.loc[keep_ins_mask, actual_default_col].mean() if keep_ins_mask.any() else 0.0
         if pd.isna(global_pd):
             global_pd = 0.0
-            
-        final_probs = pd.Series(global_pd, index=swap_ins.index)
-    else:
-        prob_matrix = pd.DataFrame(index=swap_ins.index)
-        
-        # Get baseline historical PD for the aggravating stresses
-        global_mask = df[policy.current_approval_col] == 1
-        global_pd = df.loc[global_mask, policy.actual_default_col].mean()
-        if pd.isna(global_pd):
-            global_pd = 0.0
-            
-        # Add a baseline PD column temporarily
-        swap_ins["__baseline_pd"] = global_pd
-        
-        for i, scenario in enumerate(policy.stress_scenarios):
-            res = scenario.apply(swap_ins, "__baseline_pd")
-            prob_matrix[f"prob_{i}"] = res
-            
-        final_probs = prob_matrix.max(axis=1)
-        
-    if method == SimulationMethod.STOCHASTIC:
-        random_draws = np.random.random(len(swap_ins))
-        outcomes = (random_draws < final_probs).astype(int)
-    else:
-        outcomes = final_probs
-        
-    return pd.DataFrame({
-        policy.applicant_id_col: swap_ins[policy.applicant_id_col],
-        "swap_in_default": outcomes
-    })
+        return pd.Series(global_pd, index=swap_ins.index)
+
+    keep_in_scores = df.loc[keep_ins_mask, primary_score]
+    keep_in_defaults = df.loc[keep_ins_mask, actual_default_col]
+    global_pd = keep_in_defaults.mean()
+    if pd.isna(global_pd):
+        global_pd = 0.0
+
+    # Build quantile bins on the Keep In score distribution
+    n_bins = min(20, max(5, len(keep_in_scores) // 200))
+    try:
+        _, bin_edges = pd.qcut(
+            keep_in_scores, q=n_bins, retbins=True, duplicates="drop"
+        )
+        # Extend edges slightly so that out-of-range values are clipped to nearest bin
+        bin_edges[0]  = -np.inf
+        bin_edges[-1] =  np.inf
+
+        keep_in_bins = pd.cut(
+            keep_in_scores, bins=bin_edges, labels=False, include_lowest=True
+        )
+        # Group defaults by score bin
+        bin_pd = (
+            keep_in_defaults.groupby(keep_in_bins)
+            .mean()
+            .fillna(global_pd)
+        )
+
+        swap_in_bins = pd.cut(
+            swap_ins[primary_score], bins=bin_edges, labels=False, include_lowest=True
+        )
+        baseline = swap_in_bins.map(bin_pd)
+        # Any remaining NaN → global_pd
+        baseline = baseline.fillna(global_pd)
+    except Exception:
+        baseline = pd.Series(global_pd, index=swap_ins.index)
+
+    return pd.Series(baseline.values, index=swap_ins.index).clip(0.0, 1.0)
+
+

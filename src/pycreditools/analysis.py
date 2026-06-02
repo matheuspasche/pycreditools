@@ -8,6 +8,31 @@ from .stages import CutoffStage, RateStage, FilterStage
 from .stress import AggravationStress
 from .simulation import run_simulation, SimulationMethod
 
+class TradeoffAnalyzer:
+    """A fluid builder for running trade-off analysis on a credit policy."""
+    
+    def __init__(self, base_policy: CreditPolicy):
+        self.base_policy = base_policy
+        self.vary_params: dict[str, list[Any]] = {}
+        
+    def vary_cutoff(self, col_name: str, values: list[float]) -> "TradeoffAnalyzer":
+        self.vary_params[f"{col_name}_cutoff"] = values
+        return self
+        
+    def vary_base_rate(self, stage_name: str, values: list[float]) -> "TradeoffAnalyzer":
+        self.vary_params[f"{stage_name}_base_rate"] = values
+        return self
+        
+    def vary_stress_aggravation(self, values: list[float]) -> "TradeoffAnalyzer":
+        self.vary_params["aggravation_factor"] = values
+        return self
+        
+    def run(self, data: pd.DataFrame, parallel: bool = False) -> pd.DataFrame:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return run_tradeoff_analysis(data, self.base_policy, self.vary_params, parallel)
+
 def run_tradeoff_analysis(
     data: pd.DataFrame,
     base_policy: CreditPolicy,
@@ -24,6 +49,9 @@ def run_tradeoff_analysis(
         
     Returns:
         DataFrame containing results.
+        
+    Note:
+        Consider using TradeoffAnalyzer for a cleaner, object-oriented API.
     """
     keys = list(vary_params.keys())
     values = list(vary_params.values())

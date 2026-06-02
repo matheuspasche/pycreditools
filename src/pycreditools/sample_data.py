@@ -37,13 +37,13 @@ def generate_sample_data(
     latent_old = a * z + b * e1
     latent_new = a * z + b * e2
     
-    # Map to 0-1000
-    # Higher score = lower risk (so negate z)
-    # Using scipy.stats.norm.cdf equivalent
-    import scipy.stats as stats
+    # Map to 0-1000 using normal CDF approximation
+    # 1.0 / (1.0 + exp(-1.702 * x)) is highly accurate (error < 0.01)
+    def norm_cdf(x):
+        return 1.0 / (1.0 + np.exp(-1.702 * x))
     
-    old_score = np.round(stats.norm.cdf(-latent_old) * 1000).astype(int)
-    new_score = np.round(stats.norm.cdf(-latent_new) * 1000).astype(int)
+    old_score = np.round(norm_cdf(-latent_old) * 1000).astype(int)
+    new_score = np.round(norm_cdf(-latent_new) * 1000).astype(int)
     
     # Default probability
     # logit(pd) = intercept + coef * z
