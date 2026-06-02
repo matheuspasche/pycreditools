@@ -3,8 +3,8 @@ from dataclasses import dataclass, field
 import pandas as pd
 from typing import Any
 
-from .stages import Stage
-from .stress import StressScenario
+from .stages import Stage, CutoffStage, FilterStage, RateStage
+from .stress import StressScenario, AggravationStress
 
 @dataclass(frozen=True)
 class CreditPolicy:
@@ -37,6 +37,38 @@ class CreditPolicy:
         """Helper to create a new instance with replaced fields."""
         import dataclasses
         return dataclasses.replace(self, **kwargs)
+
+    # --- Fluid Builder Methods ---
+    
+    def cutoff(self, name: str, cutoffs: dict[str, float], direction: str = "gte") -> CreditPolicy:
+        """Add a CutoffStage to the policy."""
+        return self.add_stage(CutoffStage(name=name, cutoffs=cutoffs, direction=direction))
+        
+    def filter(self, name: str, condition: Any) -> CreditPolicy:
+        """Add a FilterStage to the policy. Condition can be an Expression, callable, or string."""
+        return self.add_stage(FilterStage(name=name, condition=condition))
+        
+    def rate(self, name: str, base_rate: float, variable: str | float | None = None) -> CreditPolicy:
+        """Add a RateStage to the policy."""
+        return self.add_stage(RateStage(name=name, base_rate=base_rate, variable=variable))
+        
+    def stress_aggravation(self, factor: float) -> CreditPolicy:
+        """Add an AggravationStress scenario."""
+        return self.add_stress(AggravationStress(factor=factor))
+        
+    def simulate(self, df: pd.DataFrame, method: str = "analytical") -> Any:
+        """Run simulation directly from the policy object.
+        
+        Args:
+            df: The applicant data.
+            method: "analytical" or "stochastic".
+            
+        Returns:
+            CreditSimResults object.
+        """
+        from .simulation import run_simulation, SimulationMethod
+        sim_method = SimulationMethod.ANALYTICAL if method == "analytical" else SimulationMethod.STOCHASTIC
+        return run_simulation(df, self, method=sim_method)
         
     def validate(self, df: pd.DataFrame) -> None:
         """Validate that the policy can be run on the given DataFrame.

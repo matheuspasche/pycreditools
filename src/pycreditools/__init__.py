@@ -8,7 +8,7 @@ from .stress import StressScenario, AggravationStress, MonotonicStress, CustomSt
 from .policy import CreditPolicy
 from .simulation import CreditSimResults, run_simulation
 from .performance import summarize_results, compare_policies
-from .analysis import run_tradeoff_analysis
+from .analysis import run_tradeoff_analysis, TradeoffAnalyzer
 from .grouping import find_risk_groups, RiskGroupResult, GroupingRecipe
 from .screening import screen_risk_segments, ScreeningResult, ScreeningRecipe
 from .sample_data import generate_sample_data
@@ -43,4 +43,5 @@ __all__ = [
     "generate_sample_data",
     "col",
     "Expression",
+    "TradeoffAnalyzer",
 ]
