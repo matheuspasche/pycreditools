@@ -39,7 +39,7 @@ Esta seção demonstra o uso real da biblioteca para simular e aprovar a substit
 O fluxo de execução e validação completo está disponível em [tutorial_masterclass_v14.ipynb](tutorial_masterclass_v14.ipynb).
 
 ### 1. Modelagem do Funil de Aprovação (Bureau + Regras de Entrada)
-Aplicamos os novos escudos rígidos de entrada (hard filters) de forma cumulativa sobre a base de propostas:
+Aplicamos os novos escudos rígidos de entrada (hard filters) e incluímos o ponto de corte do score vigente para comparação direta do funil cumulativo sobre a base de propostas:
 
 ```python
 import pandas as pd
@@ -59,9 +59,15 @@ policy_hf = (
     .filter("Teto Atraso SCR", col("vl_vencido_scr") <= 3000)
     .filter("Teto Protestos", col("vl_protestos") <= 500)
 )
+
+# Adicionamos o ponto de corte vigente na política de comparação legada
+policy_legacy_hf = (
+    policy_hf
+    .filter("Ponto de Corte Vigente", col("legacy_score") >= LEGACY_CUT)
+)
 ```
 
-O funil de aprovação cumulativo resultante:
+O funil de aprovação cumulativo resultante (incluindo o corte vigente):
 
 | Etapa | Volume | % Funil | Δ Etapa |
 | :--- | :---: | :---: | :---: |
@@ -69,15 +75,26 @@ O funil de aprovação cumulativo resultante:
 | **Após CPF Válido** | 666,017 | 99.8% | -0.2% |
 | **Após Teto Negativação** | 604,823 | 90.6% | -9.2% |
 | **Após Teto SCR** | 565,019 | 84.7% | -6.6% |
-| **Após Teto Protestos (Pós-HF)** | **528,232** | **79.2%** | **-6.5%** |
+| **Após Teto Protestos** | 528,232 | 79.2% | -6.5% |
+| **Após Ponto de Corte Vigente** | 135,978 | 20.4% | -74.3% |
+| **Pós-todos os HF (combinado)** | **135,978** | **20.4%** | **—** |
 
 ---
 
-### 2. Calibração e Adequação dos Cortes por Loja
-Para manter a representatividade e o volume local, calibramos as notas de corte regionais para atingir cerca de **~23% de aprovação local** em cada praça (neutralizando o bias de risco geográfico):
+### 2. Curva de Otimização e Fronteira Eficiente
+Avaliamos os quatro scores candidatos (`score_2` a `score_5`) confrontando sua taxa de aprovação contra a inadimplência projetada. O gráfico de Fronteira Eficiente abaixo exibe o desempenho de cada modelo, marcando com um **"X"** a performance da política histórica legada.
+
+![Fronteira Eficiente](images/tradeoff_comparativo.png)
+
+*O **Score 5** domina claramente a fronteira de eficiência. Ao mesmo nível de aprovação da política histórica (~20.4%), ele projeta uma inadimplência de aprovados drasticamente menor. Prosseguimos a calibração final exclusivamente com ele.*
+
+---
+
+### 3. Calibração e Adequação dos Cortes por Loja
+Para manter a representatividade e o volume local, calibramos as notas de corte regionais do `score_5` para atingir cerca de **~23% de aprovação local** em cada praça (neutralizando o bias de risco geográfico e garantindo controle de crédito ótimo):
 
 ```python
-# Notas de corte regionalizadas calibradas
+# Notas de corte regionalizadas calibradas por loja/região
 cutoffs_loja = {
     "Sudeste": 781,
     "Sul": 793,
@@ -111,19 +128,16 @@ Estatísticas regionais resultantes da simulação da política final:
 
 ---
 
-### 3. Agrupamento de Risco (Clustering) apenas nos Sobreviventes
-Classificamos os clientes **aprovados sob a nova política (sobreviventes)** em DEV no modelo de agrupamento Ward, gerando Ratings contíguos:
+### 4. Agrupamento de Risco (Clustering) nos Sobreviventes
+Classificamos os clientes **aprovados sob a nova política (sobreviventes)** em DEV no modelo de agrupamento Ward, gerando Ratings contíguos. O motor garante a contiguidade e a ordenação de forma 100% consistente.
 
 ```python
-from pycreditools import find_risk_groups
-
-# Filtramos estritamente quem sobreviveu à nova política
+# Treinado na população aprovada sobrevivente
 df_train_dev = res_final[
     (res_final["new_approval"] > 0.0) &
     (res_final["sample"] == "DEV")
 ].copy()
 
-# Encontramos 5 Ratings de Risco contíguos e estáveis (max_crossings=1)
 group_res = find_risk_groups(
     data=df_train_dev,
     score_cols="score_5",
@@ -137,7 +151,7 @@ group_res = find_risk_groups(
 )
 ```
 
-A estrutura final de Ratings resultante (100% contígua e monotonicamente consistente):
+A estrutura de Ratings resultante e sua validação temporal:
 
 | Rating | Faixa de Score 5 | Inad. DEV | Inad. OOT | Vol. DEV (Aprovados) | Vol. OOT (Aprovados) |
 | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -147,16 +161,14 @@ A estrutura final de Ratings resultante (100% contígua e monotonicamente consis
 | **D** | `850` a `883` | 8.59% | 9.21% | 24,658 | 11,970 |
 | **E** | `751` a `849` | 11.31% | 11.96% | 23,506 | 11,308 |
 
+Abaixo, plotamos a estabilidade temporal das safras de performance observada dos aprovados sob a nova política, provando que a segregação se mantém robusta e livre de sobreposições ao longo de todo o histórico:
+
+![Estabilidade dos Ratings por Safra](images/vintage_stability.png)
+
 ---
 
-### 4. Dissecção dos Swaps e Deltas de Negócio
-Aprovando a nova política, alteramos o fluxo de aprovação anterior. A carteira é segmentada em quadrantes de contratação:
-
-- **Keep In**: Aprovados pela antiga e pela nova política.
-- **Swap In**: Reprovados pela antiga, mas aprovados pela nova.
-- **Swap Out**: Aprovados pela antiga, mas reprovados pela nova.
-
-A inadimplência observada do Swap Out (histórico contratado) versus a simulada do Swap In (estressada sob agravamento angulado de até 2.1x):
+### 5. Dissecção dos Swaps e Quadrantes de Decisão
+A transição de modelo altera a composição da carteira. Avaliamos a performance real observada para os clientes recusados na nova mas aceitos na antiga (Swap Out) vs a performance estressada para os novos aceitos (Swap In):
 
 | Quadrante | Vol. Contratado Esperado | Taxa de Inadimplência | Origem dos Dados |
 | :--- | :---: | :---: | :--- |
@@ -167,9 +179,19 @@ A inadimplência observada do Swap Out (histórico contratado) versus a simulada
 
 ---
 
-### 5. Resumo do Impacto de P&L Executivo (Tabela Delta)
+### 6. O Paradoxo do Volume de Contratos
+Uma análise atenta da Tabela Delta revela um comportamento aparentemente paradoxal: **por que o volume contratado esperado cai (-9.0%) se a taxa de aprovação subiu levemente (+1.01%)?**
 
-A comparação consolidada entre as políticas prova o sucesso do novo motor:
+Este comportamento decorre do impacto da calibragem da **taxa de conversão (take-up rate)** na nova carteira:
+1. **Adversão na Conversão**: Clientes com score de crédito alto e baixo risco (como a maioria dos aprovados no novo modelo) são muito disputados no mercado de crédito. Portanto, a taxa de fechamento de contrato (*take-up rate*) deles é menor, variando de **45% a 65%**.
+2. **Seleção Inversa no Legado**: O modelo antigo (de baixo poder discriminatório) aprovava em massa clientes de score médio e baixo (Swap Out). Por possuírem poucas ofertas alternativas de financiamento, esses clientes convertem a taxas de **80% a 90%**, trazendo um grande volume de contratos, mas carregando uma inadimplência de **12.41%**.
+3. **Decisão Estratégica**: Ao trocarmos o Swap Out (conversão alta, risco péssimo) pelo Swap In (conversão moderada, risco ótimo), aceitamos uma carteira contratada ligeiramente menor em volume absoluto, mas imensamente mais saudável, reduzindo a inadimplência total contratada de **7.84% para 3.12%**.
+
+---
+
+### 7. Resumo do Impacto de P&L Executivo (Tabela Delta)
+
+A comparação consolidada entre as políticas prova o sucesso do novo motor de simulação:
 
 | Métrica | Política Legada | Nova Política (V14) | Delta Absoluto | Delta Relativo |
 | :--- | :---: | :---: | :---: | :---: |
@@ -177,8 +199,14 @@ A comparação consolidada entre as políticas prova o sucesso do novo motor:
 | **Inadimplência Contratada (P&L)** | 7.84% | **3.12%** | **-4.72%** | **-60.2%** |
 | **Volume Contratado Esperado** | 114,449 | **104,177** | **-10,272** | **-9.0%** |
 
-*A nova política aprova **+1.01%** a mais de clientes da base geral, enquanto reduz a inadimplência do P&L contratado em **-60.2%** (de 7.84% para 3.12%), limpando a carteira através da exclusão do Swap Out (inadimplência histórica de 12.41%) e inclusão do Swap In qualificado (inadimplência estressada de 4.28%).*
+---
 
+### 8. Crash Test: Resiliência dos Swap Ins (Estresse e Breakeven)
+Como a performance dos Swap Ins é simulada, realizamos um teste de estresse severo aplicando multiplicadores de inadimplência sobre essa população. Variamos o fator de estresse de **1.0x** até **10.0x** no `TradeoffAnalyzer` para determinar a resiliência da carteira até o ponto de equilíbrio (*breakeven*) com a política histórica.
+
+![Crash Test](images/crash_test.png)
+
+*O **ponto de breakeven é atingido em 5.50x**. Isto significa que a inadimplência real do público Swap In teria de ser **5.50 vezes maior** do que a estimada pelo modelo para que a perda agregada da nova carteira subisse até os **7.84%** da política antiga. Esse amplo colchão de resiliência prova a alta segurança operacional da nova política.*
 ---
 
 ## 🛠️ Contribuir e Desenvolver

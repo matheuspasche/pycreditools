@@ -173,13 +173,19 @@ policy_hf = (
     .filter("Teto Protestos",    col("vl_protestos") <= 500)
 )
 
-# Build monotonic funnel sequence without the legacy cutoff in the cumulative loop to prevent volume jumps
+policy_legacy_hf = (
+    policy_hf
+    .filter("Ponto de Corte Vigente", col("legacy_score") >= LEGACY_CUT)
+)
+
+# Build monotonic funnel sequence including the legacy score cutoff
 masks = {
-    "Top of Funnel":         pd.Series(True, index=df_dev.index),
-    "Após CPF Válido":       df_dev["cpf_valido"] == True,
-    "Após Teto Negativação": df_dev["vl_negativacao"] <= 1500,
-    "Após Teto SCR":         df_dev["vl_vencido_scr"] <= 3000,
-    "Após Teto Protestos":   df_dev["vl_protestos"] <= 500,
+    "Top of Funnel":               pd.Series(True, index=df_dev.index),
+    "Após CPF Válido":             df_dev["cpf_valido"] == True,
+    "Após Teto Negativação":       df_dev["vl_negativacao"] <= 1500,
+    "Após Teto SCR":               df_dev["vl_vencido_scr"] <= 3000,
+    "Após Teto Protestos":         df_dev["vl_protestos"] <= 500,
+    "Após Ponto de Corte Vigente": df_dev["legacy_score"] >= LEGACY_CUT,
 }
 
 cumulativo = pd.Series(True, index=df_dev.index)
@@ -194,21 +200,20 @@ for nome, m in masks.items():
     print(f"{nome:<28} {n:>10,}  {n/len(df_dev):>9.1%}  {delta:>9}")
     prev_n = n
 
+# Combined funnel simulation for the legacy policy representation
+sim_legacy_hf = policy_legacy_hf.simulate(df_dev)
+df_clean_legacy_hf = sim_legacy_hf.data[sim_legacy_hf.data["new_approval"] == 1.0].copy()
+n_leg_hf = len(df_clean_legacy_hf)
+print(f"{'Pós-todos os HF (combinado)':<28} {n_leg_hf:>10,}  {n_leg_hf/len(df_dev):>9.1%}")
+
+# For candidate model tradeoff space, we clean up using the new policy's hard filters (excluding legacy cutoff)
 sim_hf = policy_hf.simulate(df_dev)
 df_clean_hf = sim_hf.data[sim_hf.data["new_approval"] == 1.0].copy()
-n_hf = len(df_clean_hf)
-print(f"{'Pós-todos os HF (combinado)':<28} {n_hf:>10,}  {n_hf/len(df_dev):>9.1%}")
-
-# Add legacy cutoff at the very end of the funnel sequence to preserve monotonicity
-cum_legacy = cumulativo & (df_dev["legacy_score"] >= LEGACY_CUT)
-n_leg = int(cum_legacy.sum())
-delta_leg = f"{(n_leg-n_hf)/n_hf:+.1%}"
-print(f"{'Após Ponto de Corte Vigente':<28} {n_leg:>10,}  {n_leg/len(df_dev):>9.1%}  {delta_leg:>9}")
 """))
 
 # ─── FASE 4: TRADEOFF GLOBAL ─────────────────────────────────────────────────
 cells.append(c_md("""## 4. Fronteira Eficiente: Todos os Modelos Candidatos
-Relação de Aprovação × Risco para cada score."""))
+Relação de Aprovação × Risco para cada score com comparação da política atual."""))
 
 cells.append(c_code("""cutoffs = np.linspace(
     df_clean_hf["score_5"].quantile(0.05),
@@ -224,16 +229,22 @@ for i in range(2,6):
     res_list.append(r)
 res_all = pd.concat(res_list)
 
+import os
+os.makedirs("images", exist_ok=True)
+
 plt.figure(figsize=(10,6))
 sns.lineplot(data=res_all, x="approval_rate", y="default_rate",
              hue="Score_Model", marker="o", linewidth=2)
 plt.axhline(y=bad_aprov, color='r', linestyle='--', linewidth=1.5, label=f"Inad. Histórica ({bad_aprov:.1%})")
 plt.axvline(x=n_aprov/N,  color='g', linestyle='--', linewidth=1.5, label=f"Aprov. Histórica ({n_aprov/N:.1%})")
+plt.scatter(n_aprov/N, bad_aprov, color="black", s=180, marker="X", zorder=10, label="Política Legada (p78)")
 plt.title("Fronteira Eficiente: Score 2 a 5", fontsize=14, fontweight='bold')
 plt.xlabel("Taxa de Aprovação Global (% do ToF)"); plt.ylabel("Inad. Aprovados Projetada")
 plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x,_: f'{x:.0%}'))
 plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda y,_: f'{y:.0%}'))
-plt.grid(True, linestyle=':', alpha=0.7); plt.legend(); plt.tight_layout(); plt.show()
+plt.grid(True, linestyle=':', alpha=0.7); plt.legend(); plt.tight_layout()
+plt.savefig("images/tradeoff_comparativo.png", dpi=150)
+plt.show()
 print("→ Score 5 domina claramente. Prosseguimos exclusivamente com ele.")
 """))
 
@@ -273,7 +284,9 @@ plt.title("Proposições Executivas (Score 5)", fontsize=14, fontweight='bold')
 plt.xlabel("Taxa de Aprovação Global"); plt.ylabel("Inad. Aprovados")
 plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x,_: f'{x:.0%}'))
 plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda y,_: f'{y:.0%}'))
-plt.grid(True, linestyle=':', alpha=0.7); plt.legend(); plt.tight_layout(); plt.show()
+plt.grid(True, linestyle=':', alpha=0.7); plt.legend(); plt.tight_layout()
+plt.savefig("images/tradeoff_individual.png", dpi=150)
+plt.show()
 print(f"\\n✓ Decisão do Comitê: Estratégia Conservadora → Cutoff Global = {CUTOFF_GLOBAL}")
 """))
 
@@ -375,7 +388,9 @@ for r in sfp.columns:
     plt.plot(sfp.index, sfp[r]*100, marker='o', lw=2, label=f"Rating {r}")
 plt.title("Estabilidade dos Ratings por Safra (Carteira Aprovada Nova Política)", fontsize=14, fontweight='bold')
 plt.xlabel("Safra"); plt.ylabel("Bad Rate (%)"); plt.xticks(rotation=45)
-plt.grid(True, linestyle='--', alpha=0.6); plt.legend(title="Rating"); plt.tight_layout(); plt.show()
+plt.grid(True, linestyle='--', alpha=0.6); plt.legend(title="Rating"); plt.tight_layout()
+plt.savefig("images/vintage_stability.png", dpi=150)
+plt.show()
 """))
 
 # ─── FASE 8: POLÍTICA MAGNUM ────────────────────────────────────────────────
@@ -509,11 +524,11 @@ print(f"{'Vol. Contratado Esperado':<35} {n_hired:>10,}  {vol_novo:>10,.0f}  "
 
 # ─── FASE 11: CRASH TEST ─────────────────────────────────────────────────────
 cells.append(c_md("""## 11. Crash Test: O Airbag do Swap In
-Até que ponto a política é resiliente."""))
+Até que ponto a política é resiliente e qual o breakeven de estresse dos Swap Ins."""))
 
 cells.append(c_code("""an_st = TradeoffAnalyzer(policy_final)
-# Only stress Swap In up to 4x as requested
-an_st.vary_stress_aggravation(np.linspace(1.0, 4.0, 25).tolist())
+# Stress Swap In up to 10x to find the exact breakeven factor
+an_st.vary_stress_aggravation(np.linspace(1.0, 10.0, 37).tolist())
 res_st = an_st.run(df_dev, parallel=False)
 
 breakeven = None
@@ -526,7 +541,7 @@ for _, row in res_st.iterrows():
         print(f"     o nosso modelo estima para o P&L novo empatar com o legado.")
         break
 if not breakeven:
-    print("A nova política não regride mesmo com fator 4.0× no Swap In.")
+    print("A nova política não regride mesmo com fator 10.0× no Swap In.")
 
 plt.figure(figsize=(10,5))
 plt.plot(res_st["aggravation_factor"], res_st["default_rate"]*100,
@@ -538,7 +553,9 @@ if breakeven:
                 label=f"Breakeven ({breakeven:.2f}×)")
 plt.xlabel("Fator de Agravamento Swap In (×)"); plt.ylabel("Bad Rate Contratado (%)")
 plt.title("Crash Test: Resiliência da Nova Política", fontsize=14, fontweight='bold')
-plt.grid(True, linestyle=':', alpha=0.7); plt.legend(); plt.tight_layout(); plt.show()
+plt.grid(True, linestyle=':', alpha=0.7); plt.legend(); plt.tight_layout()
+plt.savefig("images/crash_test.png", dpi=150)
+plt.show()
 """))
 
 notebook = {
