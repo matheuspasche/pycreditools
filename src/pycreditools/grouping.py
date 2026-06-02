@@ -138,8 +138,15 @@ def find_risk_groups(
     
     agg["pd"] = agg["bads"] / agg["volume"].replace(0, 1)
     
-    # Sort by PD
-    agg = agg.sort_values("pd").reset_index(drop=True)
+    # Sort from lowest risk to highest risk
+    if len(score_cols) == 1:
+        # Since we only have a single score, we want contiguous risk groups in terms of score.
+        # We sort by the bin index in descending order (highest score/lowest risk first).
+        agg["_bin_int"] = agg["_combo_key"].astype(int)
+        agg = agg.sort_values("_bin_int", ascending=False).reset_index(drop=True)
+        del agg["_bin_int"]
+    else:
+        agg = agg.sort_values("pd").reset_index(drop=True)
     
     pd_values = agg["pd"].values
     volumes = agg["volume"].values

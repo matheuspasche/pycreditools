@@ -7,7 +7,7 @@ from .stages import Stage, CutoffStage, FilterStage, RateStage
 from .stress import StressScenario, AggravationStress, MonotonicStress, CustomStress
 from .policy import CreditPolicy
 from .simulation import CreditSimResults, run_simulation
-from .performance import summarize_results, compare_policies
+from .performance import summarize_results, compare_policies, ModelEvaluator
 from .analysis import run_tradeoff_analysis, TradeoffAnalyzer
 from .grouping import find_risk_groups, RiskGroupResult, GroupingRecipe
 from .screening import screen_risk_segments, ScreeningResult, ScreeningRecipe
@@ -44,4 +44,5 @@ __all__ = [
     "col",
     "Expression",
     "TradeoffAnalyzer",
+    "ModelEvaluator",
 ]
