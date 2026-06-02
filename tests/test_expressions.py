@@ -104,3 +104,15 @@ def test_policy_validation_and_coercion():
     p3 = p2.filter("AgeFilter", col("age") >= 18)
     with pytest.raises(ValueError, match="Missing required columns in data:.*age"):
         p3.validate(df)
+
+def test_generate_sample_data():
+    from pycreditools import generate_sample_data
+    df = generate_sample_data(n_applicants=100, seed=42)
+    assert len(df) == 100
+    expected_cols = {
+        "applicant_id", "safra", "region", "age", "income", "employment",
+        "cpf_valido", "vl_negativacao", "vl_vencido_scr", "vl_protestos",
+        "true_pd", "actual_default", "score_2", "score_3", "score_4", "score_5",
+        "legacy_score", "approved", "conversion_rate", "hired"
+    }
+    assert expected_cols.issubset(df.columns)
