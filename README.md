@@ -113,6 +113,7 @@ policy_final = (
     policy_hf
     .filter("Score Regionalizado", politica_loja)
     .rate("Propensão de Contrato", base_rate=1.0, variable="take_up_rate")
+    .stress_aggravation(factor=1.2)
 )
 ```
 
