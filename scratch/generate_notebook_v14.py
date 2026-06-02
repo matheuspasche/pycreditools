@@ -87,12 +87,12 @@ cells.append(c_code("""def gerar_base(n=1_000_000):
 
     s = -y
 
-    # Calibrated noise settings to hit targets: Legacy KS ~27%, Score_5 KS ~44%
+    # Calibrated noise settings to hit targets: Legacy KS ~26%, Score_5 KS ~31%
     noises = {
-        "score_2": 4.0,
-        "score_3": 3.5,
-        "score_4": 3.0,
-        "score_5": 2.6,
+        "score_2": 6.5,
+        "score_3": 5.8,
+        "score_4": 5.1,
+        "score_5": 4.5,
         "legacy_score": 2.8
     }
 
@@ -386,9 +386,15 @@ sfp = res_final[res_final["new_approval"] > 0.0].pivot_table(
 plt.figure(figsize=(12,5))
 for r in sfp.columns:
     plt.plot(sfp.index, sfp[r]*100, marker='o', lw=2, label=f"Rating {r}")
-plt.title("Estabilidade dos Ratings por Safra (Carteira Aprovada Nova Política)", fontsize=14, fontweight='bold')
+
+# Marcar divisor entre DEV (2024) e OOT (2025)
+plt.axvline(x="2025-01", color="red", linestyle="--", lw=2, label="Divisor DEV/OOT")
+plt.text("2024-06", plt.gca().get_ylim()[1]*0.85, "Desenvolvimento (DEV)", color="blue", fontsize=11, fontweight="bold", ha="center")
+plt.text("2025-03", plt.gca().get_ylim()[1]*0.85, "Fora do Tempo (OOT)", color="red", fontsize=11, fontweight="bold", ha="center")
+
+plt.title("Estabilidade dos Ratings por Safra (DEV vs OOT)", fontsize=14, fontweight='bold')
 plt.xlabel("Safra"); plt.ylabel("Bad Rate (%)"); plt.xticks(rotation=45)
-plt.grid(True, linestyle='--', alpha=0.6); plt.legend(title="Rating"); plt.tight_layout()
+plt.grid(True, linestyle='--', alpha=0.6); plt.legend(title="Rating", loc="upper left"); plt.tight_layout()
 plt.savefig("images/vintage_stability.png", dpi=150)
 plt.show()
 """))
@@ -396,10 +402,10 @@ plt.show()
 # ─── FASE 8: POLÍTICA MAGNUM ────────────────────────────────────────────────
 cells.append(c_md("""## 8. A Política Magnum: Simulação com Agravamento Swap In"""))
 
-cells.append(c_code("""# Agravamento Angulado Swap In (A=1.2× → E=2.1×)
+cells.append(c_code("""# Agravamento Angulado Swap In (A=1.2× → E=1.60×)
 def angulado(df_swap, pd_col):
-    mapa = {"A":1.2,"B":1.35,"C":1.60,"D":1.85,"E":2.10}
-    fator = df_swap["Rating"].map(mapa).fillna(1.5)
+    mapa = {"A": 1.20, "B": 1.30, "C": 1.40, "D": 1.50, "E": 1.60}
+    fator = df_swap["Rating"].map(mapa).fillna(1.4)
     return (df_swap[pd_col] * fator).clip(0,1)
 
 policy_magnum = (
