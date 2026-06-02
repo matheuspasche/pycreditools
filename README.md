@@ -113,7 +113,6 @@ policy_final = (
     policy_hf
     .filter("Score Regionalizado", politica_loja)
     .rate("Propensão de Contrato", base_rate=1.0, variable="take_up_rate")
-    .stress_aggravation(factor=1.2)
 )
 ```
 
@@ -177,6 +176,14 @@ A transição de modelo altera a composição da carteira. Avaliamos a performan
 | **Swap In** | 54,427 | 4.28% | Simulado Estressado (Angulado) |
 | **Swap Out** | 64,799 | 12.41% | Observado Histórico Legado |
 | **Keep Out** | 0 | N/A | Sem dados (Rejeitados por ambas) |
+
+> [!NOTE]
+> Para a simulação dos **Swap Ins** (Magnum), utilizamos uma estratégia de **Agravamento Angulado** de risco para precificar de forma conservadora a seleção adversa. O estresse é aplicado de forma incremental por Rating de risco (do melhor para o pior), penalizando mais os ratings mais arriscados:
+> - **Rating A**: 1.20x (+20% de estresse)
+> - **Rating B**: 1.35x (+35% de estresse)
+> - **Rating C**: 1.60x (+60% de estresse)
+> - **Rating D**: 1.85x (+85% de estresse)
+> - **Rating E**: 2.10x (+110% de estresse)
 
 ---
 

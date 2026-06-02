@@ -145,6 +145,13 @@ def _assign_simulated_defaults(
         if not policy.stress_scenarios:
             final_probs = baseline_pd
         else:
+            if len(policy.stress_scenarios) > 1:
+                warnings.warn(
+                    f"Multiple stress scenarios active ({len(policy.stress_scenarios)}). "
+                    "The simulator will use the maximum (worst-case) stressed PD for each applicant.",
+                    UserWarning,
+                    stacklevel=2
+                )
             prob_matrix = pd.DataFrame(index=swap_ins.index)
             # Create a copy to prevent warnings when modifying
             swap_ins_temp = swap_ins.copy()
