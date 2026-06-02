@@ -63,3 +63,29 @@ def test_dx_tradeoff_analyzer():
     assert "score_serasa_cutoff" in results.columns
     assert "aggravation_factor" in results.columns
     assert "approval_rate" in results.columns
+
+def test_dx_tradeoff_in_place_cutoff():
+    df = pd.DataFrame({
+        "id": [1, 2, 3],
+        "score_serasa": [300, 500, 700],
+        "approved": [1, 1, 1],
+        "default": [0, 0, 0]
+    })
+    
+    # Base policy with a strict cutoff of 600
+    policy_strict = (
+        CreditPolicy(
+            applicant_id_col="id",
+            score_cols=["score_serasa"],
+            current_approval_col="approved",
+            actual_default_col="default"
+        )
+        .cutoff("Score Interno", {"score_serasa": 600})
+    )
+    
+    # Vary cutoff to 400 (lower, more permissive cutoff).
+    # If updated in place: cutoff = 400. Approved: index 1 and 2 (500, 700) -> 2/3 = 0.666...
+    # If appended (ANDed logic): cutoff = 600 AND 400 -> effectively 600. Approved: index 2 (700) -> 1/3 = 0.333...
+    from pycreditools.analysis import run_tradeoff_analysis
+    res = run_tradeoff_analysis(df, policy_strict, {"score_serasa_cutoff": [400]})
+    assert abs(res["approval_rate"].values[0] - 2/3) < 1e-5

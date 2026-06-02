@@ -53,4 +53,54 @@ def test_filter_stage_with_expressions():
     # Test representation in to_dict
     d = stage_expr.to_dict()
     assert d["name"] == "ExprFilter"
-    assert "col('age') >= 18" in d["condition"]
+    assert d["condition"] == {
+        "type": "binary",
+        "left": {"type": "column", "name": "age"},
+        "op": ">=",
+        "right": 18
+    }
+    
+    # Round-trip deserialization
+    from pycreditools import Stage, Expression
+    stage_loaded = Stage.from_dict(d)
+    assert isinstance(stage_loaded.condition, Expression)
+    res_loaded = stage_loaded.apply(df)
+    assert res_loaded.tolist() == [0.0, 1.0, 1.0]
+
+def test_policy_validation_and_coercion():
+    from pycreditools import CreditPolicy
+    
+    # Test score_cols list coercion to tuple
+    p = CreditPolicy(
+        applicant_id_col="id",
+        score_cols=["score1", "score2"],
+        current_approval_col="approved",
+        actual_default_col="defaulted",
+    )
+    assert isinstance(p.score_cols, tuple)
+    assert p.score_cols == ("score1", "score2")
+    
+    # Test score_cols string coercion to tuple
+    p2 = CreditPolicy(
+        applicant_id_col="id",
+        score_cols="score1",
+        current_approval_col="approved",
+        actual_default_col="defaulted",
+    )
+    assert p2.score_cols == ("score1",)
+
+    # Test validation of missing columns in FilterStage Expression
+    df = pd.DataFrame({
+        "id": [1, 2],
+        "score1": [500, 600],
+        "approved": [1, 1],
+        "defaulted": [0, 0]
+    })
+    
+    # Validation should pass if score1 and other standard columns exist
+    p2.validate(df)
+    
+    # Now add filter with missing column
+    p3 = p2.filter("AgeFilter", col("age") >= 18)
+    with pytest.raises(ValueError, match="Missing required columns in data:.*age"):
+        p3.validate(df)

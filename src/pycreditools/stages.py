@@ -42,7 +42,11 @@ class Stage(ABC):
                 direction=d.get("direction", "gte")
             )
         elif t == "filter":
-            return FilterStage(name=d["name"], condition=d["condition"])
+            cond = d["condition"]
+            if isinstance(cond, dict) and "type" in cond:
+                from .expressions import deserialize_expression
+                cond = deserialize_expression(cond)
+            return FilterStage(name=d["name"], condition=cond)
         elif t == "rate":
             return RateStage(
                 name=d["name"], 
@@ -136,11 +140,16 @@ class FilterStage(Stage):
             return result.astype(float)
             
     def to_dict(self) -> dict[str, Any]:
-        cond_repr = repr(self.condition) if isinstance(self.condition, Expression) else getattr(self.condition, "__name__", str(self.condition))
+        if isinstance(self.condition, Expression):
+            from .expressions import serialize_expression
+            cond_data = serialize_expression(self.condition)
+        else:
+            cond_data = getattr(self.condition, "__name__", str(self.condition))
+            
         return {
             "type": "filter",
             "name": self.name,
-            "condition": cond_repr,
+            "condition": cond_data,
         }
 
 class RateStage(Stage):

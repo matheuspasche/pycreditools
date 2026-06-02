@@ -72,9 +72,31 @@ def run_tradeoff_analysis(
                     actual_cutoffs[col_name] = v
                     
             if actual_cutoffs:
-                temp_policy = temp_policy.add_stage(
-                    CutoffStage(name="dynamic_cutoffs", cutoffs=actual_cutoffs)
-                )
+                stages_list = list(temp_policy.stages)
+                unmatched_cutoffs = {}
+                for col_name, val in actual_cutoffs.items():
+                    matched = False
+                    for i, stage in enumerate(stages_list):
+                        if isinstance(stage, CutoffStage) and col_name in stage.cutoffs:
+                            new_cutoffs = dict(stage.cutoffs)
+                            new_cutoffs[col_name] = val
+                            stages_list[i] = CutoffStage(
+                                name=stage.name,
+                                cutoffs=new_cutoffs,
+                                direction=stage.direction
+                            )
+                            matched = True
+                            break
+                    if not matched:
+                        unmatched_cutoffs[col_name] = val
+                        
+                if unmatched_cutoffs:
+                    stages_list.append(
+                        CutoffStage(name="dynamic_cutoffs", cutoffs=unmatched_cutoffs)
+                    )
+                
+                import dataclasses
+                temp_policy = dataclasses.replace(temp_policy, stages=tuple(stages_list))
                 
         # 2. Handle Aggravation Factor
         if "aggravation_factor" in params:
