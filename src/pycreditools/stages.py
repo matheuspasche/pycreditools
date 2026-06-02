@@ -95,27 +95,38 @@ class CutoffStage(Stage):
             "direction": self.direction,
         }
 
+from .expressions import Expression
+
 class FilterStage(Stage):
-    """A stage that filters based on a string condition evaluated by pandas."""
+    """A stage that filters based on an expression, a callable, or a string condition."""
     
-    def __init__(self, name: str, condition: str):
+    def __init__(self, name: str, condition: str | callable | Expression):
         """
         Args:
             name: Stage name.
-            condition: Pandas query string (e.g. 'age >= 18 and status == "A"').
+            condition: Can be:
+                - A string query evaluated by pandas (e.g. 'age >= 18').
+                - A pycreditools.Expression (e.g. col('age') >= 18).
+                - A callable that takes a DataFrame and returns a boolean Series.
         """
         super().__init__(name)
         self.condition = condition
         
     def apply(self, df: pd.DataFrame, method: str = "analytical") -> pd.Series:
         try:
-            # We want to return a boolean series of the same length as df.
-            # df.eval returns a Series of booleans if the expression is a boolean condition.
-            result = df.eval(self.condition)
+            if isinstance(self.condition, Expression):
+                result = self.condition.eval(df)
+            elif callable(self.condition):
+                result = self.condition(df)
+            else:
+                # Fallback to string evaluation
+                result = df.eval(self.condition)
+                
             if not isinstance(result, pd.Series):
                 result = pd.Series(result, index=df.index)
         except Exception as e:
-            raise ValueError(f"Failed to evaluate filter condition '{self.condition}': {e}")
+            cond_repr = repr(self.condition)
+            raise ValueError(f"Failed to evaluate filter condition {cond_repr}: {e}")
             
         result = result.fillna(False)
         
@@ -125,10 +136,11 @@ class FilterStage(Stage):
             return result.astype(float)
             
     def to_dict(self) -> dict[str, Any]:
+        cond_repr = repr(self.condition) if isinstance(self.condition, Expression) else getattr(self.condition, "__name__", str(self.condition))
         return {
             "type": "filter",
             "name": self.name,
-            "condition": self.condition,
+            "condition": cond_repr,
         }
 
 class RateStage(Stage):
