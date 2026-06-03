@@ -52,10 +52,7 @@ def run_notebook(path):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(nb, f, indent=1, ensure_ascii=False)
         
-    import shutil
-    shutil.copy2(path, "src/pycreditools/examples/tutorial_masterclass_v14.ipynb")
-    print("Notebook synchronized to src/pycreditools/examples/ successfully!")
     print("Notebook run and saved successfully!")
 
 if __name__ == "__main__":
-    run_notebook("tutorial_masterclass_v14.ipynb")
+    run_notebook("src/pycreditools/examples/tutorial_masterclass_v14.ipynb")

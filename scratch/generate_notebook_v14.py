@@ -11,14 +11,6 @@ cells = []
 
 cells.append(c_md("""# Masterclass: Arquitetura de Risco de Crédito
 Substituição de política legada por nova arquitetura de score.
-
-**Terminologia dos Quadrantes:**
-| Quadrante | Antes | Agora | Performance observável? |
-|-----------|-------|-------|------------------------|
-| Keep In   | ✅ Aprovado | ✅ Aprovado | ✅ actual_default |
-| Swap In   | ❌ Reprovado | ✅ Aprovado | ❌ simulated_default |
-| Swap Out  | ✅ Aprovado | ❌ Reprovado | ✅ actual_default |
-| Keep Out  | ❌ Reprovado | ❌ Reprovado | ❌ sem dados |
 """))
 
 cells.append(c_code("""import pandas as pd
@@ -130,14 +122,12 @@ df_dev  = df[df["sample"] == "DEV"].copy()
 N         = len(df)
 n_aprov   = int(df["approved"].sum())
 n_hired   = int(df["hired"].sum())
-bad_aprov = df[df["approved"]==1]["actual_default"].mean()
 bad_hired = df_hist["actual_default"].mean()
 
 print("=== PANORAMA ATUAL (POLÍTICA LEGADA) ===")
 print(f"Top of Funnel:                  {N:>10,}")
 print(f"Aprovados (Legacy Score p78):   {n_aprov:>10,}  ({n_aprov/N:.1%} do funil)")
 print(f"Contratados (após take-up):     {n_hired:>10,}  ({n_hired/n_aprov:.1%} dos aprovados)")
-print(f"Bad Rate Aprovados:             {bad_aprov:>10.2%}")
 print(f"Bad Rate Contratados (P&L):     {bad_hired:>10.2%}   ← ALVO")
 print(f"Legacy Score Cutoff (p78):      {LEGACY_CUT:>10,.0f}")
 """))
@@ -224,9 +214,12 @@ df_clean_hf = sim_hf.data[sim_hf.data["new_approval"] == 1.0].copy()
 cells.append(c_md("""## 4. Fronteira Eficiente: Todos os Modelos Candidatos (Stressed)
 Relação de Taxa de Aprovação × Inadimplência dos Aprovados (com estresse no Swap In)."""))
 
-cells.append(c_code("""# Criamos a política de tradeoff com o agravamento médio dos Swap Ins (1.4x)
+cells.append(c_code("""# Fator de agravamento base para o estresse dos Swap Ins (definido uma única vez)
+AGRAVAMENTO_BASE = 1.2
+
+# Criamos a política de tradeoff com o agravamento médio dos Swap Ins
 def angulado_tradeoff(df_swap, pd_col):
-    return (df_swap[pd_col] * 1.4).clip(0, 1)
+    return (df_swap[pd_col] * AGRAVAMENTO_BASE).clip(0, 1)
 
 policy_tradeoff = (
     policy_hf
@@ -254,7 +247,7 @@ from pycreditools.visualization import plot_tradeoffs
 plot_tradeoffs(
     res_all,
     legacy_approval_rate=n_aprov / N,
-    legacy_bad_rate=bad_aprov,
+    legacy_bad_rate=bad_hired,
     title="Fronteira Eficiente (Stressed & Approved): Score 2 a 5",
     hue_col="Score_Model",
     save_path="images/tradeoff_comparativo.png"
@@ -295,7 +288,7 @@ plt.axvline(x=n_aprov/N,  color='g', linestyle='--', linewidth=1.5, label="Taxa 
 for label, pol, cor in [("Conservadora",pol_cons,"gold"),("Agressiva",pol_agr,"darkorange"),("Neutra",pol_mid,"mediumpurple")]:
     plt.scatter(pol["approval_rate"],pol["default_rate"], color=cor, s=200, zorder=6, label=label)
 plt.title("Proposições Executivas: Score 5 (Stressed)", fontsize=14, fontweight='bold')
-plt.xlabel("Taxa de Aprovação Global (% ToF)"); plt.ylabel("Inadimplência Aprovados (Stressed)")
+plt.xlabel("Taxa de Aprovação Global (% ToF)"); plt.ylabel("Inadimplência Contratados (Stressed)")
 plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x,_: f'{x:.0%}'))
 plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda y,_: f'{y:.0%}'))
 plt.grid(True, linestyle=':', alpha=0.7); plt.legend(); plt.tight_layout()
@@ -306,23 +299,23 @@ print(f"\\n✓ Decisão do Comitê: Estratégia Conservadora → Cutoff Global =
 
 # ─── FASE 6: INADIMPLÊNCIA PLANA E POLÍTICA FINAL ──────────────────────────────
 cells.append(c_md("""## 6. Adequação dos Pontos de Corte por Loja (Inadimplência Plana) e Política Final
-Em vez de mantermos a taxa de aprovação constante (~20% por região) e permitir oscilações descontroladas de inadimplência regional (ex: Nordeste com 5.29% vs Sul com 3.28%), adotamos uma estratégia de **Inadimplência Plana** (Flat Default Rate). 
+Em vez de mantermos a taxa de aprovação constante (~20% por região) e permitir oscilações descontroladas de inadimplência regional (ex: Nordeste vs Sul), adotamos uma estratégia de **Inadimplência Plana** (Flat Default Rate). 
 
-Definimos um alvo regionalizado de **5.80% de PD Estressada** pós-agravamento, permitindo que a taxa de aprovação local se ajuste dinamicamente conforme a qualidade do crédito de cada região.
+Definimos um alvo regionalizado baseado na PD Estressada da estratégia selecionada (Conservadora), permitindo que a taxa de aprovação local se ajuste dinamicamente conforme a qualidade do crédito de cada região.
 
 Para realizar a calibração de forma metodologicamente correta e evitar dependência circular (os ratings dependem dos sobreviventes da simulação, e os simulated defaults estressados dependem dos ratings), realizamos o processo na seguinte ordem sequencial:
-1. **Busca Programática de Cutoffs**: Determinamos as notas de corte de score por loja usando um cenário de estresse de referência estável e independente de ratings (fator multiplicativo estável de **1.4x** para todos os Swap Ins, idêntico ao da curva de tradeoff).
+1. **Busca Programática de Cutoffs**: Determinamos as notas de corte de score por loja usando um cenário de estresse de referência estável e independente de ratings (fator multiplicativo estável de referência para todos os Swap Ins, idêntico ao da curva de tradeoff).
 2. **Definição da Política Final**: Montamos a política de limites regionalizada baseada em score e simulamos as aprovações sem estresse para obter a população de aprovados sobreviventes.
 """))
 
-cells.append(c_code("""# Otimização por Loja usando stress de referência de 1.4x (sem ratings)
+cells.append(c_code("""# Otimização por Loja usando stress de referência (sem ratings)
 def stress_referencia(df_swap, pd_col):
-    return (df_swap[pd_col] * 1.4).clip(0, 1)
+    return (df_swap[pd_col] * AGRAVAMENTO_BASE).clip(0, 1)
 
-target_pd = 0.0580
+target_pd = float(pol_cons["default_rate"].iloc[0])
 cutoffs_loja = {}
 
-print("Buscando pontos de corte por loja para PD Estressada Plana de 5.80% usando busca binária (stress flat 1.4x)...")
+print(f"Buscando pontos de corte por loja para PD Estressada Plana de {target_pd:.2%} usando busca binária (stress flat {AGRAVAMENTO_BASE}x)...")
 for loja in sorted(df_dev["region"].unique()):
     df_loja = df_dev[df_dev["region"] == loja].copy()
     best_cut = None
@@ -364,7 +357,7 @@ for loja in sorted(df_dev["region"].unique()):
             
     cutoffs_loja[loja] = int(best_cut)
 
-print("\\n=== PONTOS DE CORTE POR LOJA (INADIMPLÊNCIA PLANA ALVO 5.80%) ===")
+print(f"\\n=== PONTOS DE CORTE POR LOJA (INADIMPLÊNCIA PLANA ALVO {target_pd:.2%}) ===")
 print(f"{'Loja':<15} {'Cutoff':>8}  {'Aprov. Local':>15}  {'PD Estressada (Ref)':>20}")
 print("─"*68)
 
@@ -461,10 +454,16 @@ plt.show()
 # ─── FASE 8: POLÍTICA MAGNUM ────────────────────────────────────────────────
 cells.append(c_md("""## 8. A Política Magnum: Simulação com Agravamento Swap In"""))
 
-cells.append(c_code("""# Agravamento Angulado Swap In (A=1.2× → E=1.50×)
+cells.append(c_code("""# Agravamento Angulado Swap In ancorado no AGRAVAMENTO_BASE
 def angulado(df_swap, pd_col):
-    mapa = {"A": 1.20, "B": 1.30, "C": 1.40, "D": 1.40, "E": 1.50}
-    fator = df_swap["Rating"].map(mapa).fillna(1.4)
+    mapa = {
+        "A": AGRAVAMENTO_BASE,
+        "B": AGRAVAMENTO_BASE + 0.1,
+        "C": AGRAVAMENTO_BASE + 0.2,
+        "D": AGRAVAMENTO_BASE + 0.2,
+        "E": AGRAVAMENTO_BASE + 0.3
+    }
+    fator = df_swap["Rating"].map(mapa).fillna(AGRAVAMENTO_BASE + 0.2)
     return (df_swap[pd_col] * fator).clip(0,1)
 
 policy_magnum = (
@@ -549,10 +548,16 @@ Como etapa final, exportamos toda a nossa inteligência de decisão (filtros har
 Em produção, carregamos esse arquivo e executamos decisões limpas para novos proponentes, gerando uma base simplificada com apenas os inputs originais mais a decisão consolidada (`decisao` e `motivo` da reprovação por ordem de ocorrência no funil) e o `rating` de risco."""))
 
 cells.append(c_code("""from pycreditools import DeploymentPolicy
+import json
 
 # 1. Exportamos a política final juntamente com a receita de clustering/rating
 dep_policy = policy_final.export(rating_recipe=group_res.recipe, path="politica_final_producao.json")
 print("✓ Política final exportada com sucesso para 'politica_final_producao.json'!")
+
+# 1.5. Exibimos a estrutura limpa do arquivo JSON gerado
+print("\\n=== ESTRUTURA DO JSON EXPORTADO (REGRAS DE PRODUÇÃO) ===")
+with open("politica_final_producao.json", "r", encoding="utf-8") as f:
+    print(f.read())
 
 # 2. Carregamos a política exportada (simulando ambiente de implantação/produção)
 dep_loaded = DeploymentPolicy.load("politica_final_producao.json")
@@ -580,6 +585,7 @@ notebook = {
     "nbformat": 4, "nbformat_minor": 4
 }
 
-with open("tutorial_masterclass_v14.ipynb", "w", encoding="utf-8") as f:
+notebook_path = "src/pycreditools/examples/tutorial_masterclass_v14.ipynb"
+with open(notebook_path, "w", encoding="utf-8") as f:
     json.dump(notebook, f, indent=1, ensure_ascii=False)
-print("tutorial_masterclass_v14.ipynb gerado!")
+print(f"{notebook_path} gerado!")
