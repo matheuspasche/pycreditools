@@ -87,18 +87,26 @@ cells.append(c_code("""def gerar_base(n=1_000_000):
 
     s = -y
 
-    # Calibrated noise settings to hit targets: Legacy KS ~25%, Score_5 KS ~30% (Delta ~5.1%)
-    noises = {
-        "score_2": 6.0,
-        "score_3": 5.4,
-        "score_4": 4.8,
-        "score_5": 4.2,
-        "legacy_score": 2.8
+    # Shared noise to simulate high correlation between legacy/candidate models
+    c_noise = rng.normal(0, 2.5, n)
+
+    # Calibrated independent noise settings to hit targets: Legacy KS ~25%, Score_5 KS ~31% (Delta ~5.8%)
+    legacy_noise = 1.30
+    noises_candidates = {
+        "score_2": 1.25,
+        "score_3": 1.10,
+        "score_4": 0.95,
+        "score_5": 0.80,
     }
 
+    # Legacy Score
+    legacy_latent = s + c_noise + rng.normal(0, legacy_noise, n)
+    z_legacy = (legacy_latent - legacy_latent.mean()) / legacy_latent.std()
+    df["legacy_score"] = np.round(norm_cdf(z_legacy) * 1000).astype(int)
 
-    for name, noise in noises.items():
-        latent = s + rng.normal(0, noise, n)
+    # Candidate Scores
+    for name, noise_std in noises_candidates.items():
+        latent = s + c_noise + rng.normal(0, noise_std, n)
         z = (latent - latent.mean()) / latent.std()
         df[name] = np.round(norm_cdf(z) * 1000).astype(int)
 
@@ -109,7 +117,7 @@ cells.append(c_code("""def gerar_base(n=1_000_000):
     df.loc[df["legacy_score"] < legacy_cut, "approved"] = 0
 
     df["score_decile"] = pd.qcut(df["score_5"], q=10, labels=False, duplicates="drop")
-    df["take_up_rate"] = 0.90 - df["score_decile"] * 0.05
+    df["take_up_rate"] = 0.95 - df["score_decile"] * 0.06
     df["hired"]        = df["approved"] * (rng.random(n) < df["take_up_rate"]).astype(int)
     df["sample"]       = np.where(df["safra"].str.startswith("2024"), "DEV", "OOT")
     return df, legacy_cut

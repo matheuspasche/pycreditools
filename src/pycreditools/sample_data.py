@@ -67,35 +67,43 @@ def generate_sample_data(
 
     s = -y
 
-    # Calibrated noise settings to hit targets: Legacy KS ~25%, Score_5 KS ~30% (Delta ~5.1%)
-    noises = {
-        "score_2": 6.0,
-        "score_3": 5.4,
-        "score_4": 4.8,
-        "score_5": 4.2,
-        "legacy_score": 2.8
+    # Shared noise to simulate high correlation between legacy/candidate models
+    c_noise = rng.normal(0, 2.5, n_applicants)
+
+    # Calibrated independent noise settings to hit targets: Legacy KS ~25%, Score_5 KS ~31% (Delta ~5.8%)
+    legacy_noise = 1.30
+    noises_candidates = {
+        "score_2": 1.25,
+        "score_3": 1.10,
+        "score_4": 0.95,
+        "score_5": 0.80,
     }
 
+    # Legacy Score
+    legacy_latent = s + c_noise + rng.normal(0, legacy_noise, n_applicants)
+    z_legacy = (legacy_latent - legacy_latent.mean()) / legacy_latent.std()
+    df["legacy_score"] = np.round(norm_cdf(z_legacy) * 1000).astype(int)
 
-    for name, noise in noises.items():
-        latent = s + rng.normal(0, noise, n_applicants)
-        df[name] = np.round(norm_cdf(latent / np.sqrt(1.0 + noise**2)) * 1000).astype(int)
+    # Candidate Scores
+    for name, noise_std in noises_candidates.items():
+        latent = s + c_noise + rng.normal(0, noise_std, n_applicants)
+        z = (latent - latent.mean()) / latent.std()
+        df[name] = np.round(norm_cdf(z) * 1000).astype(int)
 
-    # Legacy approval: based on legacy_score >= 789 (which is p78 in developmental population)
-    df["approved"] = (df["legacy_score"] >= 789).astype(int)
+    # Historical approval: based on age >= 18, negative list, and legacy_score >= p78 (p78 threshold ~789)
+    df["approved"] = 1
+    df.loc[(df["age"] < 18) | (df["vl_negativacao"] > 5000), "approved"] = 0
+    legacy_cut = float(df["legacy_score"].quantile(0.78))
+    df.loc[df["legacy_score"] < legacy_cut, "approved"] = 0
+
+    # Steeper contract take-up rate (seeker behavior)
+    df["score_decile"] = pd.qcut(df["score_5"], q=10, labels=False, duplicates="drop")
+    df["conversion_rate"] = 0.95 - df["score_decile"] * 0.06
+
+    # Hired status
+    df["hired"] = df["approved"] * (rng.random(n_applicants) < df["conversion_rate"]).astype(int)
     
-    # Hide actual defaults for rejected applicants
-    df.loc[df["approved"] == 0, "actual_default"] = np.nan
-    
-    # Add conversion / take-up rate
-    take_up_logits = -0.5 + 0.005 * (1000.0 - df["legacy_score"])
-    df["conversion_rate"] = 1.0 / (1.0 + np.exp(-take_up_logits))
-    
-    # Hired
-    df["hired"] = (df["approved"] == 1) & (rng.random(n_applicants) < df["conversion_rate"])
-    df["hired"] = df["hired"].astype(int)
-    
-    # Hide actual defaults for approved but not hired
+    # Hide actual defaults for rejected/non-hired applicants
     df.loc[df["hired"] == 0, "actual_default"] = np.nan
 
     return df
