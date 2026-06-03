@@ -94,6 +94,17 @@ def test_deployment_and_simple_df():
         assert loaded_dep.rating_recipe is not None
         assert loaded_dep.rating_recipe.score_cols == ["score_5"]
         
+        # Test clean production rules
+        rules = loaded_dep.to_production_rules()
+        assert "etapas_funil" in rules
+        assert "classificacao_ratings" in rules
+        assert len(rules["etapas_funil"]) == 3
+        assert rules["classificacao_ratings"]["score_coluna"] == "score_5"
+        
+        clean_json_path = os.path.join(tmpdir, "clean_policy.json")
+        loaded_dep.save_production_rules(clean_json_path)
+        assert os.path.exists(clean_json_path)
+        
         # Predict on new data
         pred_simple = loaded_dep.predict(df, simple=True, method="stochastic")
         assert list(pred_simple.columns) == list(simple_df_with_rating.columns)
