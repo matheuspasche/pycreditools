@@ -233,6 +233,49 @@ Como a performance dos Swap Ins é simulada, realizamos um teste de estresse sev
 
 ---
 
+### 9. Exportação e Uso em Produção (Decision Engines)
+
+O pacote permite integrar e implantar a inteligência de decisão calibrada diretamente em motores e microsserviços de produção. Para isso, o `DeploymentPolicy` expõe exportadores simplificados para pontuar proponentes:
+
+* **Exportar Regras Limpas (Produção)**: Gera um arquivo JSON contendo apenas as expressões lógicas e faixas contínuas de score de cada Rating. Este formato é ideal para motores que rodam em Go, Java, Node.js ou SQL.
+  ```python
+  dep_policy = policy.export(rating_recipe=group_res.recipe)
+  dep_policy.save_production_rules("politica_producao.json")
+  ```
+
+* **JSON Limpo Exportado**:
+  ```json
+  {
+      "etapas_funil": [
+          { "posicao": 1, "nome": "CPF Válido", "tipo": "filtro", "expressao": "(cpf_valido == True)" },
+          { "posicao": 2, "nome": "Corte Regional por Loja", "tipo": "filtro", "expressao": "(region == 'Sudeste' & score_5 >= 778) | (region == 'Nordeste' & score_5 >= 806)" }
+      ],
+      "classificacao_ratings": {
+          "score_coluna": "score_5",
+          "coluna_segmentacao": "region",
+          "segmentos": {
+              "Sudeste": [
+                  { "rating": "A", "nota_minima": 928, "nota_maxima": 1000 },
+                  { "rating": "B", "nota_minima": 890, "nota_maxima": 927 },
+                  { "rating": "C", "nota_minima": 778, "nota_maxima": 889 }
+              ],
+              "Nordeste": [
+                  { "rating": "A", "nota_minima": 915, "nota_maxima": 1000 },
+                  { "rating": "B", "nota_minima": 860, "nota_maxima": 914 },
+                  { "rating": "C", "nota_minima": 806, "nota_maxima": 859 }
+              ]
+          }
+      }
+  }
+  ```
+
+* **Bases de Retorno Padronizadas e Imutáveis**:
+  O método `.predict(df, simple=True)` retorna uma cópia isolada (`.copy()`) contendo exatamente as colunas padrão de controle (`decisao`, `motivo`, `contratou`, `inadimplente`, `cenario`, `rating`).
+  - **Base Simplificada (simple=True)**: Ótima para auditoria e logs de API de produção.
+  - **Base Bruta/Analítica (simple=False)**: Retorna todas as colunas intermediárias (PDs, status por etapa do funil) para modelagem e estudos analíticos de risco.
+
+---
+
 ## 🛠️ Contribuir e Desenvolver
 
 Para executar a suíte de testes unitários e verificar o comportamento do motor:
