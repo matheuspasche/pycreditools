@@ -201,9 +201,9 @@ A comparação consolidada entre as políticas prova o sucesso do novo motor de 
 
 | Métrica | Política Legada | Nova Política (V14) | Delta Absoluto | Delta Relativo |
 | :--- | :---: | :---: | :---: | :---: |
-| **Aprovação Global (% ToF)** | 20.47% | **21.44%** | **+0.96%** | **+4.7%** |
-| **Inadimplência Contratada (P&L)** | 7.18% | **6.62%** | **-0.57%** | **-7.9%** |
-| **Volume Contratado Esperado** | 94,675 | **97,071** | **+2,396** | **+2.5%** |
+| **Aprovação Global (% ToF)** | 20.47% | **22.40%** | **+1.92%** | **+9.4%** |
+| **Inadimplência Contratada (P&L)** | 7.18% | **6.89%** | **-0.30%** | **-4.1%** |
+| **Volume Contratado Esperado** | 94,675 | **102,140** | **+7,465** | **+7.9%** |
 
 ---
 
@@ -212,7 +212,7 @@ Como a performance dos Swap Ins é simulada, realizamos um teste de estresse sev
 
 ![Crash Test](images/crash_test.png)
 
-*O **ponto de breakeven é atingido em 2.00x**. Isto significa que a inadimplência real do público Swap In teria de ser **2.00 vezes maior** do que a estimada pelo modelo (e já estressada angularmente) para que a perda agregada da nova carteira subisse até os **7.18%** da política antiga. Esse colchão de resiliência de 100% de sobrecarga prova a segurança operacional da nova política.*
+*O **ponto de breakeven é atingido em 1.75x**. Isto significa que a inadimplência real do público Swap In teria de ser **1.75 vezes maior** do que a estimada pelo modelo (e já estressada angularmente) para que a perda agregada da nova carteira subisse até os **7.18%** da política antiga. Esse colchão de resiliência de 75% de sobrecarga prova a segurança operacional da nova política.*
 
 ---
 

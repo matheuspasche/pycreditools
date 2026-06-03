@@ -221,17 +221,27 @@ df_clean_hf = sim_hf.data[sim_hf.data["new_approval"] == 1.0].copy()
 """))
 
 # ─── FASE 4: TRADEOFF GLOBAL ─────────────────────────────────────────────────
-cells.append(c_md("""## 4. Fronteira Eficiente: Todos os Modelos Candidatos
-Relação de Aprovação × Risco para cada score com comparação da política atual."""))
+cells.append(c_md("""## 4. Fronteira Eficiente: Todos os Modelos Candidatos (Stressed)
+Relação de Taxa de Contratação × Risco Contratado (com take-up rate e estresse no Swap In)."""))
 
-cells.append(c_code("""cutoffs = np.linspace(
+cells.append(c_code("""# Criamos a política de tradeoff com o take-up rate e o agravamento médio dos Swap Ins (1.4x)
+def angulado_tradeoff(df_swap, pd_col):
+    return (df_swap[pd_col] * 1.4).clip(0, 1)
+
+policy_tradeoff = (
+    policy_hf
+    .rate("Propensão", base_rate=1.0, variable="take_up_rate")
+    .add_stress(CustomStress(angulado_tradeoff))
+)
+
+cutoffs = np.linspace(
     df_clean_hf["score_5"].quantile(0.05),
     df_clean_hf["score_5"].quantile(0.95), 20
 ).astype(int).tolist()
 
 res_list = []
 for i in range(2,6):
-    an = TradeoffAnalyzer(policy_hf).vary_cutoff(f"score_{i}", cutoffs)
+    an = TradeoffAnalyzer(policy_tradeoff).vary_cutoff(f"score_{i}", cutoffs)
     r  = an.run(df_dev, parallel=False)
     r["Score_Model"] = f"score_{i}"
     r["Cutoff"]      = r[f"score_{i}_cutoff"]
@@ -244,30 +254,30 @@ os.makedirs("images", exist_ok=True)
 plt.figure(figsize=(10,6))
 sns.lineplot(data=res_all, x="approval_rate", y="default_rate",
              hue="Score_Model", marker="o", linewidth=2)
-plt.axhline(y=bad_aprov, color='r', linestyle='--', linewidth=1.5, label=f"Inad. Histórica ({bad_aprov:.1%})")
-plt.axvline(x=n_aprov/N,  color='g', linestyle='--', linewidth=1.5, label=f"Aprov. Histórica ({n_aprov/N:.1%})")
-plt.scatter(n_aprov/N, bad_aprov, color="black", s=180, marker="X", zorder=10, label="Política Legada (p78)")
-plt.title("Fronteira Eficiente: Score 2 a 5", fontsize=14, fontweight='bold')
+# Baselines baseadas na política legada contratada (hired)
+plt.axhline(y=bad_hired, color='r', linestyle='--', linewidth=1.5, label=f"Inad. Legada Contratada ({bad_hired:.1%})")
+plt.axvline(x=n_hired/N,  color='g', linestyle='--', linewidth=1.5, label=f"Taxa Contratação Legada ({n_hired/N:.1%})")
+plt.scatter(n_hired/N, bad_hired, color="black", s=180, marker="X", zorder=10, label="Política Legada (Hired)")
+plt.title("Fronteira Eficiente (Stressed & Contracted): Score 2 a 5", fontsize=14, fontweight='bold')
 plt.xlabel("Taxa de Aprovação Global (% do ToF)"); plt.ylabel("Inad. Aprovados Projetada")
 plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x,_: f'{x:.0%}'))
 plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda y,_: f'{y:.0%}'))
 plt.grid(True, linestyle=':', alpha=0.7); plt.legend(); plt.tight_layout()
 plt.savefig("images/tradeoff_comparativo.png", dpi=150)
 plt.show()
-print("→ Score 5 domina claramente. Prosseguimos exclusivamente com ele.")
 """))
 
 # ─── FASE 5: 3 PROPOSIÇÕES ───────────────────────────────────────────────────
 cells.append(c_md("""## 5. As 3 Proposições Executivas (Score 5)
-Três estratégias de apetite ao risco."""))
+Três estratégias de apetite ao risco baseadas no P&L Contratado Estressado."""))
 
 cells.append(c_code("""res_s5 = res_all[res_all["Score_Model"]=="score_5"].copy()
 
-# 1. Conservadora
-pol_cons = res_s5.iloc[(res_s5["approval_rate"] - n_aprov/N).abs().argsort()[:1]]
-# 2. Agressiva
-pol_agr  = res_s5.iloc[(res_s5["default_rate"]  - bad_aprov).abs().argsort()[:1]]
-# 3. Neutra
+# 1. Conservadora: Mantém a taxa de contratação da carteira legada (~9.58% do ToF)
+pol_cons = res_s5.iloc[(res_s5["approval_rate"] - n_hired/N).abs().argsort()[:1]]
+# 2. Agressiva: Mantém a taxa de inadimplência contratada do legado (~7.18%) sob estresse
+pol_agr  = res_s5.iloc[(res_s5["default_rate"]  - bad_hired).abs().argsort()[:1]]
+# 3. Neutra: Média dos cutoffs das duas estratégias
 mid_cut  = (pol_cons["Cutoff"].iloc[0] + pol_agr["Cutoff"].iloc[0]) / 2
 pol_mid  = res_s5.iloc[(res_s5["Cutoff"] - mid_cut).abs().argsort()[:1]]
 
@@ -280,17 +290,17 @@ for label, pol in [("1. Conservadora", pol_cons),("2. Agressiva",pol_agr),("3. N
     print(f"{label:<18} {int(pol['Cutoff'].iloc[0]):>8} "
           f"{pol['approval_rate'].iloc[0]:>15.2%} {pol['default_rate'].iloc[0]:>17.2%}")
 print(f"{'─'*60}")
-print(f"{'Legacy (referência)':<18} {'─':>8} {n_aprov/N:>15.2%} {bad_aprov:>17.2%}")
+print(f"{'Legacy (referência)':<18} {'─':>8} {n_hired/N:>15.2%} {bad_hired:>17.2%}")
 
 plt.figure(figsize=(10,6))
 sns.lineplot(data=res_s5, x="approval_rate", y="default_rate",
              marker="o", linewidth=2, color="royalblue", label="Score 5")
-plt.axhline(y=bad_aprov, color='r', linestyle='--', linewidth=1.5, label="Inad. Histórica")
-plt.axvline(x=n_aprov/N,  color='g', linestyle='--', linewidth=1.5, label="Aprov. Histórica")
+plt.axhline(y=bad_hired, color='r', linestyle='--', linewidth=1.5, label="Inad. Histórica (Hired)")
+plt.axvline(x=n_hired/N,  color='g', linestyle='--', linewidth=1.5, label="Taxa Contratação Legada")
 for label, pol, cor in [("Conservadora",pol_cons,"gold"),("Agressiva",pol_agr,"darkorange"),("Neutra",pol_mid,"mediumpurple")]:
     plt.scatter(pol["approval_rate"],pol["default_rate"], color=cor, s=200, zorder=6, label=label)
-plt.title("Proposições Executivas (Score 5)", fontsize=14, fontweight='bold')
-plt.xlabel("Taxa de Aprovação Global"); plt.ylabel("Inad. Aprovados")
+plt.title("Proposições Executivas: Score 5 (Stressed)", fontsize=14, fontweight='bold')
+plt.xlabel("Taxa de Contratação Global (% ToF)"); plt.ylabel("Inadimplência Contratada (Stressed)")
 plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x,_: f'{x:.0%}'))
 plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda y,_: f'{y:.0%}'))
 plt.grid(True, linestyle=':', alpha=0.7); plt.legend(); plt.tight_layout()
@@ -304,24 +314,36 @@ cells.append(c_md("""## 6. Adequação dos Pontos de Corte por Loja e Política 
 Adequamos o ponto de corte por região geográfica a fim de permitir aprovações em todas as lojas.
 Calculamos os ratings baseando-nos rigorosamente na população aprovada sob esta política."""))
 
-cells.append(c_code("""# Ajustes regionalizados para garantir representatividade e controle de inadimplência
-# Calibrado para atingir cerca de 22% de taxa de aprovação local em cada região (refletindo o nível histórico)
-cutoffs_loja = {
-    "Sudeste":     781,
-    "Sul":         793,
-    "Centro-Oeste": 770,
-    "Nordeste":    751,
-    "Norte":       760,
-}
+cells.append(c_code("""# Ajustes regionalizados de corte de score calculados de forma 100% programática.
+# Determinamos o cutoff de cada loja para atingir exatamente a taxa de contratação da estratégia selecionada localmente.
+target_hired_rate = pol_cons["approval_rate"].iloc[0]
 
-print("=== PONTOS DE CORTE POR LOJA ===")
-print(f"{'Loja':<15} {'Cutoff':>8}  {'Vol Loja':>10}  {'Aprov Local':>13}")
-print("─"*52)
+cutoffs_loja = {}
+for loja in sorted(df_dev["region"].unique()):
+    df_loja = df_clean_hf[df_clean_hf["region"] == loja].sort_values("score_5", ascending=False).copy()
+    total_loja = (df_dev["region"] == loja).sum()
+    target_hired_vol = target_hired_rate * total_loja
+    
+    # Soma acumulativa das probabilidades de conversão dos sobreviventes
+    df_loja["cum_hired"] = df_loja["take_up_rate"].cumsum()
+    
+    # Localiza o primeiro registro que atinge o volume esperado de contratos
+    idx_match = df_loja[df_loja["cum_hired"] >= target_hired_vol]
+    if not idx_match.empty:
+        cut = df_loja.loc[idx_match.index[0], "score_5"]
+    else:
+        cut = df_loja["score_5"].min()
+    cutoffs_loja[loja] = int(cut)
+
+print("=== PONTOS DE CORTE POR LOJA (CALCULADOS) ===")
+print(f"{'Loja':<15} {'Cutoff':>8}  {'Vol Loja (DEV)':>15}  {'Contrat. Local':>15}")
+print("─"*65)
 for loja, cut in sorted(cutoffs_loja.items()):
-    mask_loja = df["region"] == loja
+    mask_loja = df_dev["region"] == loja
     n_loja    = mask_loja.sum()
-    n_pass    = ((df["region"]==loja) & (df["score_5"]>=cut)).sum()
-    print(f"{loja:<15} {int(cut):>8,}  {n_loja:>10,}  {n_pass/n_loja:>13.1%}")
+    # Para mostrar a taxa local aproximada de contratação esperada no DEV
+    expected_hired_loja = ((df_dev["region"]==loja) & (df_dev["score_5"]>=cut) & (df_dev["approved"]==1)) * df_dev["take_up_rate"]
+    print(f"{loja:<15} {int(cut):>8,}  {n_loja:>15,}  {expected_hired_loja.sum()/n_loja:>15.2%}")
 
 def politica_loja(df_in):
     passa = pd.Series(False, index=df_in.index)
