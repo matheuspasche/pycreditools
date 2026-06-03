@@ -130,12 +130,10 @@ class CreditSimResults:
         else:
             df["cenario"] = "Keep Out"
             
-        # 5. Construct simplified DataFrame
-        simple_cols = input_cols + ["decisao", "motivo", "contratou", "inadimplente", "cenario"]
-        if rating_recipe is not None:
-            simple_cols.append("rating")
+        # 5. Construct simplified DataFrame (standard & immutable copy)
+        simple_cols = input_cols + ["decisao", "motivo", "contratou", "inadimplente", "cenario", "rating"]
             
-        return df[simple_cols]
+        return df[simple_cols].copy()
 
 def run_simulation(
     data: pd.DataFrame,

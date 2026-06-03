@@ -39,7 +39,8 @@ def test_deployment_and_simple_df():
     assert "contratou" in simple_df.columns
     assert "inadimplente" in simple_df.columns
     assert "cenario" in simple_df.columns
-    assert "rating" not in simple_df.columns
+    assert "rating" in simple_df.columns
+    assert simple_df["rating"].isna().all()
     
     # Check values
     assert simple_df.loc[0, "contratou"] == "Sim"

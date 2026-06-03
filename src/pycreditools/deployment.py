@@ -49,7 +49,7 @@ class DeploymentPolicy:
         if simple:
             return sim_res.to_decision_dataframe(rating_recipe=self.rating_recipe)
             
-        res_df = sim_res.data
+        res_df = sim_res.data.copy()
         if self.rating_recipe is not None:
             # Apply ratings to the full DataFrame
             pred_df = self.rating_recipe.predict(res_df)
