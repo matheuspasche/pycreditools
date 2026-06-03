@@ -159,13 +159,29 @@ def test_segmented_deployment_policy():
     
     # Check serialization
     d = dep.to_dict()
-    assert d["rating_recipe"]["type"] == "segmented_recipes"
-    assert "Sudeste" in d["rating_recipe"]["recipes"]
+    assert "classificacao_ratings" in d
+    assert d["classificacao_ratings"]["coluna_segmentacao"] == "region"
+    assert "Sudeste" in d["classificacao_ratings"]["segmentos"]
     
-    # Check deserialization
+    # Check deserialization of new format
     loaded = DeploymentPolicy.from_dict(d)
     assert isinstance(loaded.rating_recipe, dict)
     assert "Nordeste" in loaded.rating_recipe
+    
+    # Check backward compatibility with legacy format
+    legacy_d = {
+        "policy": policy.to_dict(),
+        "rating_recipe": {
+            "type": "segmented_recipes",
+            "recipes": {
+                "Sudeste": recipe_se.to_dict(),
+                "Nordeste": recipe_ne.to_dict()
+            }
+        }
+    }
+    loaded_legacy = DeploymentPolicy.from_dict(legacy_d)
+    assert isinstance(loaded_legacy.rating_recipe, dict)
+    assert "Nordeste" in loaded_legacy.rating_recipe
     
     # Check production rules export
     rules = loaded.to_production_rules()

@@ -11,23 +11,38 @@ from ._kernels import ward_cluster, iv_cluster
 class GroupingRecipe:
     """Serializable recipe for applying grouping to new data."""
     score_cols: list[str]
-    quantile_breaks: dict[str, list[float]]
-    cluster_mapping: dict[str, int]
+    quantile_breaks: dict[str, list[float]] = None
+    cluster_mapping: dict[str, int] = None
+    intervals: list[dict[str, Any]] = None
+    segmented_intervals: dict[str, list[dict[str, Any]]] = None
+    segment_col: str = None
     
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "score_cols": self.score_cols,
-            "quantile_breaks": self.quantile_breaks,
-            "cluster_mapping": self.cluster_mapping,
-        }
+        d = {"score_cols": self.score_cols}
+        if self.quantile_breaks is not None:
+            d["quantile_breaks"] = self.quantile_breaks
+        if self.cluster_mapping is not None:
+            d["cluster_mapping"] = self.cluster_mapping
+        if self.intervals is not None:
+            d["intervals"] = self.intervals
+        if self.segmented_intervals is not None:
+            d["segmented_intervals"] = self.segmented_intervals
+        if self.segment_col is not None:
+            d["segment_col"] = self.segment_col
+        return d
         
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> GroupingRecipe:
-        mapping = {str(k): v for k, v in d["cluster_mapping"].items()}
+        mapping = None
+        if "cluster_mapping" in d and d["cluster_mapping"] is not None:
+            mapping = {str(k): v for k, v in d["cluster_mapping"].items()}
         return cls(
             score_cols=d["score_cols"],
-            quantile_breaks=d["quantile_breaks"],
+            quantile_breaks=d.get("quantile_breaks"),
             cluster_mapping=mapping,
+            intervals=d.get("intervals"),
+            segmented_intervals=d.get("segmented_intervals"),
+            segment_col=d.get("segment_col")
         )
         
     def to_json(self) -> str:
@@ -40,31 +55,54 @@ class GroupingRecipe:
     def predict(self, new_data: pd.DataFrame) -> pd.DataFrame:
         """Apply the grouping recipe to map scores to group numbers."""
         df = new_data.copy()
+        df["risk_rating"] = np.nan
         
-        # 1. Apply quantile breaks
-        bin_cols = []
-        for col in self.score_cols:
-            breaks = self.quantile_breaks[col]
-            # Use np.digitize. np.digitize returns indices 1..len(bins)
-            # We want 0-based for string mapping
-            bin_idx = np.digitize(df[col], bins=breaks[1:-1])
-            bin_col = f"{col}_bin"
-            df[bin_col] = bin_idx
-            bin_cols.append(bin_col)
-            
-        # 2. Combine to micro-bin keys
-        if len(bin_cols) == 1:
-            keys = df[bin_cols[0]].astype(str)
+        if self.intervals is not None:
+            score_col = self.score_cols[0]
+            rating_to_group = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5}
+            for f in self.intervals:
+                rat = f["rating"]
+                g_id = rating_to_group.get(rat, 5)
+                mask = (df[score_col] >= f["nota_minima"]) & (df[score_col] <= f["nota_maxima"])
+                df.loc[mask, "risk_rating"] = g_id
+                
+        elif self.segmented_intervals is not None:
+            score_col = self.score_cols[0]
+            segment_col = self.segment_col or "region"
+            rating_to_group = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5}
+            for seg, faixas in self.segmented_intervals.items():
+                mask_seg = df[segment_col] == seg
+                for f in faixas:
+                    rat = f["rating"]
+                    g_id = rating_to_group.get(rat, 5)
+                    mask = mask_seg & (df[score_col] >= f["nota_minima"]) & (df[score_col] <= f["nota_maxima"])
+                    df.loc[mask, "risk_rating"] = g_id
+                    
         else:
-            keys = df[bin_cols].astype(str).agg('-'.join, axis=1)
+            # 1. Apply quantile breaks
+            bin_cols = []
+            for col in self.score_cols:
+                breaks = self.quantile_breaks[col]
+                # Use np.digitize. np.digitize returns indices 1..len(bins)
+                # We want 0-based for string mapping
+                bin_idx = np.digitize(df[col], bins=breaks[1:-1])
+                bin_col = f"{col}_bin"
+                df[bin_col] = bin_idx
+                bin_cols.append(bin_col)
+                
+            # 2. Combine to micro-bin keys
+            if len(bin_cols) == 1:
+                keys = df[bin_cols[0]].astype(str)
+            else:
+                keys = df[bin_cols].astype(str).agg('-'.join, axis=1)
+                
+            # 3. Map to groups
+            df["risk_rating"] = keys.map(self.cluster_mapping)
             
-        # 3. Map to groups
-        df["risk_rating"] = keys.map(self.cluster_mapping)
-        
-        # Cleanup
-        for bc in bin_cols:
-            if bc in df.columns:
-                del df[bc]
+            # Cleanup
+            for bc in bin_cols:
+                if bc in df.columns:
+                    del df[bc]
                 
         return df
 

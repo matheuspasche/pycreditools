@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pycreditools"
-version = "0.2.6"
+version = "0.2.7"
 description = "Credit Risk Simulation and Policy Optimization — Python edition of creditools"
 readme = "README.md"
 license = {text = "MIT"}
