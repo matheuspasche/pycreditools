@@ -36,22 +36,15 @@ class GroupingRecipe:
     @classmethod
     def from_json(cls, s: str) -> GroupingRecipe:
         return cls.from_dict(json.loads(s))
-
-@dataclass
-class RiskGroupResult:
-    data: pd.DataFrame
-    groups: pd.DataFrame
-    recipe: GroupingRecipe
-    n_groups: int
-    params: dict[str, Any]
-    
+        
     def predict(self, new_data: pd.DataFrame) -> pd.DataFrame:
+        """Apply the grouping recipe to map scores to group numbers."""
         df = new_data.copy()
         
         # 1. Apply quantile breaks
         bin_cols = []
-        for col in self.recipe.score_cols:
-            breaks = self.recipe.quantile_breaks[col]
+        for col in self.score_cols:
+            breaks = self.quantile_breaks[col]
             # Use np.digitize. np.digitize returns indices 1..len(bins)
             # We want 0-based for string mapping
             bin_idx = np.digitize(df[col], bins=breaks[1:-1])
@@ -66,8 +59,7 @@ class RiskGroupResult:
             keys = df[bin_cols].astype(str).agg('-'.join, axis=1)
             
         # 3. Map to groups
-        # If unseen key, maybe map to nearest or NaN
-        df["risk_rating"] = keys.map(self.recipe.cluster_mapping)
+        df["risk_rating"] = keys.map(self.cluster_mapping)
         
         # Cleanup
         for bc in bin_cols:
@@ -75,6 +67,17 @@ class RiskGroupResult:
                 del df[bc]
                 
         return df
+
+@dataclass
+class RiskGroupResult:
+    data: pd.DataFrame
+    groups: pd.DataFrame
+    recipe: GroupingRecipe
+    n_groups: int
+    params: dict[str, Any]
+    
+    def predict(self, new_data: pd.DataFrame) -> pd.DataFrame:
+        return self.recipe.predict(new_data)
         
     def to_dict(self) -> dict[str, Any]:
         return {

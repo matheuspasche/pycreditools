@@ -36,3 +36,6 @@ venv.bak/
 .idea/
 .vscode/
 *.swp
+
+# Generated deployment files
+politica_final_producao.json

@@ -184,3 +184,23 @@ class CreditPolicy:
             lines.append("  Stress Scenarios: None")
             
         return "\n".join(lines)
+        
+    def export(
+        self,
+        rating_recipe: Any | None = None,
+        path: str | None = None,
+    ) -> Any:
+        """Export this policy and an optional rating recipe for deployment.
+        
+        Args:
+            rating_recipe: Optional GroupingRecipe.
+            path: Optional file path to save the deployment JSON file.
+            
+        Returns:
+            DeploymentPolicy instance.
+        """
+        from .deployment import DeploymentPolicy
+        dep = DeploymentPolicy(policy=self, rating_recipe=rating_recipe)
+        if path is not None:
+            dep.save(path)
+        return dep

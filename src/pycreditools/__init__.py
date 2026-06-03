@@ -3,10 +3,11 @@ pycreditools: A Python library for credit risk policy simulation and analysis.
 """
 
 from ._types import SimulationMethod, ClusteringMethod, Quadrant, StageDirection, PolicySummary
-from .stages import Stage, CutoffStage, FilterStage, RateStage
+from .stages import Stage, CutoffStage, FilterStage, RateStage, register_callable
 from .stress import StressScenario, AggravationStress, MonotonicStress, CustomStress
 from .policy import CreditPolicy
 from .simulation import CreditSimResults, run_simulation
+from .deployment import DeploymentPolicy
 from .performance import (
     summarize_results,
     compare_policies,
@@ -34,6 +35,7 @@ __all__ = [
     "CutoffStage",
     "FilterStage",
     "RateStage",
+    "register_callable",
     "StressScenario",
     "AggravationStress",
     "MonotonicStress",
@@ -41,6 +43,7 @@ __all__ = [
     "CreditPolicy",
     "CreditSimResults",
     "run_simulation",
+    "DeploymentPolicy",
     "summarize_results",
     "compare_policies",
     "print_delta_table",

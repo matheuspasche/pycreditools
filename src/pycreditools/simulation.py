@@ -13,16 +13,98 @@ from ._types import SimulationMethod, Quadrant
 class CreditSimResults:
     data: pd.DataFrame
     metadata: dict[str, Any]
+    policy: CreditPolicy | None = None
     
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the results to a dictionary.
-        Note that this does not serialize the entire DataFrame (as it can be huge).
-        Instead, it returns just a summary or we can require users to save the df separately.
-        For agents, we provide metadata and a summary.
-        """
+        """Serialize the results to a dictionary."""
         return {
             "metadata": self.metadata,
         }
+        
+    def to_decision_dataframe(
+        self,
+        rating_recipe: Any | None = None,
+        rating_labels: dict[int, str] | None = None,
+    ) -> pd.DataFrame:
+        """Convert simulation results to a simplified decision DataFrame.
+        
+        Contains:
+        - All input columns (original columns).
+        - 'decisao': 'Aprovado' if passed all hard filters, 'Reprovado' otherwise.
+        - 'motivo': The position and name of the first failed filter/cutoff stage, or 'Aprovado'.
+        - 'rating': The mapped risk rating ('A', 'B', etc.) if rating_recipe is provided.
+        """
+        pol = self.policy
+        if pol is None:
+            # Fallback to deserialize from metadata
+            policy_dict = self.metadata.get("policy")
+            if policy_dict:
+                from .policy import CreditPolicy
+                try:
+                    pol = CreditPolicy.from_dict(policy_dict)
+                except Exception:
+                    pass
+            if pol is None:
+                raise ValueError("No policy reference found in simulation results to extract hard filters.")
+            
+        df = self.data.copy()
+        
+        # 1. Separate input columns
+        def is_sim_col(c: str) -> bool:
+            if c in ("new_approval", "approved_pre_rate", "quadrant", "simulated_default", "approved", "decisao", "motivo", "rating", "Rating", "risk_rating"):
+                return True
+            if c.startswith("stage_"):
+                parts = c.split("_")
+                if len(parts) >= 3 and parts[1].isdigit():
+                    return True
+            return False
+            
+        input_cols = [c for c in df.columns if not is_sim_col(c)]
+        
+        # 2. Extract decision based on hard filters
+        from .stages import RateStage
+        hard_stages = [(i, stage) for i, stage in enumerate(pol.stages) if not isinstance(stage, RateStage)]
+        
+        if not hard_stages:
+            df["decisao"] = "Aprovado"
+            df["motivo"] = "Aprovado"
+        else:
+            stage_cols = [f"stage_{i}_{stage.name}" for i, stage in hard_stages]
+            
+            # Check for failure in any hard stage (< 0.5 for analytical / 0 for stochastic)
+            failed_df = pd.DataFrame(index=df.index)
+            for col_name in stage_cols:
+                if col_name in df.columns:
+                    failed_df[col_name] = df[col_name] < 0.5
+                else:
+                    failed_df[col_name] = False
+                    
+            has_failure = failed_df.any(axis=1)
+            
+            # Motivo: Posição (1, 2...) e nome do filtro
+            col_to_label = {f"stage_{i}_{stage.name}": f"{i + 1}: {stage.name}" for i, stage in hard_stages}
+            
+            # Vectorized first failed stage
+            first_failed_col = np.where(has_failure, failed_df.idxmax(axis=1), None)
+            
+            df["decisao"] = np.where(has_failure, "Reprovado", "Aprovado")
+            df["motivo"] = pd.Series(first_failed_col, index=df.index).map(col_to_label).fillna("Aprovado")
+            
+        # 3. Apply optional rating recipe
+        if rating_recipe is not None:
+            pred_df = rating_recipe.predict(df)
+            if rating_labels is None:
+                rating_labels = {i: chr(64 + i) for i in range(1, 27)}
+            df["rating"] = pred_df["risk_rating"].map(rating_labels)
+        else:
+            df["rating"] = None
+            
+        # 4. Construct simplified DataFrame
+        simple_cols = input_cols + ["decisao", "motivo"]
+        if rating_recipe is not None:
+            simple_cols.append("rating")
+            
+        return df[simple_cols]
 
 def run_simulation(
     data: pd.DataFrame,
@@ -94,7 +176,7 @@ def run_simulation(
         "method": method.value,
     }
     
-    return CreditSimResults(data=df, metadata=metadata)
+    return CreditSimResults(data=df, metadata=metadata, policy=policy)
 
 def _classify_scenarios(df: pd.DataFrame, policy: CreditPolicy, new_approval_col: str) -> pd.DataFrame:
     """Classify applicants into swap_in, swap_out, keep_in, keep_out."""

@@ -542,6 +542,35 @@ plot_crash_test(
 plt.show()
 """))
 
+# ─── FASE 12: EXPORTAÇÃO E BASE DE DECISÃO ───────────────────────────────────
+cells.append(c_md("""## 12. Exportação de Política e Geração de Base Simplificada para Produção
+Como etapa final, exportamos toda a nossa inteligência de decisão (filtros hard, pontos de corte regionalizados e regras de Ratings de risco) para um único arquivo JSON.
+
+Em produção, carregamos esse arquivo e executamos decisões limpas para novos proponentes, gerando uma base simplificada com apenas os inputs originais mais a decisão consolidada (`decisao` e `motivo` da reprovação por ordem de ocorrência no funil) e o `rating` de risco."""))
+
+cells.append(c_code("""from pycreditools import DeploymentPolicy
+
+# 1. Exportamos a política final juntamente com a receita de clustering/rating
+dep_policy = policy_final.export(rating_recipe=group_res.recipe, path="politica_final_producao.json")
+print("✓ Política final exportada com sucesso para 'politica_final_producao.json'!")
+
+# 2. Carregamos a política exportada (simulando ambiente de implantação/produção)
+dep_loaded = DeploymentPolicy.load("politica_final_producao.json")
+
+# 3. Aplicamos a política carregada em uma amostra de teste para obter a base de decisão limpa
+# O método predict com simple=True retorna uma base simplificada com:
+# - Todos os inputs originais
+# - decisao (Aprovado / Reprovado)
+# - motivo (Indica o primeiro filtro violado no funil, ex: '2: Teto Negativação' ou 'Aprovado')
+# - rating (Letras de A a E para os aprovados)
+df_amostra = df_dev.sample(10, random_state=42).copy()
+df_decisoes = dep_loaded.predict(df_amostra, simple=True)
+
+print("\\n=== BASE DE DECISÃO SIMPLIFICADA PARA PRODUÇÃO (AMOSTRA) ===")
+cols_show = ["applicant_id", "region", "score_5", "age", "vl_negativacao", "decisao", "motivo", "rating"]
+print(df_decisoes[cols_show].to_string(index=False))
+"""))
+
 notebook = {
     "cells": cells,
     "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}},

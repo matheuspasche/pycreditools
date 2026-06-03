@@ -4,6 +4,41 @@ import pandas as pd
 import numpy as np
 from typing import Any
 
+_CALLABLE_REGISTRY: dict[str, callable] = {}
+
+def register_callable(name: str, func: callable) -> None:
+    """Register a custom function so it can be resolved during deserialization."""
+    _CALLABLE_REGISTRY[name] = func
+
+def _resolve_callable(name: str) -> callable:
+    if name in _CALLABLE_REGISTRY:
+        return _CALLABLE_REGISTRY[name]
+        
+    import sys
+    try:
+        frame = sys._getframe(0)
+        while frame:
+            if name in frame.f_locals:
+                val = frame.f_locals[name]
+                if callable(val):
+                    return val
+            if name in frame.f_globals:
+                val = frame.f_globals[name]
+                if callable(val):
+                    return val
+            frame = frame.f_back
+    except Exception:
+        pass
+        
+    def placeholder(df):
+        raise ValueError(
+            f"Custom function '{name}' was not found in the environment. "
+            f"Please define it in your script or register it using "
+            f"pycreditools.stages.register_callable('{name}', func)."
+        )
+    placeholder.__name__ = name
+    return placeholder
+
 class Stage(ABC):
     """Base class for credit policy stages."""
     
@@ -43,9 +78,12 @@ class Stage(ABC):
             )
         elif t == "filter":
             cond = d["condition"]
-            if isinstance(cond, dict) and "type" in cond:
-                from .expressions import deserialize_expression
-                cond = deserialize_expression(cond)
+            if isinstance(cond, dict):
+                if cond.get("type") == "callable":
+                    cond = _resolve_callable(cond["name"])
+                else:
+                    from .expressions import deserialize_expression
+                    cond = deserialize_expression(cond)
             return FilterStage(name=d["name"], condition=cond)
         elif t == "rate":
             return RateStage(
@@ -143,8 +181,13 @@ class FilterStage(Stage):
         if isinstance(self.condition, Expression):
             from .expressions import serialize_expression
             cond_data = serialize_expression(self.condition)
+        elif callable(self.condition):
+            cond_data = {
+                "type": "callable",
+                "name": getattr(self.condition, "__name__", str(self.condition))
+            }
         else:
-            cond_data = getattr(self.condition, "__name__", str(self.condition))
+            cond_data = str(self.condition)
             
         return {
             "type": "filter",
