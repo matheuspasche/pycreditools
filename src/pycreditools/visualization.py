@@ -12,7 +12,7 @@ def plot_tradeoffs(
     tradeoff_df: pd.DataFrame,
     legacy_approval_rate: float | None = None,
     legacy_bad_rate: float | None = None,
-    title: str = "Fronteira Eficiente (Stressed & Contracted)",
+    title: str = "Fronteira Eficiente (Stressed & Approved)",
     x_col: str = "approval_rate",
     y_col: str = "default_rate",
     hue_col: str | None = "Score_Model",
@@ -61,7 +61,7 @@ def plot_tradeoffs(
             color="red",
             linestyle="--",
             linewidth=1.5,
-            label=f"Inad. Legada Contratada ({legacy_bad_rate:.1%})"
+            label=f"Inad. Legada (Aprovados) ({legacy_bad_rate:.1%})"
         )
     if legacy_approval_rate is not None:
         ax.axvline(
@@ -69,7 +69,7 @@ def plot_tradeoffs(
             color="green",
             linestyle="--",
             linewidth=1.5,
-            label=f"Taxa Contratação Legada ({legacy_approval_rate:.1%})"
+            label=f"Taxa de Aprovação Legada ({legacy_approval_rate:.1%})"
         )
     if legacy_approval_rate is not None and legacy_bad_rate is not None:
         ax.scatter(
@@ -79,7 +79,7 @@ def plot_tradeoffs(
             s=180,
             marker="X",
             zorder=10,
-            label="Política Legada (Hired)"
+            label="Política Legada (Aprovados)"
         )
         
     ax.set_title(title, fontsize=14, fontweight="bold")

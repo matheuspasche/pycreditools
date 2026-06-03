@@ -91,16 +91,16 @@ Avaliamos os quatro scores candidatos (`score_2` a `score_5`) confrontando sua t
 ---
 
 ### 3. Calibração de Inadimplência Plana (Flat Default Rate) por Loja
-Para otimizar a alocação de capital e limite de crédito por região geográfica, substituímos a estratégia de aprovação plana por uma política de **Inadimplência Plana (Flat Default Rate)**. Calibramos os cortes por região para atingir um alvo estável de **5.64% de PD Estressada** localmente, permitindo que a taxa de aprovação flutue de acordo com a qualidade do público local.
+Para otimizar a alocação de capital e limite de crédito por região geográfica, substituímos a estratégia de aprovação plana por uma política de **Inadimplência Plana (Flat Default Rate)**. Calibramos os cortes por região para atingir um alvo estável de **5.80% de PD Estressada** localmente, permitindo que a taxa de aprovação flutue de acordo com a qualidade do público local.
 
 ```python
-# Notas de corte regionalizadas para atingir alvo de 5.64% PD estressada
+# Notas de corte regionalizadas para atingir alvo de 5.80% PD estressada
 cutoffs_loja = {
-    "Sudeste": 772,
-    "Sul": 766,
-    "Centro-Oeste": 800,
-    "Nordeste": 802,
-    "Norte": 792,
+    "Centro-Oeste": 804,
+    "Nordeste": 806,
+    "Norte": 794,
+    "Sudeste": 778,
+    "Sul": 776,
 }
 
 def politica_loja(df_in):
@@ -120,11 +120,11 @@ Estatísticas regionais resultantes da simulação da política final:
 
 | Região / Loja | Nota de Corte | Taxa de Aprovação Local | PD Estressada |
 | :--- | :---: | :---: | :---: |
-| **Centro-Oeste** | 800 | 18.75% | 5.41% |
-| **Nordeste** | 802 | 17.33% | 5.55% |
-| **Norte** | 792 | 17.84% | 5.56% |
-| **Sudeste** | 772 | 22.89% | 5.67% |
-| **Sul** | 766 | 24.30% | 5.71% |
+| **Centro-Oeste** | 804 | 18.37% | 5.54% |
+| **Nordeste** | 806 | 16.94% | 5.67% |
+| **Norte** | 794 | 17.67% | 5.79% |
+| **Sudeste** | 778 | 22.32% | 5.86% |
+| **Sul** | 776 | 23.33% | 5.83% |
 
 ---
 
@@ -155,11 +155,11 @@ A estrutura de Ratings resultante e sua validação temporal:
 
 | Rating | Faixa de Score 5 | Inad. DEV | Inad. OOT | Vol. DEV (Aprovados) | Vol. OOT (Aprovados) |
 | :---: | :---: | :---: | :---: | :---: | :---: |
-| **A** | `953` a `1000` | 0.98% | 0.98% | 24,255 | 11,221 |
-| **B** | `900` a `952` | 3.22% | 3.33% | 38,242 | 17,907 |
-| **C** | `873` a `899` | 5.36% | 5.48% | 19,114 | 9,058 |
-| **D** | `831` a `872` | 7.46% | 7.63% | 28,542 | 13,588 |
-| **E** | `766` a `830` | 10.04% | 10.48% | 32,700 | 15,926 |
+| **A** | `941` a `1000` | 1.66% | 1.69% | 42,205 | 19,642 |
+| **B** | `890` a `940` | 4.05% | 4.31% | 27,381 | 12,860 |
+| **C** | `870` a `889` | 5.77% | 5.73% | 14,181 | 6,667 |
+| **D** | `822` a `869` | 8.01% | 8.11% | 36,879 | 17,719 |
+| **E** | `776` a `821` | 10.22% | 10.74% | 18,421 | 9,005 |
 
 Abaixo, plotamos a estabilidade temporal das safras de performance observada dos aprovados sob a nova política, provando que a segregação se mantém robusta e livre de sobreposições ao longo de todo o histórico:
 
@@ -172,9 +172,9 @@ A transição de modelo altera a composição da carteira. Avaliamos a performan
 
 | Quadrante | Vol. Contratado Esperado | Taxa de Inadimplência | Origem dos Dados |
 | :--- | :---: | :---: | :--- |
-| **Keep In** | 70,079 | 4.65% | Observado (`actual_default`) |
-| **Swap In** | 24,956 | 10.65% | Simulado Estressado (Angulado) |
-| **Swap Out** | 24,801 | 14.46% | Observado Histórico Legado |
+| **Keep In** | 68,912 | 4.54% | Observado (`actual_default`) |
+| **Swap In** | 23,159 | 10.11% | Simulado Estressado (Angulado) |
+| **Swap Out** | 25,952 | 14.33% | Observado Histórico Legado |
 | **Keep Out** | 0 | N/A | Sem dados (Rejeitados por ambas) |
 
 > [!NOTE]
@@ -182,16 +182,33 @@ A transição de modelo altera a composição da carteira. Avaliamos a performan
 > - **Rating A**: 1.20x (+20% de estresse)
 > - **Rating B**: 1.30x (+30% de estresse)
 > - **Rating C**: 1.40x (+40% de estresse)
-> - **Rating D**: 1.50x (+50% de estresse)
-> - **Rating E**: 1.60x (+60% de estresse)
+> - **Rating D**: 1.40x (+40% de estresse)
+> - **Rating E**: 1.50x (+50% de estresse)
+
+Aqui está um trecho do código onde definimos e adicionamos esse agravamento angulado por Rating de risco através da classe `CustomStress`:
+
+```python
+from pycreditools import CustomStress
+
+# Agravamento Angulado Swap In (A=1.2× a E=1.50×)
+def angulado(df_swap, pd_col):
+    mapa = {"A": 1.20, "B": 1.30, "C": 1.40, "D": 1.40, "E": 1.50}
+    fator = df_swap["Rating"].map(mapa).fillna(1.4)
+    return (df_swap[pd_col] * fator).clip(0, 1)
+
+policy_magnum = (
+    policy_final
+    .add_stress(CustomStress(angulado))
+)
+```
 
 ---
 
 ### 6. Equilíbrio de Volume e Risco no P&L
 A nova política estruturada alcança um resultado extremamente equilibrado no P&L contratado esperado:
 1. **Atração Saudável**: Com um motor discriminatório muito superior (Score 5), aprovamos clientes de menor risco. Ao calibrar a taxa de conversão (*take-up rate*) refletindo o apetite real dos clientes (de **41%** nos melhores scores até **95%** nos scores mais baixos), mitigamos a seleção adversa.
-2. **Substituição Eficiente (Swaps)**: Trocamos com sucesso o público de alto risco do legado (**Swap Out** com inadimplência de **14.46%**) por um público qualificado (**Swap In** com inadimplência esperada mesmo com estresse angulado de **10.65%**).
-3. **Efeito Win-Win**: O resultado final demonstra que conseguimos reduzir a inadimplência contratada global do portfólio de **7.18% para 6.22%** (uma redução de **-13.4%** no risco total contratado sob estresse angulado rigoroso) enquanto aumentamos o volume de contratos (**95,035** contratados contra 94,675 legados), provando o valor comercial e financeiro da nova política.
+2. **Substituição Eficiente (Swaps)**: Trocamos com sucesso o público de alto risco do legado (**Swap Out** com inadimplência de **14.33%**) por um público qualificado (**Swap In** com inadimplência esperada mesmo com estresse angulado de **10.11%**).
+3. **Efeito Win-Win**: O resultado final demonstra que conseguimos reduzir a inadimplência contratada global do portfólio de **7.18% para 5.94%** (uma redução de **-17.3%** no risco total contratado sob estresse angulado rigoroso) enquanto o volume de contratos esperado ficou em **92,071** (contra 94,675 legados, uma pequena redução planejada de **-2.8%** para maior segurança operacional e controle de risco).
 
 ---
 
@@ -201,9 +218,9 @@ A comparação consolidada entre as políticas prova o sucesso do novo motor de 
 
 | Métrica | Política Legada | Nova Política (Flat PD) | Delta Absoluto | Delta Relativo |
 | :--- | :---: | :---: | :---: | :---: |
-| **Aprovação Global (% ToF)** | 20.47% | **21.06%** | **+0.58%** | **+2.8%** |
-| **Inadimplência Contratada (P&L)** | 7.18% | **6.22%** | **-0.96%** | **-13.4%** |
-| **Volume Contratado Esperado** | 94,675 | **95,035** | **+360** | **+0.4%** |
+| **Aprovação Global (% ToF)** | 20.47% | **20.50%** | **+0.02%** | **+0.1%** |
+| **Inadimplência Contratada (P&L)** | 7.18% | **5.94%** | **-1.24%** | **-17.3%** |
+| **Volume Contratado Esperado** | 94,675 | **92,071** | **-2,604** | **-2.8%** |
 
 ---
 

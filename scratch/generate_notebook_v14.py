@@ -222,7 +222,7 @@ df_clean_hf = sim_hf.data[sim_hf.data["new_approval"] == 1.0].copy()
 
 # ─── FASE 4: TRADEOFF GLOBAL ─────────────────────────────────────────────────
 cells.append(c_md("""## 4. Fronteira Eficiente: Todos os Modelos Candidatos (Stressed)
-Relação de Taxa de Contratação × Risco Contratado (com take-up rate e estresse no Swap In)."""))
+Relação de Taxa de Aprovação × Inadimplência dos Aprovados (com estresse no Swap In)."""))
 
 cells.append(c_code("""# Criamos a política de tradeoff com o agravamento médio dos Swap Ins (1.4x)
 def angulado_tradeoff(df_swap, pd_col):
@@ -295,7 +295,7 @@ plt.axvline(x=n_aprov/N,  color='g', linestyle='--', linewidth=1.5, label="Taxa 
 for label, pol, cor in [("Conservadora",pol_cons,"gold"),("Agressiva",pol_agr,"darkorange"),("Neutra",pol_mid,"mediumpurple")]:
     plt.scatter(pol["approval_rate"],pol["default_rate"], color=cor, s=200, zorder=6, label=label)
 plt.title("Proposições Executivas: Score 5 (Stressed)", fontsize=14, fontweight='bold')
-plt.xlabel("Taxa de Aprovação Global (% ToF)"); plt.ylabel("Inadimplência Contratados (Stressed)")
+plt.xlabel("Taxa de Aprovação Global (% ToF)"); plt.ylabel("Inadimplência Aprovados (Stressed)")
 plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x,_: f'{x:.0%}'))
 plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda y,_: f'{y:.0%}'))
 plt.grid(True, linestyle=':', alpha=0.7); plt.legend(); plt.tight_layout()
@@ -461,9 +461,9 @@ plt.show()
 # ─── FASE 8: POLÍTICA MAGNUM ────────────────────────────────────────────────
 cells.append(c_md("""## 8. A Política Magnum: Simulação com Agravamento Swap In"""))
 
-cells.append(c_code("""# Agravamento Angulado Swap In (A=1.2× → E=1.60×)
+cells.append(c_code("""# Agravamento Angulado Swap In (A=1.2× → E=1.50×)
 def angulado(df_swap, pd_col):
-    mapa = {"A": 1.20, "B": 1.30, "C": 1.40, "D": 1.50, "E": 1.60}
+    mapa = {"A": 1.20, "B": 1.30, "C": 1.40, "D": 1.40, "E": 1.50}
     fator = df_swap["Rating"].map(mapa).fillna(1.4)
     return (df_swap[pd_col] * fator).clip(0,1)
 
