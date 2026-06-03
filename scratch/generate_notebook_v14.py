@@ -224,19 +224,18 @@ df_clean_hf = sim_hf.data[sim_hf.data["new_approval"] == 1.0].copy()
 cells.append(c_md("""## 4. Fronteira Eficiente: Todos os Modelos Candidatos (Stressed)
 Relação de Taxa de Contratação × Risco Contratado (com take-up rate e estresse no Swap In)."""))
 
-cells.append(c_code("""# Criamos a política de tradeoff com o take-up rate e o agravamento médio dos Swap Ins (1.4x)
+cells.append(c_code("""# Criamos a política de tradeoff com o agravamento médio dos Swap Ins (1.4x)
 def angulado_tradeoff(df_swap, pd_col):
     return (df_swap[pd_col] * 1.4).clip(0, 1)
 
 policy_tradeoff = (
     policy_hf
-    .rate("Propensão", base_rate=1.0, variable="take_up_rate")
     .add_stress(CustomStress(angulado_tradeoff))
 )
 
 cutoffs = np.linspace(
     df_clean_hf["score_5"].quantile(0.05),
-    df_clean_hf["score_5"].quantile(0.95), 20
+    df_clean_hf["score_5"].quantile(0.95), 35
 ).astype(int).tolist()
 
 res_list = []
@@ -251,19 +250,15 @@ res_all = pd.concat(res_list)
 import os
 os.makedirs("images", exist_ok=True)
 
-plt.figure(figsize=(10,6))
-sns.lineplot(data=res_all, x="approval_rate", y="default_rate",
-             hue="Score_Model", marker="o", linewidth=2)
-# Baselines baseadas na política legada contratada (hired)
-plt.axhline(y=bad_hired, color='r', linestyle='--', linewidth=1.5, label=f"Inad. Legada Contratada ({bad_hired:.1%})")
-plt.axvline(x=n_hired/N,  color='g', linestyle='--', linewidth=1.5, label=f"Taxa Contratação Legada ({n_hired/N:.1%})")
-plt.scatter(n_hired/N, bad_hired, color="black", s=180, marker="X", zorder=10, label="Política Legada (Hired)")
-plt.title("Fronteira Eficiente (Stressed & Contracted): Score 2 a 5", fontsize=14, fontweight='bold')
-plt.xlabel("Taxa de Aprovação Global (% do ToF)"); plt.ylabel("Inad. Aprovados Projetada")
-plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x,_: f'{x:.0%}'))
-plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda y,_: f'{y:.0%}'))
-plt.grid(True, linestyle=':', alpha=0.7); plt.legend(); plt.tight_layout()
-plt.savefig("images/tradeoff_comparativo.png", dpi=150)
+from pycreditools.visualization import plot_tradeoffs
+plot_tradeoffs(
+    res_all,
+    legacy_approval_rate=n_aprov / N,
+    legacy_bad_rate=bad_aprov,
+    title="Fronteira Eficiente (Stressed & Approved): Score 2 a 5",
+    hue_col="Score_Model",
+    save_path="images/tradeoff_comparativo.png"
+)
 plt.show()
 """))
 
@@ -273,8 +268,8 @@ Três estratégias de apetite ao risco baseadas no P&L Contratado Estressado."""
 
 cells.append(c_code("""res_s5 = res_all[res_all["Score_Model"]=="score_5"].copy()
 
-# 1. Conservadora: Mantém a taxa de contratação da carteira legada (~9.58% do ToF)
-pol_cons = res_s5.iloc[(res_s5["approval_rate"] - n_hired/N).abs().argsort()[:1]]
+# 1. Conservadora: Mantém a taxa de aprovação da carteira legada (~20.5% do ToF)
+pol_cons = res_s5.iloc[(res_s5["approval_rate"] - n_aprov/N).abs().argsort()[:1]]
 # 2. Agressiva: Mantém a taxa de inadimplência contratada do legado (~7.18%) sob estresse
 pol_agr  = res_s5.iloc[(res_s5["default_rate"]  - bad_hired).abs().argsort()[:1]]
 # 3. Neutra: Média dos cutoffs das duas estratégias
@@ -283,24 +278,24 @@ pol_mid  = res_s5.iloc[(res_s5["Cutoff"] - mid_cut).abs().argsort()[:1]]
 
 CUTOFF_GLOBAL = int(pol_cons["Cutoff"].iloc[0])
 
-header = f"{'Cenário':<18} {'Cutoff':>8} {'Aprov. Global':>15} {'Inad. Aprovados':>17}"
+header = f"{'Cenário':<18} {'Cutoff':>8} {'Aprov. Global':>15} {'Inad. Contratada':>17}"
 print("=== AS 3 PROPOSIÇÕES EXECUTIVAS ===")
 print(header); print("─"*60)
 for label, pol in [("1. Conservadora", pol_cons),("2. Agressiva",pol_agr),("3. Neutra",pol_mid)]:
     print(f"{label:<18} {int(pol['Cutoff'].iloc[0]):>8} "
           f"{pol['approval_rate'].iloc[0]:>15.2%} {pol['default_rate'].iloc[0]:>17.2%}")
 print(f"{'─'*60}")
-print(f"{'Legacy (referência)':<18} {'─':>8} {n_hired/N:>15.2%} {bad_hired:>17.2%}")
+print(f"{'Legacy (referência)':<18} {'─':>8} {n_aprov/N:>15.2%} {bad_hired:>17.2%}")
 
 plt.figure(figsize=(10,6))
 sns.lineplot(data=res_s5, x="approval_rate", y="default_rate",
              marker="o", linewidth=2, color="royalblue", label="Score 5")
-plt.axhline(y=bad_hired, color='r', linestyle='--', linewidth=1.5, label="Inad. Histórica (Hired)")
-plt.axvline(x=n_hired/N,  color='g', linestyle='--', linewidth=1.5, label="Taxa Contratação Legada")
+plt.axhline(y=bad_hired, color='r', linestyle='--', linewidth=1.5, label="Inad. Histórica (Contratada)")
+plt.axvline(x=n_aprov/N,  color='g', linestyle='--', linewidth=1.5, label="Taxa Aprovação Legada")
 for label, pol, cor in [("Conservadora",pol_cons,"gold"),("Agressiva",pol_agr,"darkorange"),("Neutra",pol_mid,"mediumpurple")]:
     plt.scatter(pol["approval_rate"],pol["default_rate"], color=cor, s=200, zorder=6, label=label)
 plt.title("Proposições Executivas: Score 5 (Stressed)", fontsize=14, fontweight='bold')
-plt.xlabel("Taxa de Contratação Global (% ToF)"); plt.ylabel("Inadimplência Contratada (Stressed)")
+plt.xlabel("Taxa de Aprovação Global (% ToF)"); plt.ylabel("Inadimplência Contratados (Stressed)")
 plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x,_: f'{x:.0%}'))
 plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda y,_: f'{y:.0%}'))
 plt.grid(True, linestyle=':', alpha=0.7); plt.legend(); plt.tight_layout()
@@ -309,41 +304,69 @@ plt.show()
 print(f"\\n✓ Decisão do Comitê: Estratégia Conservadora → Cutoff Global = {CUTOFF_GLOBAL}")
 """))
 
-# ─── FASE 6: CORTES POR LOJA E POLÍTICA FINAL ──────────────────────────────
-cells.append(c_md("""## 6. Adequação dos Pontos de Corte por Loja e Política Final
-Adequamos o ponto de corte por região geográfica a fim de permitir aprovações em todas as lojas.
-Calculamos os ratings baseando-nos rigorosamente na população aprovada sob esta política."""))
+# ─── FASE 6: INADIMPLÊNCIA PLANA E POLÍTICA FINAL ──────────────────────────────
+cells.append(c_md("""## 6. Adequação dos Pontos de Corte por Loja (Inadimplência Plana) e Política Final
+Em vez de mantermos a taxa de aprovação constante (~20% por região) e permitir oscilações descontroladas de inadimplência regional (ex: Nordeste com 5.29% vs Sul com 3.28%), adotamos uma estratégia de **Inadimplência Plana** (Flat Default Rate). 
 
-cells.append(c_code("""# Ajustes regionalizados de corte de score calculados de forma 100% programática.
-# Determinamos o cutoff de cada loja para atingir exatamente a taxa de contratação da estratégia selecionada localmente.
-target_hired_rate = pol_cons["approval_rate"].iloc[0]
+Definimos um alvo regionalizado de **5.80% de PD Estressada** pós-agravamento, permitindo que a taxa de aprovação local se ajuste dinamicamente conforme a qualidade do crédito de cada região.
 
+Para realizar a calibração de forma metodologicamente correta e evitar dependência circular (os ratings dependem dos sobreviventes da simulação, e os simulated defaults estressados dependem dos ratings), realizamos o processo na seguinte ordem sequencial:
+1. **Busca Programática de Cutoffs**: Determinamos as notas de corte de score por loja usando um cenário de estresse de referência estável e independente de ratings (fator multiplicativo estável de **1.4x** para todos os Swap Ins, idêntico ao da curva de tradeoff).
+2. **Definição da Política Final**: Montamos a política de limites regionalizada baseada em score e simulamos as aprovações sem estresse para obter a população de aprovados sobreviventes.
+"""))
+
+cells.append(c_code("""# Otimização por Loja usando stress de referência de 1.4x (sem ratings)
+def stress_referencia(df_swap, pd_col):
+    return (df_swap[pd_col] * 1.4).clip(0, 1)
+
+target_pd = 0.0580
 cutoffs_loja = {}
-for loja in sorted(df_dev["region"].unique()):
-    df_loja = df_clean_hf[df_clean_hf["region"] == loja].sort_values("score_5", ascending=False).copy()
-    total_loja = (df_dev["region"] == loja).sum()
-    target_hired_vol = target_hired_rate * total_loja
-    
-    # Soma acumulativa das probabilidades de conversão dos sobreviventes
-    df_loja["cum_hired"] = df_loja["take_up_rate"].cumsum()
-    
-    # Localiza o primeiro registro que atinge o volume esperado de contratos
-    idx_match = df_loja[df_loja["cum_hired"] >= target_hired_vol]
-    if not idx_match.empty:
-        cut = df_loja.loc[idx_match.index[0], "score_5"]
-    else:
-        cut = df_loja["score_5"].min()
-    cutoffs_loja[loja] = int(cut)
 
-print("=== PONTOS DE CORTE POR LOJA (CALCULADOS) ===")
-print(f"{'Loja':<15} {'Cutoff':>8}  {'Vol Loja (DEV)':>15}  {'Contrat. Local':>15}")
-print("─"*65)
-for loja, cut in sorted(cutoffs_loja.items()):
-    mask_loja = df_dev["region"] == loja
-    n_loja    = mask_loja.sum()
-    # Para mostrar a taxa local aproximada de contratação esperada no DEV
-    expected_hired_loja = ((df_dev["region"]==loja) & (df_dev["score_5"]>=cut) & (df_dev["approved"]==1)) * df_dev["take_up_rate"]
-    print(f"{loja:<15} {int(cut):>8,}  {n_loja:>15,}  {expected_hired_loja.sum()/n_loja:>15.2%}")
+print("Buscando pontos de corte por loja para PD Estressada Plana de 5.80% usando busca binária (stress flat 1.4x)...")
+for loja in sorted(df_dev["region"].unique()):
+    df_loja = df_dev[df_dev["region"] == loja].copy()
+    best_cut = None
+    best_diff = float("inf")
+    
+    # Busca binária otimizada para o cutoff
+    low = 680
+    high = 860
+    
+    while low <= high:
+        mid = (low + high) // 2
+        mid = int(np.round(mid / 2) * 2)  # Manter passos múltiplos de 2
+        if mid < low or mid > high:
+            mid = (low + high) // 2
+            
+        def policy_func(df_in, c=mid):
+            return df_in["score_5"] >= c
+        policy_test = (
+            policy_hf
+            .filter("Score Teste", policy_func)
+            .rate("Propensão de Contrato", base_rate=1.0, variable="take_up_rate")
+            .add_stress(CustomStress(stress_referencia))
+        )
+        sim_test = policy_test.simulate(df_loja)
+        res_test = sim_test.data
+        n_hired = res_test["new_approval"].sum()
+        avg_pd = (res_test["simulated_default"] * res_test["new_approval"]).sum() / n_hired if n_hired > 0 else 0.0
+        
+        diff = abs(avg_pd - target_pd)
+        if diff < best_diff:
+            best_diff = diff
+            best_cut = mid
+            
+        # O PD médio é inversamente proporcional ao cutoff (cutoffs maiores reduzem o PD médio)
+        if avg_pd > target_pd:
+            low = mid + 2
+        else:
+            high = mid - 2
+            
+    cutoffs_loja[loja] = int(best_cut)
+
+print("\\n=== PONTOS DE CORTE POR LOJA (INADIMPLÊNCIA PLANA ALVO 5.80%) ===")
+print(f"{'Loja':<15} {'Cutoff':>8}  {'Aprov. Local':>15}  {'PD Estressada (Ref)':>20}")
+print("─"*68)
 
 def politica_loja(df_in):
     passa = pd.Series(False, index=df_in.index)
@@ -353,20 +376,32 @@ def politica_loja(df_in):
 
 policy_final = (
     policy_hf
-    .filter("Score Regionalizado", politica_loja)
+    .filter("Score Regionalizado Flat PD", politica_loja)
     .rate("Propensão de Contrato", base_rate=1.0, variable="take_up_rate")
 )
-
-# Simulamos a política final (sem stress por enquanto) para extrair o funil de aprovados
 sim_final = policy_final.simulate(df)
 res_final = sim_final.data
+
+# Mostrar resultados por loja sob o estresse de referência
+policy_final_ref = policy_final.add_stress(CustomStress(stress_referencia))
+res_final_ref_dev = policy_final_ref.simulate(df_dev).data
+
+for loja, cut in sorted(cutoffs_loja.items()):
+    df_res_loja = res_final_ref_dev[res_final_ref_dev["region"] == loja]
+    aprov_rate = df_res_loja["approved_pre_rate"].mean()
+    n_hired = df_res_loja["new_approval"].sum()
+    avg_pd = (df_res_loja["simulated_default"] * df_res_loja["new_approval"]).sum() / n_hired if n_hired > 0 else 0.0
+    print(f"{loja:<15} {int(cut):>8,}  {aprov_rate:>15.2%}  {avg_pd:>20.2%}")
 """))
 
 # ─── FASE 7: RATINGS ────────────────────────────────────────────────────────
-cells.append(c_md("""## 7. Segmentação de Risco (Ward Clustering com max_crossings=1)
-Treinado **estritamente na população aprovada** no DEV para evitar ratings vazios."""))
+cells.append(c_md("""## 7. Segmentação de Risco (Ward Clustering nos Sobreviventes)
+Agora que a política de cortes está definida, treinamos a segmentação de risco (Ratings A a E) **diretamente sobre a população aprovada sobrevivente**. 
 
-cells.append(c_code("""df_train_dev = res_final[
+Isso garante que os Ratings reflitam a real distribuição de risco da carteira aprovada, evitando Ratings vazios e o clássico viés de encolhimento/truncamento temporal (eliminando cruzamentos e inversões de risco entre as safras)."""))
+
+cells.append(c_code("""# Treinamos o agrupamento de risco estritamente nos aprovados sobreviventes no DEV
+df_train_dev = res_final[
     (res_final["new_approval"] > 0.0) &
     (res_final["sample"] == "DEV")
 ].copy()
@@ -386,17 +421,16 @@ cluster_pd = (df_train_dev.assign(rc=group_res.data["risk_rating"])
 sorted_clusters = cluster_pd.index.tolist()
 LABELS = {c: l for c, l in zip(sorted_clusters, ["A","B","C","D","E"][:len(sorted_clusters)])}
 
-# Aplicamos a predição de ratings na base total (df) e na base simulada final (res_final)
+# Aplicamos as predições de ratings na base total (df) e na base final (res_final)
 pred_df = group_res.predict(df)
-df["risk_cluster"] = pred_df["risk_rating"]
-df["Rating"] = df["risk_cluster"].map(LABELS)
+df["Rating"] = pred_df["risk_rating"].map(LABELS)
 
 pred_res = group_res.predict(res_final)
 res_final["Rating"] = pred_res["risk_rating"].map(LABELS)
 
 print(f"Mapeamento cluster→rating: {LABELS}")
 
-# Validação DEV vs OOT (focando nos aprovados pela nova política - sobreviventes)
+# Validação DEV vs OOT (focando nos aprovados sobreviventes)
 df_kd = res_final[(res_final["new_approval"] > 0.0) & (res_final["sample"] == "DEV")]
 df_ko = res_final[(res_final["new_approval"] > 0.0) & (res_final["sample"] == "OOT")]
 
@@ -410,23 +444,17 @@ val = pd.concat([
 print("\\n=== VALIDAÇÃO CLUSTERING (SOBREVIVENTES): DEV vs OOT ===")
 print(val.map(lambda x: f"{x:.2%}" if isinstance(x,float) else f"{int(x):,}").to_string())
 
-# Estabilidade por Safra na população aprovada pela nova política
-sfp = res_final[res_final["new_approval"] > 0.0].pivot_table(
-    index="safra", columns="Rating", values="actual_default", aggfunc="mean"
+# Estabilidade por Safra na população sobrevivente
+from pycreditools.visualization import plot_vintage_stability
+plot_vintage_stability(
+    res_final,
+    rating_col="Rating",
+    time_col="safra",
+    default_col="actual_default",
+    approval_col="new_approval",
+    oot_start_safra="2025-01",
+    save_path="images/vintage_stability.png"
 )
-plt.figure(figsize=(12,5))
-for r in sfp.columns:
-    plt.plot(sfp.index, sfp[r]*100, marker='o', lw=2, label=f"Rating {r}")
-
-# Marcar divisor entre DEV (2024) e OOT (2025)
-plt.axvline(x="2025-01", color="red", linestyle="--", lw=2, label="Divisor DEV/OOT")
-plt.text("2024-06", plt.gca().get_ylim()[1]*0.85, "Desenvolvimento (DEV)", color="blue", fontsize=11, fontweight="bold", ha="center")
-plt.text("2025-03", plt.gca().get_ylim()[1]*0.85, "Fora do Tempo (OOT)", color="red", fontsize=11, fontweight="bold", ha="center")
-
-plt.title("Estabilidade dos Ratings por Safra (DEV vs OOT)", fontsize=14, fontweight='bold')
-plt.xlabel("Safra"); plt.ylabel("Bad Rate (%)"); plt.xticks(rotation=45)
-plt.grid(True, linestyle='--', alpha=0.6); plt.legend(title="Rating", loc="upper left"); plt.tight_layout()
-plt.savefig("images/vintage_stability.png", dpi=150)
 plt.show()
 """))
 
@@ -448,115 +476,39 @@ sim_magnum = policy_magnum.simulate(df)
 res_final_mag = sim_magnum.data
 res_final_mag["hired_sim"] = res_final_mag["new_approval"]
 
-aprov_nova_pct = (res_final_mag["new_approval"] > 0).sum() / N
-print(f"✓ Aprovação global nova política: {aprov_nova_pct:.1%} (alvo ~{n_aprov/N:.1%})")
+aprov_nova_pct = (res_final_mag["approved_pre_rate"] > 0).sum() / N
+print(f"✓ Aprovação global nova política: {aprov_nova_pct:.2%} (alvo ~{n_aprov/N:.2%})")
 """))
 
 # ─── FASE 9: SWAPS ──────────────────────────────────────────────────────────
 cells.append(c_md("""## 9. Dissecção dos Swaps: Quem Entra, Quem Sai
 Calculamos a inadimplência observada real para o Swap Out baseado na performance histórica."""))
 
-cells.append(c_code("""ki = res_final_mag[res_final_mag["scenario"]=="keep_in"]
-si = res_final_mag[res_final_mag["scenario"]=="swap_in"]
-so = res_final_mag[res_final_mag["scenario"]=="swap_out"]
-ko = res_final_mag[res_final_mag["scenario"]=="keep_out"]
+cells.append(c_code("""from pycreditools import print_quadrant_summary, print_swap_in_by_rating, print_rating_quadrant_table
 
-def bad_obs(subset, col_name="actual_default"):
-    w = subset["hired_sim"]
-    tot = w.sum()
-    return (subset[col_name]*w).sum()/tot if tot > 0 else float("nan")
+# 1. Resumo dos Quadrantes
+print_quadrant_summary(sim_magnum)
 
-def bad_sim(subset):
-    w = subset["hired_sim"]
-    tot = w.sum()
-    return (subset["simulated_default"]*w).sum()/tot if tot > 0 else float("nan")
+# 2. Raio-X dos Swap Ins por Rating
+print_swap_in_by_rating(sim_magnum, rating_col="Rating")
 
-print("=== QUADRANTES: VOLUME ESPERADO CONTRATADO E INADIMPLÊNCIA ===")
-print(f"{'Quadrante':<12} {'Vol. Contratado':>17}  {'Bad Rate':>12}  {'Fonte'}")
-print("─"*60)
-print(f"{'Keep In':<12} {ki['hired_sim'].sum():>17,.0f}  {bad_obs(ki):>12.2%}  actual_default (observado)")
-print(f"{'Swap In':<12} {si['hired_sim'].sum():>17,.0f}  {bad_sim(si):>12.2%}  simulated_default (agravado angulado)")
-
-vol_so = so["hired"].sum()
-bad_so = so[so["hired"]==1]["actual_default"].mean() if vol_so > 0 else float("nan")
-print(f"{'Swap Out':<12} {vol_so:>17,.0f}  {bad_so:>12.2%}  actual_default (observado na carteira antiga)")
-print(f"{'Keep Out':<12} {ko['hired_sim'].sum():>17,.0f}  {'N/A':>12}  sem dados (reprovados por ambas)")
-
-# ── Raio-X Swap In por Rating ─────────────────────────────────────────────────
-print("\\n=== RAIO-X DOS SWAP INS POR RATING ===")
-si_r = si.groupby("Rating").apply(lambda g: pd.Series({
-    "Vol_Esperado": g["hired_sim"].sum(),
-    "Inad_Stressed": (g["simulated_default"]*g["hired_sim"]).sum() / g["hired_sim"].sum()
-                      if g["hired_sim"].sum()>0 else float("nan")
-})).reset_index()
-si_r["Vol %"] = si_r["Vol_Esperado"] / si_r["Vol_Esperado"].sum()
-print(f"{'Rating':>8} {'Vol. Esperado':>15} {'Vol %':>8} {'Inad Stressed':>15}")
-print("─"*50)
-for _, row in si_r.sort_index(ascending=False).iterrows():
-    print(f"{row['Rating']:>8} {row['Vol_Esperado']:>15,.0f} {row['Vol %']:>8.1%} {row['Inad_Stressed']:>15.2%}")
-
-# ── Swap In Rating × Loja ─────────────────────────────────────────────────────
+# 3. Swap In Rating × Loja (regiões geográficas)
 print("\\n=== SWAP INS: RATING × LOJA (volume esperado contratado) ===")
-si_lj = (si.groupby(["Rating","region"])["hired_sim"].sum()
-           .unstack(fill_value=0)
-           .sort_index(ascending=False))
+si = res_final_mag[res_final_mag["scenario"] == "swap_in"]
+si_lj = (si.groupby(["Rating", "region"])["new_approval"].sum()
+         .unstack(fill_value=0)
+         .sort_index(ascending=False))
 print(si_lj.map(lambda x: f"{int(x):,}").to_string())
 
-# ── Aprovados e Contratados por Rating × Quadrante ─────────────────────────
-print("\\n=== APROVADOS E CONTRATADOS POR RATING E QUADRANTE ===")
-def build_row(g):
-    # Safer lookup using the groupby tuple name level 1 to prevent KeyError: 'scenario' on newer pandas versions
-    scen = g.name[1]
-    if scen == "swap_out":
-        aprov = int((g["approved"] > 0).sum())
-        hired = int(g["hired"].sum())
-        bad = g.loc[g["hired"] == 1, "actual_default"].mean()
-        return pd.Series({
-            "Aprovados":    aprov,
-            "Contratados":  hired,
-            "Bad_Rate":     f"{bad:.2%}" if pd.notna(bad) else "N/A"
-        })
-    else:
-        return pd.Series({
-            "Aprovados":    int((g["new_approval"] > 0).sum()),
-            "Contratados":  round(g["hired_sim"].sum(), 0),
-            "Bad_Rate":     (
-                f"{bad_sim(g):.2%}" if scen=="swap_in"
-                else (f"{bad_obs(g):.2%}" if scen=="keep_in"
-                      else "N/A")
-            )
-        })
-
-rt_quad = (res_final_mag
-            .groupby(["Rating","scenario"])
-            .apply(build_row)
-            .reset_index()
-            .sort_values(["Rating","scenario"], ascending=[False,True]))
-rt_quad["Contratados"] = rt_quad["Contratados"].apply(lambda x: f"{x:,.0f}" if isinstance(x,(int,float)) else x)
-print(rt_quad.to_string(index=False))
+# 4. Aprovados e Contratados por Rating e Quadrante
+print_rating_quadrant_table(sim_magnum, rating_col="Rating")
 """))
 
 # ─── FASE 10: DELTA RESUMO ──────────────────────────────────────────────────
 cells.append(c_md("""## 10. Tabela Delta: Impacto P&L Executivo"""))
 
-cells.append(c_code("""vol_novo  = ki["hired_sim"].sum() + si["hired_sim"].sum()
-bad_novo  = (
-    (ki["simulated_default"] * ki["hired_sim"]).sum() +
-    (si["simulated_default"] * si["hired_sim"]).sum()
-) / vol_novo if vol_novo > 0 else float("nan")
-
-aprov_nova  = (res_final_mag["new_approval"] > 0).sum() / N
-aprov_velha = n_aprov / N
-
-print("=== TABELA DELTA: P&L EXECUTIVO ===")
-print(f"{'Métrica':<35} {'Legacy':>10}  {'Nova':>10}  {'Δ Abs':>10}  {'Δ Rel':>10}")
-print("─"*78)
-print(f"{'Aprovação Global (% ToF)':<35} {aprov_velha:>10.2%}  {aprov_nova:>10.2%}  "
-      f"{aprov_nova-aprov_velha:>+10.2%}  {(aprov_nova/aprov_velha)-1:>+10.1%}")
-print(f"{'Bad Rate Contratado (P&L)':<35} {bad_hired:>10.2%}  {bad_novo:>10.2%}  "
-      f"{bad_novo-bad_hired:>+10.2%}  {(bad_novo/bad_hired)-1:>+10.1%}")
-print(f"{'Vol. Contratado Esperado':<35} {n_hired:>10,}  {vol_novo:>10,.0f}  "
-      f"{vol_novo-n_hired:>+10,.0f}  {(vol_novo/n_hired)-1:>+10.1%}")
+cells.append(c_code("""from pycreditools import print_delta_table
+print_delta_table(sim_magnum)
 """))
 
 # ─── FASE 11: CRASH TEST ─────────────────────────────────────────────────────
@@ -580,18 +532,13 @@ for _, row in res_st.iterrows():
 if not breakeven:
     print("A nova política não regride mesmo com fator 10.0× no Swap In.")
 
-plt.figure(figsize=(10,5))
-plt.plot(res_st["aggravation_factor"], res_st["default_rate"]*100,
-         color="royalblue", lw=2, label="Bad Rate Nova Política")
-plt.axhline(y=bad_hired*100, color='r', linestyle='--', lw=1.5,
-            label=f"Bad Rate Legada ({bad_hired:.2%})")
-if breakeven:
-    plt.axvline(x=breakeven, color='orange', linestyle=':', lw=2,
-                label=f"Breakeven ({breakeven:.2f}×)")
-plt.xlabel("Fator de Agravamento Swap In (×)"); plt.ylabel("Bad Rate Contratado (%)")
-plt.title("Crash Test: Resiliência da Nova Política", fontsize=14, fontweight='bold')
-plt.grid(True, linestyle=':', alpha=0.7); plt.legend(); plt.tight_layout()
-plt.savefig("images/crash_test.png", dpi=150)
+from pycreditools.visualization import plot_crash_test
+plot_crash_test(
+    res_st,
+    legacy_bad_rate=bad_hired,
+    breakeven_factor=breakeven,
+    save_path="images/crash_test.png"
+)
 plt.show()
 """))
 

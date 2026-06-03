@@ -76,8 +76,8 @@ O funil de aprovação cumulativo resultante (incluindo o corte vigente):
 | **Após Teto Negativação** | 604,823 | 90.6% | -9.2% |
 | **Após Teto SCR** | 565,019 | 84.7% | -6.6% |
 | **Após Teto Protestos** | 528,232 | 79.2% | -6.5% |
-| **Após Ponto de Corte Vigente** | 135,978 | 20.4% | -74.3% |
-| **Pós-todos os HF (combinado)** | **135,978** | **20.4%** | **—** |
+| **Após Ponto de Corte Vigente** | 136,711 | 20.5% | -74.1% |
+| **Pós-todos os HF (combinado)** | **136,711** | **20.5%** | **—** |
 
 ---
 
@@ -90,17 +90,17 @@ Avaliamos os quatro scores candidatos (`score_2` a `score_5`) confrontando sua t
 
 ---
 
-### 3. Calibração e Adequação dos Cortes por Loja
-Para manter a representatividade e o volume local, calibramos as notas de corte regionais do `score_5` para atingir cerca de **~23% de aprovação local** em cada praça (neutralizando o bias de risco geográfico e garantindo controle de crédito ótimo):
+### 3. Calibração de Inadimplência Plana (Flat Default Rate) por Loja
+Para otimizar a alocação de capital e limite de crédito por região geográfica, substituímos a estratégia de aprovação plana por uma política de **Inadimplência Plana (Flat Default Rate)**. Calibramos os cortes por região para atingir um alvo estável de **5.64% de PD Estressada** localmente, permitindo que a taxa de aprovação flutue de acordo com a qualidade do público local.
 
 ```python
-# Notas de corte regionalizadas calibradas por loja/região
+# Notas de corte regionalizadas para atingir alvo de 5.64% PD estressada
 cutoffs_loja = {
-    "Sudeste": 781,
-    "Sul": 793,
-    "Centro-Oeste": 770,
-    "Nordeste": 751,
-    "Norte": 760,
+    "Sudeste": 772,
+    "Sul": 766,
+    "Centro-Oeste": 800,
+    "Nordeste": 802,
+    "Norte": 792,
 }
 
 def politica_loja(df_in):
@@ -111,20 +111,20 @@ def politica_loja(df_in):
 
 policy_final = (
     policy_hf
-    .filter("Score Regionalizado", politica_loja)
+    .filter("Score Regionalizado Flat PD", politica_loja)
     .rate("Propensão de Contrato", base_rate=1.0, variable="take_up_rate")
 )
 ```
 
 Estatísticas regionais resultantes da simulação da política final:
 
-| Região / Loja | Nota de Corte | Vol. Propostas | Taxa de Aprovação Local |
+| Região / Loja | Nota de Corte | Taxa de Aprovação Local | PD Estressada |
 | :--- | :---: | :---: | :---: |
-| **Centro-Oeste** | 770 | 100,275 | 23.1% |
-| **Nordeste** | 751 | 179,746 | 23.4% |
-| **Norte** | 760 | 69,843 | 22.2% |
-| **Sudeste** | 781 | 449,489 | 23.8% |
-| **Sul** | 793 | 200,647 | 23.2% |
+| **Centro-Oeste** | 800 | 18.75% | 5.41% |
+| **Nordeste** | 802 | 17.33% | 5.55% |
+| **Norte** | 792 | 17.84% | 5.56% |
+| **Sudeste** | 772 | 22.89% | 5.67% |
+| **Sul** | 766 | 24.30% | 5.71% |
 
 ---
 
@@ -155,11 +155,11 @@ A estrutura de Ratings resultante e sua validação temporal:
 
 | Rating | Faixa de Score 5 | Inad. DEV | Inad. OOT | Vol. DEV (Aprovados) | Vol. OOT (Aprovados) |
 | :---: | :---: | :---: | :---: | :---: | :---: |
-| **A** | `967` a `1000` | 2.80% | 2.93% | 14,700 | 6,963 |
-| **B** | `919` a `966` | 6.67% | 6.99% | 32,915 | 16,138 |
-| **C** | `878` a `918` | 9.87% | 10.45% | 28,060 | 13,576 |
-| **D** | `828` a `877` | 13.15% | 13.87% | 32,639 | 16,121 |
-| **E** | `751` a `827` | 16.47% | 16.76% | 32,599 | 15,591 |
+| **A** | `953` a `1000` | 0.98% | 0.98% | 24,255 | 11,221 |
+| **B** | `900` a `952` | 3.22% | 3.33% | 38,242 | 17,907 |
+| **C** | `873` a `899` | 5.36% | 5.48% | 19,114 | 9,058 |
+| **D** | `831` a `872` | 7.46% | 7.63% | 28,542 | 13,588 |
+| **E** | `766` a `830` | 10.04% | 10.48% | 32,700 | 15,926 |
 
 Abaixo, plotamos a estabilidade temporal das safras de performance observada dos aprovados sob a nova política, provando que a segregação se mantém robusta e livre de sobreposições ao longo de todo o histórico:
 
@@ -172,9 +172,9 @@ A transição de modelo altera a composição da carteira. Avaliamos a performan
 
 | Quadrante | Vol. Contratado Esperado | Taxa de Inadimplência | Origem dos Dados |
 | :--- | :---: | :---: | :--- |
-| **Keep In** | 42,555 | 2.52% | Observado (`actual_default`) |
-| **Swap In** | 59,064 | 4.31% | Simulado Estressado (Angulado) |
-| **Swap Out** | 77,026 | 10.20% | Observado Histórico Legado |
+| **Keep In** | 70,079 | 4.65% | Observado (`actual_default`) |
+| **Swap In** | 24,956 | 10.65% | Simulado Estressado (Angulado) |
+| **Swap Out** | 24,801 | 14.46% | Observado Histórico Legado |
 | **Keep Out** | 0 | N/A | Sem dados (Rejeitados por ambas) |
 
 > [!NOTE]
@@ -190,8 +190,8 @@ A transição de modelo altera a composição da carteira. Avaliamos a performan
 ### 6. Equilíbrio de Volume e Risco no P&L
 A nova política estruturada alcança um resultado extremamente equilibrado no P&L contratado esperado:
 1. **Atração Saudável**: Com um motor discriminatório muito superior (Score 5), aprovamos clientes de menor risco. Ao calibrar a taxa de conversão (*take-up rate*) refletindo o apetite real dos clientes (de **41%** nos melhores scores até **95%** nos scores mais baixos), mitigamos a seleção adversa.
-2. **Substituição Eficiente (Swaps)**: Trocamos com sucesso o público de alto risco do legado (**Swap Out** com inadimplência de **14.51%**) por um público qualificado (**Swap In** com inadimplência esperada mesmo com estresse angulado de **11.65%**).
-3. **Efeito Win-Win**: O resultado final demonstra que conseguimos aumentar ligeiramente o volume contratado esperado em **+2.5%** (+2.396 contratos) e ao mesmo tempo reduzir a inadimplência contratada do portfólio de **7.18% para 6.62%** (-7.9% sob estresse angulado rigoroso, ou -23.0% sem estresse), provando o valor comercial e financeiro da nova política.
+2. **Substituição Eficiente (Swaps)**: Trocamos com sucesso o público de alto risco do legado (**Swap Out** com inadimplência de **14.46%**) por um público qualificado (**Swap In** com inadimplência esperada mesmo com estresse angulado de **10.65%**).
+3. **Efeito Win-Win**: O resultado final demonstra que conseguimos reduzir a inadimplência contratada global do portfólio de **7.18% para 6.22%** (uma redução de **-13.4%** no risco total contratado sob estresse angulado rigoroso) enquanto aumentamos o volume de contratos (**95,035** contratados contra 94,675 legados), provando o valor comercial e financeiro da nova política.
 
 ---
 
@@ -199,11 +199,11 @@ A nova política estruturada alcança um resultado extremamente equilibrado no P
 
 A comparação consolidada entre as políticas prova o sucesso do novo motor de simulação:
 
-| Métrica | Política Legada | Nova Política (V14) | Delta Absoluto | Delta Relativo |
+| Métrica | Política Legada | Nova Política (Flat PD) | Delta Absoluto | Delta Relativo |
 | :--- | :---: | :---: | :---: | :---: |
-| **Aprovação Global (% ToF)** | 20.47% | **22.40%** | **+1.92%** | **+9.4%** |
-| **Inadimplência Contratada (P&L)** | 7.18% | **6.89%** | **-0.30%** | **-4.1%** |
-| **Volume Contratado Esperado** | 94,675 | **102,140** | **+7,465** | **+7.9%** |
+| **Aprovação Global (% ToF)** | 20.47% | **21.06%** | **+0.58%** | **+2.8%** |
+| **Inadimplência Contratada (P&L)** | 7.18% | **6.22%** | **-0.96%** | **-13.4%** |
+| **Volume Contratado Esperado** | 94,675 | **95,035** | **+360** | **+0.4%** |
 
 ---
 
@@ -212,7 +212,7 @@ Como a performance dos Swap Ins é simulada, realizamos um teste de estresse sev
 
 ![Crash Test](images/crash_test.png)
 
-*O **ponto de breakeven é atingido em 1.75x**. Isto significa que a inadimplência real do público Swap In teria de ser **1.75 vezes maior** do que a estimada pelo modelo (e já estressada angularmente) para que a perda agregada da nova carteira subisse até os **7.18%** da política antiga. Esse colchão de resiliência de 75% de sobrecarga prova a segurança operacional da nova política.*
+*O **ponto de breakeven é atingido em 2.25x**. Isto significa que a inadimplência real do público Swap In teria de ser **2.25 vezes maior** do que a estimada pelo modelo (e já estressada angularmente) para que a perda agregada da nova carteira subisse até os **7.18%** da política antiga. Esse colchão de resiliência de 125% de sobrecarga prova a segurança operacional e resiliência extrema da nova política de Inadimplência Plana.*
 
 ---
 
