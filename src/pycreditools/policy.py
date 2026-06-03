@@ -14,7 +14,7 @@ class CreditPolicy:
     a new instance of CreditPolicy rather than modifying the current one.
     """
     applicant_id_col: str
-    score_cols: list[str]
+    score_cols: tuple[str, ...]
     current_approval_col: str
     actual_default_col: str
     conversion_rate_col: str | None = None
@@ -23,6 +23,24 @@ class CreditPolicy:
     stages: tuple[Stage, ...] = field(default_factory=tuple)
     stress_scenarios: tuple[StressScenario, ...] = field(default_factory=tuple)
     
+    def __post_init__(self) -> None:
+        # Coerce score_cols to tuple of strings
+        if isinstance(self.score_cols, str):
+            score_tuple = (self.score_cols,)
+        else:
+            try:
+                score_tuple = tuple(self.score_cols)
+            except TypeError:
+                score_tuple = (str(self.score_cols),)
+        
+        object.__setattr__(self, "score_cols", score_tuple)
+        
+        # Ensure stages and stress_scenarios are also tuples
+        if not isinstance(self.stages, tuple):
+            object.__setattr__(self, "stages", tuple(self.stages))
+        if not isinstance(self.stress_scenarios, tuple):
+            object.__setattr__(self, "stress_scenarios", tuple(self.stress_scenarios))
+
     def add_stage(self, stage: Stage) -> CreditPolicy:
         """Return a new CreditPolicy with the given stage appended."""
         new_stages = self.stages + (stage,)
@@ -76,17 +94,20 @@ class CreditPolicy:
         Raises:
             ValueError: If required columns are missing.
         """
-        required_cols = [
+        required_cols = list(self.score_cols) + [
             self.applicant_id_col,
             self.current_approval_col,
             self.actual_default_col,
-        ] + self.score_cols
+        ]
         
         # Add columns from stages
-        from .stages import CutoffStage
+        from .stages import CutoffStage, FilterStage
+        from .expressions import Expression
         for stage in self.stages:
             if isinstance(stage, CutoffStage):
                 required_cols.extend(stage.cutoffs.keys())
+            elif isinstance(stage, FilterStage) and isinstance(stage.condition, Expression):
+                required_cols.extend(stage.condition.get_columns())
                 
         # We don't strictly require pd_col or conversion_rate_col unless they are 
         # specifically used, but if they are defined, they should probably exist.

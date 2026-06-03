@@ -23,10 +23,11 @@ class GroupingRecipe:
         
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> GroupingRecipe:
+        mapping = {str(k): v for k, v in d["cluster_mapping"].items()}
         return cls(
             score_cols=d["score_cols"],
             quantile_breaks=d["quantile_breaks"],
-            cluster_mapping=d["cluster_mapping"],
+            cluster_mapping=mapping,
         )
         
     def to_json(self) -> str:
@@ -98,7 +99,10 @@ def find_risk_groups(
         score_cols = [score_cols]
         
     if max_groups is None:
-        max_groups = 10 if min_pd_diff == 0.0 else bins
+        max_groups = 5
+        
+    if max_groups > bins:
+        raise ValueError(f"max_groups ({max_groups}) cannot be greater than bins ({bins}).")
         
     df = data.copy()
     

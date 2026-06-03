@@ -13,6 +13,7 @@ from .grouping import find_risk_groups, RiskGroupResult, GroupingRecipe
 from .screening import screen_risk_segments, ScreeningResult, ScreeningRecipe
 from .sample_data import generate_sample_data
 from .expressions import col, Expression
+from . import examples
 
 __all__ = [
     "SimulationMethod",
@@ -45,4 +46,5 @@ __all__ = [
     "Expression",
     "TradeoffAnalyzer",
     "ModelEvaluator",
+    "examples",
 ]

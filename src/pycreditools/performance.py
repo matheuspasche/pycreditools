@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from typing import Any
 
 from .simulation import CreditSimResults
@@ -49,8 +50,6 @@ def summarize_results(results: CreditSimResults, by: str | list[str] | None = No
     
     data.loc[swap_out_mask, "_bad_rate_proxy"] = data.loc[swap_out_mask, actual_default_col]
     data.loc[keep_out_mask, "_bad_rate_proxy"] = np.nan   # no observable data
-    
-    import numpy as np
     
     if not is_analytical:
         # ── Stochastic path ─────────────────────────────────────────────

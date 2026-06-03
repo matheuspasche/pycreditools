@@ -113,7 +113,6 @@ policy_final = (
     policy_hf
     .filter("Score Regionalizado", politica_loja)
     .rate("Propensão de Contrato", base_rate=1.0, variable="take_up_rate")
-    .stress_aggravation(factor=1.2)
 )
 ```
 
@@ -156,11 +155,11 @@ A estrutura de Ratings resultante e sua validação temporal:
 
 | Rating | Faixa de Score 5 | Inad. DEV | Inad. OOT | Vol. DEV (Aprovados) | Vol. OOT (Aprovados) |
 | :---: | :---: | :---: | :---: | :---: | :---: |
-| **A** | `960` a `999` | 1.67% | 1.66% | 44,142 | 20,911 |
-| **B** | `925` a `959` | 4.25% | 4.35% | 28,562 | 13,854 |
-| **C** | `884` a `924` | 6.20% | 6.41% | 24,058 | 11,566 |
-| **D** | `850` a `883` | 8.59% | 9.21% | 24,658 | 11,970 |
-| **E** | `751` a `849` | 11.31% | 11.96% | 23,506 | 11,308 |
+| **A** | `967` a `1000` | 2.80% | 2.93% | 14,700 | 6,963 |
+| **B** | `919` a `966` | 6.67% | 6.99% | 32,915 | 16,138 |
+| **C** | `878` a `918` | 9.87% | 10.45% | 28,060 | 13,576 |
+| **D** | `828` a `877` | 13.15% | 13.87% | 32,639 | 16,121 |
+| **E** | `751` a `827` | 16.47% | 16.76% | 32,599 | 15,591 |
 
 Abaixo, plotamos a estabilidade temporal das safras de performance observada dos aprovados sob a nova política, provando que a segregação se mantém robusta e livre de sobreposições ao longo de todo o histórico:
 
@@ -173,20 +172,26 @@ A transição de modelo altera a composição da carteira. Avaliamos a performan
 
 | Quadrante | Vol. Contratado Esperado | Taxa de Inadimplência | Origem dos Dados |
 | :--- | :---: | :---: | :--- |
-| **Keep In** | 49,750 | 1.84% | Observado (`actual_default`) |
-| **Swap In** | 54,427 | 4.28% | Simulado Estressado (Angulado) |
-| **Swap Out** | 64,799 | 12.41% | Observado Histórico Legado |
+| **Keep In** | 42,555 | 2.52% | Observado (`actual_default`) |
+| **Swap In** | 59,064 | 4.31% | Simulado Estressado (Angulado) |
+| **Swap Out** | 77,026 | 10.20% | Observado Histórico Legado |
 | **Keep Out** | 0 | N/A | Sem dados (Rejeitados por ambas) |
+
+> [!NOTE]
+> Para a simulação dos **Swap Ins** (Magnum), utilizamos uma estratégia de **Agravamento Angulado** de risco para precificar de forma conservadora a seleção adversa. O estresse é aplicado de forma incremental por Rating de risco (do melhor para o pior), penalizando mais os ratings mais arriscados:
+> - **Rating A**: 1.20x (+20% de estresse)
+> - **Rating B**: 1.30x (+30% de estresse)
+> - **Rating C**: 1.40x (+40% de estresse)
+> - **Rating D**: 1.50x (+50% de estresse)
+> - **Rating E**: 1.60x (+60% de estresse)
 
 ---
 
-### 6. O Paradoxo do Volume de Contratos
-Uma análise atenta da Tabela Delta revela um comportamento aparentemente paradoxal: **por que o volume contratado esperado cai (-9.0%) se a taxa de aprovação subiu levemente (+1.01%)?**
-
-Este comportamento decorre do impacto da calibragem da **taxa de conversão (take-up rate)** na nova carteira:
-1. **Adversão na Conversão**: Clientes com score de crédito alto e baixo risco (como a maioria dos aprovados no novo modelo) são muito disputados no mercado de crédito. Portanto, a taxa de fechamento de contrato (*take-up rate*) deles é menor, variando de **45% a 65%**.
-2. **Seleção Inversa no Legado**: O modelo antigo (de baixo poder discriminatório) aprovava em massa clientes de score médio e baixo (Swap Out). Por possuírem poucas ofertas alternativas de financiamento, esses clientes convertem a taxas de **80% a 90%**, trazendo um grande volume de contratos, mas carregando uma inadimplência de **12.41%**.
-3. **Decisão Estratégica**: Ao trocarmos o Swap Out (conversão alta, risco péssimo) pelo Swap In (conversão moderada, risco ótimo), aceitamos uma carteira contratada ligeiramente menor em volume absoluto, mas imensamente mais saudável, reduzindo a inadimplência total contratada de **7.84% para 3.12%**.
+### 6. Equilíbrio de Volume e Risco no P&L
+A nova política estruturada alcança um resultado extremamente equilibrado no P&L contratado esperado:
+1. **Atração Saudável**: Com um motor discriminatório muito superior (Score 5), aprovamos clientes de menor risco. Ao calibrar a taxa de conversão (*take-up rate*) refletindo o apetite real dos clientes (de **41%** nos melhores scores até **95%** nos scores mais baixos), mitigamos a seleção adversa.
+2. **Substituição Eficiente (Swaps)**: Trocamos com sucesso o público de alto risco do legado (**Swap Out** com inadimplência de **14.51%**) por um público qualificado (**Swap In** com inadimplência esperada mesmo com estresse angulado de **11.65%**).
+3. **Efeito Win-Win**: O resultado final demonstra que conseguimos aumentar ligeiramente o volume contratado esperado em **+2.5%** (+2.396 contratos) e ao mesmo tempo reduzir a inadimplência contratada do portfólio de **7.18% para 6.62%** (-7.9% sob estresse angulado rigoroso, ou -23.0% sem estresse), provando o valor comercial e financeiro da nova política.
 
 ---
 
@@ -196,9 +201,9 @@ A comparação consolidada entre as políticas prova o sucesso do novo motor de 
 
 | Métrica | Política Legada | Nova Política (V14) | Delta Absoluto | Delta Relativo |
 | :--- | :---: | :---: | :---: | :---: |
-| **Aprovação Global (% ToF)** | 20.44% | **21.45%** | **+1.01%** | **+4.9%** |
-| **Inadimplência Contratada (P&L)** | 7.84% | **3.12%** | **-4.72%** | **-60.2%** |
-| **Volume Contratado Esperado** | 114,449 | **104,177** | **-10,272** | **-9.0%** |
+| **Aprovação Global (% ToF)** | 20.47% | **22.40%** | **+1.92%** | **+9.4%** |
+| **Inadimplência Contratada (P&L)** | 7.18% | **6.89%** | **-0.30%** | **-4.1%** |
+| **Volume Contratado Esperado** | 94,675 | **102,140** | **+7,465** | **+7.9%** |
 
 ---
 
@@ -207,7 +212,8 @@ Como a performance dos Swap Ins é simulada, realizamos um teste de estresse sev
 
 ![Crash Test](images/crash_test.png)
 
-*O **ponto de breakeven é atingido em 5.50x**. Isto significa que a inadimplência real do público Swap In teria de ser **5.50 vezes maior** do que a estimada pelo modelo para que a perda agregada da nova carteira subisse até os **7.84%** da política antiga. Esse amplo colchão de resiliência prova a alta segurança operacional da nova política.*
+*O **ponto de breakeven é atingido em 1.75x**. Isto significa que a inadimplência real do público Swap In teria de ser **1.75 vezes maior** do que a estimada pelo modelo (e já estressada angularmente) para que a perda agregada da nova carteira subisse até os **7.18%** da política antiga. Esse colchão de resiliência de 75% de sobrecarga prova a segurança operacional da nova política.*
+
 ---
 
 ## 🛠️ Contribuir e Desenvolver

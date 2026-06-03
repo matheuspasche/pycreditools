@@ -49,9 +49,9 @@ def run_simulation(
     stage_approval_cols = []
     df["pass_prob_funnel"] = 1.0
     
-    # Track the last non-RateStage probability for "Approved" (pre-take-up)
+    # Track the cumulative non-RateStage probability for "Approved" (pre-take-up)
     # so we can distinguish Approved vs Hired in the summary.
-    last_filter_prob = pd.Series(1.0, index=df.index)
+    df["pass_prob_pre_rate"] = 1.0
     
     if policy.stages:
         for i, stage in enumerate(policy.stages):
@@ -65,9 +65,9 @@ def run_simulation(
             df["pass_prob_funnel"] = df["pass_prob_funnel"] * stage_res
             df[stage_output_col] = df["pass_prob_funnel"]
             
-            # Record cumulative probability before any RateStage kicks in
+            # Accumulate only filter/cutoff stages for pre-rate approval
             if not isinstance(stage, RateStage):
-                last_filter_prob = df["pass_prob_funnel"].copy()
+                df["pass_prob_pre_rate"] = df["pass_prob_pre_rate"] * stage_res
             
     if method == SimulationMethod.STOCHASTIC:
         if not stage_approval_cols:
@@ -76,13 +76,15 @@ def run_simulation(
         else:
             df["new_approval"] = df[stage_approval_cols].fillna(0).min(axis=1).astype(int)
             # "approved" = passed all filter/cutoff stages (before rate stages)
-            df["approved_pre_rate"] = (last_filter_prob > 0).astype(int)
+            df["approved_pre_rate"] = (df["pass_prob_pre_rate"] > 0).astype(int)
     else:
         df["new_approval"] = df["pass_prob_funnel"]
         # In analytical mode, approved_pre_rate is the probability up to last non-rate stage
-        df["approved_pre_rate"] = last_filter_prob
+        df["approved_pre_rate"] = df["pass_prob_pre_rate"]
         
     del df["pass_prob_funnel"]
+    if "pass_prob_pre_rate" in df.columns:
+        del df["pass_prob_pre_rate"]
     
     df = _classify_scenarios(df, policy, "new_approval")
     df = _assign_simulated_defaults(df, policy, method)
@@ -143,6 +145,13 @@ def _assign_simulated_defaults(
         if not policy.stress_scenarios:
             final_probs = baseline_pd
         else:
+            if len(policy.stress_scenarios) > 1:
+                warnings.warn(
+                    f"Multiple stress scenarios active ({len(policy.stress_scenarios)}). "
+                    "The simulator will use the maximum (worst-case) stressed PD for each applicant.",
+                    UserWarning,
+                    stacklevel=2
+                )
             prob_matrix = pd.DataFrame(index=swap_ins.index)
             # Create a copy to prevent warnings when modifying
             swap_ins_temp = swap_ins.copy()
