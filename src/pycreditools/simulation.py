@@ -92,10 +92,26 @@ class CreditSimResults:
             
         # 3. Apply optional rating recipe
         if rating_recipe is not None:
-            pred_df = rating_recipe.predict(df)
-            if rating_labels is None:
-                rating_labels = {i: chr(64 + i) for i in range(1, 27)}
-            df["rating"] = pred_df["risk_rating"].map(rating_labels)
+            if isinstance(rating_recipe, dict):
+                # Segmented ratings by store/region
+                segment_col = "region"
+                for c in ["region", "loja", "safra"]:
+                    if c in df.columns:
+                        segment_col = c
+                        break
+                df["rating"] = None
+                for seg, recipe in rating_recipe.items():
+                    mask = df[segment_col] == seg
+                    if mask.any():
+                        pred_seg = recipe.predict(df[mask])
+                        if rating_labels is None:
+                            rating_labels = {i: chr(64 + i) for i in range(1, 27)}
+                        df.loc[mask, "rating"] = pred_seg["risk_rating"].map(rating_labels)
+            else:
+                pred_df = rating_recipe.predict(df)
+                if rating_labels is None:
+                    rating_labels = {i: chr(64 + i) for i in range(1, 27)}
+                df["rating"] = pred_df["risk_rating"].map(rating_labels)
         else:
             df["rating"] = None
             

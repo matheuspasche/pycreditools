@@ -18,9 +18,18 @@ class DeploymentPolicy:
     
     def to_dict(self) -> dict[str, Any]:
         """Serialize the deployment policy to a dictionary."""
+        recipe_data = None
+        if self.rating_recipe:
+            if isinstance(self.rating_recipe, dict):
+                recipe_data = {
+                    "type": "segmented_recipes",
+                    "recipes": {k: v.to_dict() for k, v in self.rating_recipe.items()}
+                }
+            else:
+                recipe_data = self.rating_recipe.to_dict()
         return {
             "policy": self.policy.to_dict(),
-            "rating_recipe": self.rating_recipe.to_dict() if self.rating_recipe else None,
+            "rating_recipe": recipe_data,
         }
         
     @classmethod
@@ -28,7 +37,12 @@ class DeploymentPolicy:
         """Deserialize a dictionary to a DeploymentPolicy."""
         policy = CreditPolicy.from_dict(d["policy"])
         recipe_dict = d.get("rating_recipe")
-        recipe = GroupingRecipe.from_dict(recipe_dict) if recipe_dict else None
+        recipe = None
+        if recipe_dict:
+            if isinstance(recipe_dict, dict) and recipe_dict.get("type") == "segmented_recipes":
+                recipe = {k: GroupingRecipe.from_dict(v) for k, v in recipe_dict["recipes"].items()}
+            else:
+                recipe = GroupingRecipe.from_dict(recipe_dict)
         return cls(policy=policy, rating_recipe=recipe)
         
     def save(self, path: str) -> None:
@@ -83,38 +97,75 @@ class DeploymentPolicy:
         # 2. Clean rating ranges from recipe
         ratings = None
         if self.rating_recipe is not None:
-            score_col = self.rating_recipe.score_cols[0] if self.rating_recipe.score_cols else None
-            if score_col:
-                breaks = np.array(self.rating_recipe.quantile_breaks[score_col])
-                mapping = self.rating_recipe.cluster_mapping
+            if isinstance(self.rating_recipe, dict):
+                # Segmented ratings (e.g. recipes per store/region)
+                segmentos_dict = {}
+                score_col = None
                 
-                # Check actual risk mapping sorted default order
-                # Default mapping of cluster labels in find_risk_groups assigns 1..K.
-                # A to E map (1 -> A, 2 -> B, etc.)
-                cluster_to_rating = {1: "A", 2: "B", 3: "C", 4: "D", 5: "E"}
-                score_to_rating = {}
-                for s in range(0, 1001):
-                    bin_idx = np.digitize([s], bins=breaks[1:-1])[0]
-                    cid = mapping.get(str(bin_idx))
-                    score_to_rating[s] = cluster_to_rating.get(cid, "E")
+                for seg, recipe in self.rating_recipe.items():
+                    if not score_col and recipe.score_cols:
+                        score_col = recipe.score_cols[0]
                     
-                faixas = {}
-                for s, r in score_to_rating.items():
-                    if r not in faixas:
-                        faixas[r] = []
-                    faixas[r].append(s)
-                
-                faixas_list = []
-                for r in sorted(faixas.keys()):
-                    faixas_list.append({
-                        "rating": r,
-                        "nota_minima": min(faixas[r]),
-                        "nota_maxima": max(faixas[r])
-                    })
+                    breaks = np.array(recipe.quantile_breaks[score_col])
+                    mapping = recipe.cluster_mapping
+                    cluster_to_rating = {1: "A", 2: "B", 3: "C", 4: "D", 5: "E"}
+                    
+                    score_to_rating = {}
+                    for s in range(0, 1001):
+                        bin_idx = np.digitize([s], bins=breaks[1:-1])[0]
+                        cid = mapping.get(str(bin_idx))
+                        score_to_rating[s] = cluster_to_rating.get(cid, "E")
+                        
+                    faixas = {}
+                    for s, r in score_to_rating.items():
+                        if r not in faixas:
+                            faixas[r] = []
+                        faixas[r].append(s)
+                    
+                    faixas_list = []
+                    for r in sorted(faixas.keys()):
+                        faixas_list.append({
+                            "rating": r,
+                            "nota_minima": min(faixas[r]),
+                            "nota_maxima": max(faixas[r])
+                        })
+                    segmentos_dict[seg] = faixas_list
+                    
                 ratings = {
                     "score_coluna": score_col,
-                    "faixas": faixas_list
+                    "coluna_segmentacao": "region",
+                    "segmentos": segmentos_dict
                 }
+            else:
+                score_col = self.rating_recipe.score_cols[0] if self.rating_recipe.score_cols else None
+                if score_col:
+                    breaks = np.array(self.rating_recipe.quantile_breaks[score_col])
+                    mapping = self.rating_recipe.cluster_mapping
+                    
+                    cluster_to_rating = {1: "A", 2: "B", 3: "C", 4: "D", 5: "E"}
+                    score_to_rating = {}
+                    for s in range(0, 1001):
+                        bin_idx = np.digitize([s], bins=breaks[1:-1])[0]
+                        cid = mapping.get(str(bin_idx))
+                        score_to_rating[s] = cluster_to_rating.get(cid, "E")
+                        
+                    faixas = {}
+                    for s, r in score_to_rating.items():
+                        if r not in faixas:
+                            faixas[r] = []
+                        faixas[r].append(s)
+                    
+                    faixas_list = []
+                    for r in sorted(faixas.keys()):
+                        faixas_list.append({
+                            "rating": r,
+                            "nota_minima": min(faixas[r]),
+                            "nota_maxima": max(faixas[r])
+                        })
+                    ratings = {
+                        "score_coluna": score_col,
+                        "faixas": faixas_list
+                    }
                 
         return {
             "etapas_funil": etapas,
@@ -135,7 +186,21 @@ class DeploymentPolicy:
         res_df = sim_res.data.copy()
         if self.rating_recipe is not None:
             # Apply ratings to the full DataFrame
-            pred_df = self.rating_recipe.predict(res_df)
-            rating_labels = {i: chr(64 + i) for i in range(1, 27)}
-            res_df["Rating"] = pred_df["risk_rating"].map(rating_labels)
+            if isinstance(self.rating_recipe, dict):
+                segment_col = "region"
+                for c in ["region", "loja", "safra"]:
+                    if c in res_df.columns:
+                        segment_col = c
+                        break
+                res_df["Rating"] = None
+                for seg, recipe in self.rating_recipe.items():
+                    mask = res_df[segment_col] == seg
+                    if mask.any():
+                        pred_seg = recipe.predict(res_df[mask])
+                        rating_labels = {i: chr(64 + i) for i in range(1, 27)}
+                        res_df.loc[mask, "Rating"] = pred_seg["risk_rating"].map(rating_labels)
+            else:
+                pred_df = self.rating_recipe.predict(res_df)
+                rating_labels = {i: chr(64 + i) for i in range(1, 27)}
+                res_df["Rating"] = pred_df["risk_rating"].map(rating_labels)
         return res_df

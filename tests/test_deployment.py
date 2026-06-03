@@ -2,7 +2,7 @@ import os
 import tempfile
 import pandas as pd
 import numpy as np
-from pycreditools import CreditPolicy, col, find_risk_groups, DeploymentPolicy
+from pycreditools import CreditPolicy, col, find_risk_groups, DeploymentPolicy, GroupingRecipe
 
 def test_deployment_and_simple_df():
     # 1. Create a dummy dataset
@@ -114,3 +114,68 @@ def test_deployment_and_simple_df():
         pred_raw = loaded_dep.predict(df, simple=False, method="stochastic")
         assert "Rating" in pred_raw.columns
         assert "decisao" not in pred_raw.columns
+
+def test_segmented_deployment_policy():
+    df = pd.DataFrame({
+        "applicant_id": range(4),
+        "score_5": [950, 920, 850, 780],
+        "region": ["Sudeste", "Nordeste", "Sudeste", "Nordeste"],
+        "cpf_valido": [True, True, True, True],
+        "vl_negativacao": [0, 0, 0, 0],
+        "actual_default": [0, 0, 0, 0],
+        "approved": [1, 1, 1, 1],
+        "safra": ["2026-01"] * 4
+    })
+    
+    # Create simple policy
+    policy = (
+        CreditPolicy(
+            applicant_id_col="applicant_id",
+            score_cols=["score_5"],
+            current_approval_col="approved",
+            actual_default_col="actual_default"
+        )
+        .filter("CPF Válido", col("cpf_valido") == True)
+    )
+    
+    # Create mock recipes for Sudeste and Nordeste
+    recipe_se = GroupingRecipe(
+        score_cols=["score_5"],
+        quantile_breaks={"score_5": [750.0, 800.0, 900.0, 1000.0]},
+        cluster_mapping={"0": 3, "1": 2, "2": 1}
+    )
+    recipe_ne = GroupingRecipe(
+        score_cols=["score_5"],
+        quantile_breaks={"score_5": [750.0, 820.0, 910.0, 1000.0]},
+        cluster_mapping={"0": 3, "1": 2, "2": 1}
+    )
+    
+    segmented_recipe = {
+        "Sudeste": recipe_se,
+        "Nordeste": recipe_ne
+    }
+    
+    dep = DeploymentPolicy(policy=policy, rating_recipe=segmented_recipe)
+    
+    # Check serialization
+    d = dep.to_dict()
+    assert d["rating_recipe"]["type"] == "segmented_recipes"
+    assert "Sudeste" in d["rating_recipe"]["recipes"]
+    
+    # Check deserialization
+    loaded = DeploymentPolicy.from_dict(d)
+    assert isinstance(loaded.rating_recipe, dict)
+    assert "Nordeste" in loaded.rating_recipe
+    
+    # Check production rules export
+    rules = loaded.to_production_rules()
+    assert "segmentos" in rules["classificacao_ratings"]
+    assert "Sudeste" in rules["classificacao_ratings"]["segmentos"]
+    
+    # Check prediction
+    res = loaded.predict(df, simple=True, method="stochastic")
+    # applicant 1: Nordeste, score 920 -> maps to index 2 (910..1000) -> maps to cluster 1 -> Rating A
+    # applicant 3: Nordeste, score 780 -> maps to index 0 (750..820) -> maps to cluster 3 -> Rating C
+    assert res.loc[1, "rating"] == "A"
+    assert res.loc[3, "rating"] == "C"
+
