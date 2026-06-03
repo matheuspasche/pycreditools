@@ -30,13 +30,22 @@ def test_deployment_and_simple_df():
     )
 
     # 3. Simulate
-    sim_res = policy.simulate(df)
+    sim_res = policy.simulate(df, method="stochastic")
     
     # 4. Generate simple DataFrame without rating
     simple_df = sim_res.to_decision_dataframe()
     assert "decisao" in simple_df.columns
     assert "motivo" in simple_df.columns
+    assert "contratou" in simple_df.columns
+    assert "inadimplente" in simple_df.columns
+    assert "cenario" in simple_df.columns
     assert "rating" not in simple_df.columns
+    
+    # Check values
+    assert simple_df.loc[0, "contratou"] == "Sim"
+    assert simple_df.loc[5, "contratou"] == "Não"
+    assert simple_df.loc[0, "cenario"] == "Swap In"
+    assert simple_df.loc[2, "cenario"] == "Keep In"
     
     # Check decisions
     # id 5 (age 15) fails first filter "Idade Mínima"
@@ -85,11 +94,11 @@ def test_deployment_and_simple_df():
         assert loaded_dep.rating_recipe.score_cols == ["score_5"]
         
         # Predict on new data
-        pred_simple = loaded_dep.predict(df, simple=True)
+        pred_simple = loaded_dep.predict(df, simple=True, method="stochastic")
         assert list(pred_simple.columns) == list(simple_df_with_rating.columns)
         pd.testing.assert_frame_equal(pred_simple, simple_df_with_rating)
         
         # Predict raw
-        pred_raw = loaded_dep.predict(df, simple=False)
+        pred_raw = loaded_dep.predict(df, simple=False, method="stochastic")
         assert "Rating" in pred_raw.columns
         assert "decisao" not in pred_raw.columns

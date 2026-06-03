@@ -99,8 +99,39 @@ class CreditSimResults:
         else:
             df["rating"] = None
             
-        # 4. Construct simplified DataFrame
-        simple_cols = input_cols + ["decisao", "motivo"]
+        # 4. Add 'contratou', 'inadimplente', and 'cenario'
+        is_analytical = self.metadata.get("method") == "analytical"
+        
+        if "new_approval" in df.columns:
+            if is_analytical:
+                df["contratou"] = df["new_approval"]
+            else:
+                df["contratou"] = np.where(df["new_approval"] > 0.5, "Sim", "Não")
+        else:
+            df["contratou"] = "Não"
+            
+        if "simulated_default" in df.columns:
+            if is_analytical:
+                df["inadimplente"] = df["simulated_default"]
+            else:
+                hired_mask = df["new_approval"] > 0.5
+                df["inadimplente"] = np.where(hired_mask, df["simulated_default"], np.nan)
+        else:
+            df["inadimplente"] = np.nan
+            
+        if "scenario" in df.columns:
+            quad_map = {
+                "keep_in": "Keep In",
+                "swap_in": "Swap In",
+                "swap_out": "Swap Out",
+                "keep_out": "Keep Out"
+            }
+            df["cenario"] = df["scenario"].map(quad_map).fillna(df["scenario"])
+        else:
+            df["cenario"] = "Keep Out"
+            
+        # 5. Construct simplified DataFrame
+        simple_cols = input_cols + ["decisao", "motivo", "contratou", "inadimplente", "cenario"]
         if rating_recipe is not None:
             simple_cols.append("rating")
             

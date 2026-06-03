@@ -43,9 +43,9 @@ class DeploymentPolicy:
             d = json.load(f)
         return cls.from_dict(d)
         
-    def predict(self, df: pd.DataFrame, simple: bool = True) -> pd.DataFrame:
+    def predict(self, df: pd.DataFrame, simple: bool = True, method: str = "analytical") -> pd.DataFrame:
         """Apply the complete decision flow (policy + rating) to new data."""
-        sim_res = self.policy.simulate(df)
+        sim_res = self.policy.simulate(df, method=method)
         if simple:
             return sim_res.to_decision_dataframe(rating_recipe=self.rating_recipe)
             

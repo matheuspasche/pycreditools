@@ -561,13 +561,16 @@ dep_loaded = DeploymentPolicy.load("politica_final_producao.json")
 # O método predict com simple=True retorna uma base simplificada com:
 # - Todos os inputs originais
 # - decisao (Aprovado / Reprovado)
-# - motivo (Indica o primeiro filtro violado no funil, ex: '2: Teto Negativação' ou 'Aprovado')
+# - motivo (Primeiro filtro violado no funil, ou 'Aprovado')
+# - contratou (Sim / Não indicando se fechou contrato)
+# - inadimplente (Se houve default ou NaN se não contratou)
+# - cenario (Keep In, Swap In, Swap Out, Keep Out)
 # - rating (Letras de A a E para os aprovados)
 df_amostra = df_dev.sample(10, random_state=42).copy()
 df_decisoes = dep_loaded.predict(df_amostra, simple=True)
 
 print("\\n=== BASE DE DECISÃO SIMPLIFICADA PARA PRODUÇÃO (AMOSTRA) ===")
-cols_show = ["applicant_id", "region", "score_5", "age", "vl_negativacao", "decisao", "motivo", "rating"]
+cols_show = ["applicant_id", "region", "score_5", "age", "vl_negativacao", "decisao", "motivo", "contratou", "inadimplente", "cenario", "rating"]
 print(df_decisoes[cols_show].to_string(index=False))
 """))
 
