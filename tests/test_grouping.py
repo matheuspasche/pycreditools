@@ -1,7 +1,7 @@
 import pytest
 import pandas as pd
 import numpy as np
-from pycreditools.grouping import find_risk_groups
+from pycreditools.grouping import fit_risk_groups
 
 def test_distance_linkage_clustering():
     """Test autonomous distance-based clustering limits."""
@@ -15,7 +15,7 @@ def test_distance_linkage_clustering():
     })
     
     # Run autonomous distance-linkage clustering
-    res = find_risk_groups(
+    res = fit_risk_groups(
         df,
         score_cols="new_score",
         default_col="temp_default",
