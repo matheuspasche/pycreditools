@@ -2,15 +2,15 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import pandas as pd
 import numpy as np
-from typing import Any
+from typing import Any, Callable
 
-_CALLABLE_REGISTRY: dict[str, callable] = {}
+_CALLABLE_REGISTRY: dict[str, Callable] = {}
 
-def register_callable(name: str, func: callable) -> None:
+def register_callable(name: str, func: Callable) -> None:
     """Register a custom function so it can be resolved during deserialization."""
     _CALLABLE_REGISTRY[name] = func
 
-def _resolve_callable(name: str) -> callable:
+def _resolve_callable(name: str) -> Callable:
     if name in _CALLABLE_REGISTRY:
         return _CALLABLE_REGISTRY[name]
         

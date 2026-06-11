@@ -188,7 +188,9 @@ def optimize_cutoffs(
         # Run simulation once
         sim_static = p_static.simulate(data, method="analytical")
         
-        p_base = sim_static.data["new_approval"].values
+        # Use approved_pre_rate (filters/cutoffs only) so the metric is approval rate,
+        # not hire/contracted rate — which would be wrong when the policy contains a RateStage.
+        p_base = sim_static.data["approved_pre_rate"].values
         # Get simulated_default. Fallback to actual_default_col if NA
         pd_base = sim_static.data["simulated_default"].values
         actual_defaults = data[config.actual_default_col].values

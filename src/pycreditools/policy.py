@@ -234,9 +234,6 @@ class CreditPolicy:
             f"  Actual default: {self.actual_default_col}",
         ]
 
-
-
-
         if self.stages:
             lines.append("  Stages:")
             for i, stage in enumerate(self.stages, 1):

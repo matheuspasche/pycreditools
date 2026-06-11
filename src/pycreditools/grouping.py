@@ -15,11 +15,11 @@ class GroupingRecipe:
     """Serializable recipe for applying grouping to new data."""
 
     score_cols: list[str]
-    quantile_breaks: dict[str, list[float]] = None
-    cluster_mapping: dict[str, int] = None
-    intervals: list[dict[str, Any]] = None
-    segmented_intervals: dict[str, list[dict[str, Any]]] = None
-    segment_col: str = None
+    quantile_breaks: dict[str, list[float]] | None = None
+    cluster_mapping: dict[str, int] | None = None
+    intervals: list[dict[str, Any]] | None = None
+    segmented_intervals: dict[str, list[dict[str, Any]]] | None = None
+    segment_col: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = {"score_cols": self.score_cols}

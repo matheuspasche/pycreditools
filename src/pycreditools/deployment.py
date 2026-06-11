@@ -78,11 +78,19 @@ class DeploymentPolicy:
                     )
                 )
             elif t == "rate_conversion":
+                prop_col = s.get("propensity_column")
+                if isinstance(prop_col, dict):
+                    if prop_col.get("type") == "callable":
+                        from .stages import _resolve_callable
+                        prop_col = _resolve_callable(prop_col["name"])
+                    else:
+                        from .expressions import deserialize_expression
+                        prop_col = deserialize_expression(prop_col)
                 stages.append(
                     RateStage(
                         name=name,
                         base_rate=s.get("base_rate"),
-                        variable=s.get("propensity_column"),
+                        variable=prop_col,
                     )
                 )
 
@@ -225,13 +233,22 @@ class DeploymentPolicy:
                     }
                 )
             elif isinstance(stage, RateStage) and not clean:
+                from .expressions import Expression, serialize_expression
+                var_data = stage.variable
+                if isinstance(stage.variable, Expression):
+                    var_data = serialize_expression(stage.variable)
+                elif callable(stage.variable):
+                    var_data = {
+                        "type": "callable",
+                        "name": getattr(stage.variable, "__name__", str(stage.variable))
+                    }
                 stages_list.append(
                     {
                         "position": len(stages_list) + 1,
                         "name": stage.name,
                         "type": "rate_conversion",
                         "base_rate": stage.base_rate,
-                        "propensity_column": stage.variable,
+                        "propensity_column": var_data,
                     }
                 )
 

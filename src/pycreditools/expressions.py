@@ -221,7 +221,8 @@ class CalibratedExpression(Expression):
 
         cal_bins = policy.calibration_bins
         if cal_bins is None:
-            n_bins = min(20, max(5, len(keep_in_scores) // 200))
+            # Default: 10 score bins (deciles), consistent with simulation.py
+            n_bins = 10
         else:
             n_bins = cal_bins
 

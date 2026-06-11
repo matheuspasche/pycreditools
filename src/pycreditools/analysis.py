@@ -129,13 +129,21 @@ def run_tradeoff_analysis(
         sim_results = run_simulation(data, temp_policy, method=SimulationMethod.ANALYTICAL)
         final_data = sim_results.data
 
-        app_sum = final_data["new_approval"].sum()
+        # Use approved_pre_rate when available so metrics reflect the *approved* population,
+        # not the contracted one — avoids RateStage (take-up) distorting the tradeoff curve.
+        _aprov_col = (
+            "approved_pre_rate"
+            if "approved_pre_rate" in final_data.columns
+            else "new_approval"
+        )
+
+        app_sum = final_data[_aprov_col].sum()
         total = len(final_data)
         approval_rate = app_sum / total if total > 0 else 0.0
 
         if app_sum > 0:
             bad_rate = (
-                final_data["simulated_default"] * final_data["new_approval"]
+                final_data["simulated_default"] * final_data[_aprov_col]
             ).sum() / app_sum
         else:
             bad_rate = 0.0

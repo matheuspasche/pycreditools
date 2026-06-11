@@ -244,7 +244,7 @@ def run_simulation(
     if method == SimulationMethod.STOCHASTIC:
         if not stage_approval_cols:
             df["new_approval"] = 1
-            df["approved"] = 1
+            df["approved_pre_rate"] = 1
         else:
             df["new_approval"] = df[stage_approval_cols].fillna(0).min(axis=1).astype(int)
             # "approved" = passed all filter/cutoff stages (before rate stages)
@@ -439,8 +439,13 @@ def _estimate_swap_in_baseline_pd(
     # Determine bins configuration
     cal_bins = policy.calibration_bins
     if cal_bins is None:
-        # Legacy/Default dynamic binning
-        n_bins = min(20, max(5, len(keep_in_scores) // 200))
+        # Default: 10 score bins (deciles). Override via CreditPolicy(calibration_bins=...).
+        n_bins = 10
+        warnings.warn(
+            "Swap-in PD imputation is using the default of 10 score bins (deciles). "
+            "Pass CreditPolicy(calibration_bins=...) to set a different granularity.",
+            stacklevel=2,
+        )
     else:
         n_bins = cal_bins
 

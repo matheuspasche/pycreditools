@@ -133,15 +133,18 @@ def compare_policies(sim_new: CreditSimResults, sim_old: CreditSimResults) -> di
     is_analytical = sim_new.metadata.get("method") == "analytical"
 
     def get_global_metrics(data):
+        has_pre_rate = "approved_pre_rate" in data.columns
+        aprov_col = "approved_pre_rate" if has_pre_rate else "new_approval"
         if not is_analytical:
-            app_sum = data["new_approval"].sum(skipna=True)
+            app_sum = data[aprov_col].sum(skipna=True)
             bad_rate = data.loc[data["new_approval"] == 1, "simulated_default"].mean(skipna=True)
         else:
-            app_sum = data["new_approval"].sum(skipna=True)
-            if app_sum > 0:
+            app_sum = data[aprov_col].sum(skipna=True)
+            hired_sum = data["new_approval"].sum(skipna=True)
+            if hired_sum > 0:
                 bad_rate = (data["simulated_default"] * data["new_approval"]).sum(
                     skipna=True
-                ) / app_sum
+                ) / hired_sum
             else:
                 bad_rate = 0.0
         return app_sum, bad_rate if pd.notna(bad_rate) else 0.0

@@ -23,14 +23,14 @@ def calculate_tier_metrics(
     unique_groups = np.unique(groups)
     results = []
 
-    # We should exclude NaNs from calculations
-    valid_mask = ~np.isnan(values) & ~np.isnan(defaults) & ~np.isnan(groups)
+    # We should exclude NaNs from calculations (pd.isna handles all dtypes safely)
+    valid_mask = ~pd.isna(values) & ~pd.isna(defaults) & ~pd.isna(groups)
     values = values[valid_mask]
-    groups = groups[valid_mask].astype(np.int64)
-    defaults = defaults[valid_mask].astype(np.int64)
+    groups = groups[valid_mask]
+    defaults = defaults[valid_mask].astype(np.float64)
 
     for g in unique_groups:
-        if np.isnan(g):
+        if pd.isna(g):
             continue
 
         g_mask = groups == g

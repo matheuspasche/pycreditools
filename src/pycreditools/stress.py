@@ -61,7 +61,10 @@ class AggravationStress(StressScenario):
 
     def apply(self, df: pd.DataFrame, pd_col: str) -> pd.Series:
         if self.factor_col and self.factor_col in df.columns:
-            stressed_pd = df[pd_col] * self.factor * df[self.factor_col]
+            # factor_col holds the per-applicant multiplier and is used directly.
+            # (Previously this also multiplied by self.factor, whose 1.5 default
+            #  silently compounded on top of the per-row factor.)
+            stressed_pd = df[pd_col] * df[self.factor_col]
         else:
             stressed_pd = df[pd_col] * self.factor
 
