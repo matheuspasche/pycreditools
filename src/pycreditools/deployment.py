@@ -425,12 +425,12 @@ class DeploymentPolicy:
             mocked_cols.append(id_col)
             
         app_col = self.policy.current_approval_col
-        if app_col not in df_temp.columns:
+        if app_col is not None and app_col not in df_temp.columns:
             df_temp[app_col] = 1
             mocked_cols.append(app_col)
             
         def_col = self.policy.actual_default_col
-        if def_col not in df_temp.columns:
+        if def_col is not None and def_col not in df_temp.columns:
             df_temp[def_col] = 0
             mocked_cols.append(def_col)
             

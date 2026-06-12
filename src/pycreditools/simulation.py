@@ -180,8 +180,6 @@ class CreditSimResults:
                 "keep_out": "Keep Out",
             }
             df["scenario"] = df["scenario"].map(quad_map).fillna(df["scenario"])
-        else:
-            df["scenario"] = "Keep Out"
 
         # 5. Construct simplified DataFrame (standard & immutable copy)
         simple_cols = input_cols + [
@@ -189,9 +187,10 @@ class CreditSimResults:
             "reason",
             "hired",
             "defaulted",
-            "scenario",
-            "rating",
         ]
+        if "scenario" in df.columns:
+            simple_cols.append("scenario")
+        simple_cols.append("rating")
 
         return df[simple_cols].copy()
 
@@ -200,6 +199,7 @@ def run_simulation(
     data: pd.DataFrame,
     policy: CreditPolicy,
     method: SimulationMethod | str = SimulationMethod.STOCHASTIC,
+    drop_stages: bool = False,
 ) -> CreditSimResults:
     """Run a multi-stage credit policy simulation.
 
@@ -207,6 +207,7 @@ def run_simulation(
         data: Applicant data.
         policy: The credit policy to simulate.
         method: "stochastic" (default) or "analytical".
+        drop_stages: Whether to drop intermediate stage columns.
 
     Returns:
         CreditSimResults containing the simulation data and metadata.
@@ -214,7 +215,7 @@ def run_simulation(
     if isinstance(method, str):
         method = SimulationMethod(method)
 
-    df = data.copy()
+    df = data.copy(deep=True)
 
     policy.validate(df)
 
@@ -258,8 +259,17 @@ def run_simulation(
     if "pass_prob_pre_rate" in df.columns:
         del df["pass_prob_pre_rate"]
 
-    df = _classify_scenarios(df, policy, "approved_pre_rate")
-    df = _assign_simulated_defaults(df, policy, method)
+    if policy.current_approval_col is None:
+        # Standalone Simulation
+        df = _assign_simulated_defaults_standalone(df, policy, method)
+    else:
+        # Normal swap flow
+        df = _classify_scenarios(df, policy, "approved_pre_rate")
+        df = _assign_simulated_defaults(df, policy, method)
+
+    if drop_stages:
+        stage_cols = [c for c in df.columns if c.startswith("stage_")]
+        df = df.drop(columns=stage_cols, errors="ignore")
 
     metadata = {
         "policy": policy.to_dict(),
@@ -296,6 +306,64 @@ def _classify_scenarios(
     # We use numpy where/select or simply map via a Series mapping to avoid dtype promotion issues.
     # Alternatively, ensure the default is a string (e.g. 'unknown').
     df["scenario"] = np.select(conditions, choices, default="unknown")
+    return df
+
+
+def _assign_simulated_defaults_standalone(
+    df: pd.DataFrame, policy: CreditPolicy, method: SimulationMethod
+) -> pd.DataFrame:
+    """Assign default outcomes for the final approved population in Standalone mode."""
+    df["simulated_default"] = np.nan
+
+    # 1. Determine baseline PD
+    # Use observed default if available
+    if policy.actual_default_col is not None and policy.actual_default_col in df.columns:
+        baseline_pd = df[policy.actual_default_col].astype(float)
+        use_stochastic_draw = False
+    else:
+        # Fallback to probabilities calculated by the stages
+        rate_stages = [s for s in policy.stages if isinstance(s, RateStage)]
+        if rate_stages:
+            last_rate_stage = rate_stages[-1]
+            # Evaluate the last RateStage analytically to get float default probabilities
+            baseline_pd = last_rate_stage.apply(df, method="analytical", policy=policy).astype(float)
+            use_stochastic_draw = True
+        else:
+            baseline_pd = pd.Series(np.nan, index=df.index)
+            use_stochastic_draw = False
+
+    # Apply stress scenarios if baseline PD has valid values
+    if policy.stress_scenarios and baseline_pd.notna().any():
+        if len(policy.stress_scenarios) > 1:
+            warnings.warn(
+                f"Multiple stress scenarios active ({len(policy.stress_scenarios)}). "
+                "The simulator will use the maximum (worst-case) stressed PD for each applicant.",
+                UserWarning,
+                stacklevel=2,
+            )
+        prob_matrix = pd.DataFrame(index=df.index)
+        df_temp = df.copy()
+        df_temp["__baseline_pd"] = baseline_pd.values
+        for i, scenario in enumerate(policy.stress_scenarios):
+            prob_matrix[f"prob_{i}"] = scenario.apply(df_temp, "__baseline_pd")
+        final_probs = prob_matrix.max(axis=1).clip(0.0, 1.0)
+        use_stochastic_draw = True
+    else:
+        final_probs = baseline_pd.clip(0.0, 1.0)
+
+    # Assign to the approved population (new_approval > 0 / new_approval == 1)
+    approved_mask = df["new_approval"] > 0
+    if approved_mask.any():
+        if method == SimulationMethod.STOCHASTIC and use_stochastic_draw:
+            valid_probs = final_probs.loc[approved_mask]
+            not_na_mask = valid_probs.notna()
+            if not_na_mask.any():
+                random_draws = np.random.random(not_na_mask.sum())
+                outcomes = (random_draws < valid_probs.loc[not_na_mask]).astype(float)
+                df.loc[not_na_mask[not_na_mask].index, "simulated_default"] = outcomes
+        else:
+            df.loc[approved_mask, "simulated_default"] = final_probs.loc[approved_mask]
+
     return df
 
 

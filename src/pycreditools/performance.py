@@ -25,6 +25,10 @@ def summarize_results(results: CreditSimResults, by: str | list[str] | None = No
     """
     data = results.data.copy()
     policy_dict = results.metadata["policy"]
+    if policy_dict.get("current_approval_col") is None:
+        raise ValueError(
+            "The simulation is standalone and does not support swap quadrant summary."
+        )
     actual_default_col = policy_dict["actual_default_col"]
 
     is_analytical = results.metadata.get("method") == "analytical"
@@ -129,6 +133,12 @@ def compare_policies(sim_new: CreditSimResults, sim_old: CreditSimResults) -> di
     """
     data_new = sim_new.data
     data_old = sim_old.data
+    policy_new_dict = sim_new.metadata["policy"]
+    policy_old_dict = sim_old.metadata["policy"]
+    if policy_new_dict.get("current_approval_col") is None or policy_old_dict.get("current_approval_col") is None:
+        raise ValueError(
+            "Cannot compare policies if one of the simulations is standalone (no historical decision)."
+        )
 
     is_analytical = sim_new.metadata.get("method") == "analytical"
 
@@ -275,6 +285,18 @@ def print_delta_table(
     """
     df_new = sim_new.data
     policy_new_dict = sim_new.metadata["policy"]
+    if policy_new_dict.get("current_approval_col") is None:
+        raise ValueError(
+            "The new policy simulation is standalone (no current_approval_col) "
+            "and does not support comparison delta tables."
+        )
+    if isinstance(sim_old, CreditSimResults):
+        policy_old_dict = sim_old.metadata["policy"]
+        if policy_old_dict.get("current_approval_col") is None:
+            raise ValueError(
+                "The old/legacy policy simulation is standalone (no current_approval_col) "
+                "and does not support comparison delta tables."
+            )
     actual_default_col = policy_new_dict["actual_default_col"]
     current_approval_col = policy_new_dict.get("current_approval_col", "approved")
 
@@ -376,6 +398,10 @@ def print_quadrant_summary(sim_results: CreditSimResults) -> None:
     """
     df = sim_results.data
     policy_dict = sim_results.metadata["policy"]
+    if policy_dict.get("current_approval_col") is None:
+        raise ValueError(
+            "The simulation is standalone and does not contain swap quadrant classification."
+        )
     actual_default_col = policy_dict["actual_default_col"]
 
     ki = df[df["scenario"] == "keep_in"]
@@ -435,6 +461,11 @@ def print_swap_in_by_rating(sim_results: CreditSimResults, rating_col: str = "Ra
         rating_col: Name of the rating column in the data.
     """
     df = sim_results.data.copy()
+    policy_dict = sim_results.metadata["policy"]
+    if policy_dict.get("current_approval_col") is None:
+        raise ValueError(
+            "The simulation is standalone and does not contain Swap In candidates."
+        )
     if rating_col not in df.columns:
         print(f"Coluna de Rating '{rating_col}' não encontrada nos dados.")
         return
@@ -475,6 +506,10 @@ def print_rating_quadrant_table(sim_results: CreditSimResults, rating_col: str =
     """
     df = sim_results.data.copy()
     policy_dict = sim_results.metadata["policy"]
+    if policy_dict.get("current_approval_col") is None:
+        raise ValueError(
+            "The simulation is standalone and does not support ratings by quadrant tables."
+        )
     actual_default_col = policy_dict["actual_default_col"]
     current_approval_col = policy_dict.get("current_approval_col", "approved")
     legacy_hired_col = "hired" if "hired" in df.columns else current_approval_col

@@ -177,6 +177,10 @@ class CalibratedExpression(Expression):
     def calibrate_and_eval(self, df: pd.DataFrame, policy: Any) -> pd.Series:
         import numpy as np
 
+        # Se for simulação standalone ou sem a coluna necessária, pula a calibração
+        if policy is None or policy.current_approval_col is None or policy.current_approval_col not in df.columns:
+            return self.expression.eval(df)
+
         # 1. Identify approved mask
         approved_mask = df[policy.current_approval_col] == 1
         if not approved_mask.any():

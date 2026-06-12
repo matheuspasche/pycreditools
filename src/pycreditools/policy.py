@@ -20,8 +20,8 @@ class CreditPolicy:
 
     applicant_id_col: str
     score_cols: tuple[str, ...]
-    current_approval_col: str
-    actual_default_col: str
+    current_approval_col: str | None = None
+    actual_default_col: str | None = None
     time_col: str | None = None
     stages: tuple[Stage, ...] = field(default_factory=tuple)
     stress_scenarios: tuple[StressScenario, ...] = field(default_factory=tuple)
@@ -87,11 +87,13 @@ class CreditPolicy:
         )
 
     def _replace(self, **kwargs) -> CreditPolicy:
-
         """Helper to create a new instance with replaced fields."""
+        import copy
         import dataclasses
 
-        return dataclasses.replace(self, **kwargs)
+        # Deep copy the current policy to isolate state
+        clone = copy.deepcopy(self)
+        return dataclasses.replace(clone, **kwargs)
 
     # --- Fluid Builder Methods ---
 
@@ -119,12 +121,22 @@ class CreditPolicy:
         """Add an AggravationStress scenario."""
         return self.add_stress(AggravationStress(factor=factor))
 
-    def simulate(self, df: pd.DataFrame, method: str = "analytical") -> Any:
+    def stress(self, factor: float) -> CreditPolicy:
+        """Add an AggravationStress scenario (alias for stress_aggravation)."""
+        return self.stress_aggravation(factor)
+
+    def simulate(
+        self,
+        df: pd.DataFrame,
+        method: str = "analytical",
+        drop_stages: bool = False,
+    ) -> Any:
         """Run simulation directly from the policy object.
 
         Args:
             df: The applicant data.
             method: "analytical" or "stochastic".
+            drop_stages: Whether to drop intermediate stage columns.
 
         Returns:
             CreditSimResults object.
@@ -134,7 +146,7 @@ class CreditPolicy:
         sim_method = (
             SimulationMethod.ANALYTICAL if method == "analytical" else SimulationMethod.STOCHASTIC
         )
-        return run_simulation(df, self, method=sim_method)
+        return run_simulation(df, self, method=sim_method, drop_stages=drop_stages)
 
     def validate(self, df: pd.DataFrame) -> None:
         """Validate that the policy can be run on the given DataFrame.
@@ -142,11 +154,11 @@ class CreditPolicy:
         Raises:
             ValueError: If required columns are missing.
         """
-        required_cols = list(self.score_cols) + [
-            self.applicant_id_col,
-            self.current_approval_col,
-            self.actual_default_col,
-        ]
+        required_cols = list(self.score_cols) + [self.applicant_id_col]
+        if self.current_approval_col is not None:
+            required_cols.append(self.current_approval_col)
+        if self.actual_default_col is not None:
+            required_cols.append(self.actual_default_col)
 
         # Add columns from stages
         from .expressions import Expression

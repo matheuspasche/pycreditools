@@ -11,33 +11,16 @@ def register_callable(name: str, func: Callable) -> None:
     _CALLABLE_REGISTRY[name] = func
 
 def _resolve_callable(name: str) -> Callable:
+    # Resolve solely via explicit registry
     if name in _CALLABLE_REGISTRY:
         return _CALLABLE_REGISTRY[name]
         
-    import sys
-    try:
-        frame = sys._getframe(0)
-        while frame:
-            if name in frame.f_locals:
-                val = frame.f_locals[name]
-                if callable(val):
-                    return val
-            if name in frame.f_globals:
-                val = frame.f_globals[name]
-                if callable(val):
-                    return val
-            frame = frame.f_back
-    except Exception:
-        pass
-        
-    def placeholder(df):
-        raise ValueError(
-            f"Custom function '{name}' was not found in the environment. "
-            f"Please define it in your script or register it using "
-            f"pycreditools.stages.register_callable('{name}', func)."
-        )
-    placeholder.__name__ = name
-    return placeholder
+    # If not found, raise an informative error with registration instructions
+    raise ValueError(
+        f"Custom function '{name}' has not been registered in the local environment.\n"
+        f"Please register the function before loading or running the policy using:\n"
+        f"  pycreditools.stages.register_callable('{name}', your_function)"
+    )
 
 class Stage(ABC):
     """Base class for credit policy stages."""
