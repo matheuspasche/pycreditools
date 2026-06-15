@@ -33,6 +33,7 @@ from .visualization import (
     plot_vintage_stability,
     plot_optimization,
     visualize_tradeoffs,
+    plot_funnel,
 )
 
 __all__ = [
@@ -82,5 +83,6 @@ __all__ = [
     "OptimizationResult",
     "plot_optimization",
     "visualize_tradeoffs",
+    "plot_funnel",
     "examples",
 ]

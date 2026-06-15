@@ -24,6 +24,120 @@ class CreditSimResults:
             "metadata": self.metadata,
         }
 
+    def to_funnel_dataframe(self) -> pd.DataFrame:
+        """Calculate and return a DataFrame representing the decision funnel stages.
+
+        Contains columns:
+        - 'Stage': The name of the stage (Total, sequential hard filters, Approved).
+        - 'Candidates': Number of applicants entering the stage.
+        - 'Passed': Number of applicants passing the stage.
+        - 'Stage_Pass_Rate': Pass rate relative to the candidates entering the stage.
+        - 'Cum_Pass_Rate': Cumulative pass rate relative to the initial total candidates.
+        - 'Rejections': Number of applicants rejected at this stage.
+        - 'Stage_Rej_Rate': Rejection rate relative to the candidates entering the stage.
+        """
+        pol = self.policy
+        if pol is None:
+            policy_dict = self.metadata.get("policy")
+            if policy_dict:
+                from .policy import CreditPolicy
+                try:
+                    pol = CreditPolicy.from_dict(policy_dict)
+                except Exception:
+                    pass
+            if pol is None:
+                raise ValueError(
+                    "No policy reference found in simulation results to extract hard filters."
+                )
+
+        if "reason" not in self.data.columns:
+            raise ValueError(
+                "The 'reason' column is missing from simulation results. "
+                "Please ensure the simulation was run and calculated decision reasons."
+            )
+
+        from .stages import RateStage
+        hard_stages = [stage for stage in pol.stages if not isinstance(stage, RateStage)]
+        H = len(hard_stages)
+        N_total = len(self.data)
+
+        R = []
+        for i, stage in enumerate(hard_stages):
+            fail_label = f"{i + 1}: {stage.name}"
+            R.append((self.data["reason"] == fail_label).sum())
+
+        P = []
+        total_approved = (self.data["reason"] == "Approved").sum()
+        for i in range(H):
+            p_count = total_approved + sum(R[j] for j in range(i + 1, H))
+            P.append(p_count)
+
+        V_approved = P[H - 1] if H > 0 else N_total
+
+        rows = []
+        # Total Row
+        rows.append({
+            "Stage": "Total",
+            "Candidates": N_total,
+            "Passed": N_total,
+            "Stage_Pass_Rate": np.nan,
+            "Cum_Pass_Rate": 1.0,
+            "Rejections": 0,
+            "Stage_Rej_Rate": np.nan
+        })
+
+        # Stage Rows
+        for i in range(H):
+            candidates = P[i - 1] if i > 0 else N_total
+            passed = P[i]
+            rejections = R[i]
+            stage_pass_rate = passed / candidates if candidates > 0 else 0.0
+            cum_pass_rate = passed / N_total if N_total > 0 else 0.0
+            stage_rej_rate = rejections / candidates if candidates > 0 else 0.0
+
+            rows.append({
+                "Stage": f"{i + 1}: {hard_stages[i].name}",
+                "Candidates": candidates,
+                "Passed": passed,
+                "Stage_Pass_Rate": stage_pass_rate,
+                "Cum_Pass_Rate": cum_pass_rate,
+                "Rejections": rejections,
+                "Stage_Rej_Rate": stage_rej_rate
+            })
+
+        # Approved Row
+        rows.append({
+            "Stage": "Approved",
+            "Candidates": V_approved,
+            "Passed": V_approved,
+            "Stage_Pass_Rate": np.nan,
+            "Cum_Pass_Rate": V_approved / N_total if N_total > 0 else 0.0,
+            "Rejections": 0,
+            "Stage_Rej_Rate": np.nan
+        })
+
+        return pd.DataFrame(rows)
+
+    def print_funnel_table(self) -> None:
+        """Print a formatted table of the decision funnel stages to the console."""
+        df_funnel = self.to_funnel_dataframe()
+        print("=== CREDIT POLICY DECISION FUNNEL ===")
+        print(f"{'Stage':<25} {'Candidates':>12}  {'Passed':>12}  {'Stage Pass':>10}  {'Cum Pass':>10}  {'Rejections':>10}  {'Rej Rate':>10}")
+        print("-" * 101)
+        for _, r in df_funnel.iterrows():
+            pass_rate_val = r['Stage_Pass_Rate']
+            rej_rate_val = r['Stage_Rej_Rate']
+            
+            pass_rate_str = "-" if pd.isna(pass_rate_val) else f"{pass_rate_val:.1%}"
+            rej_rate_str = "-" if pd.isna(rej_rate_val) else f"{rej_rate_val:.1%}"
+            
+            print(
+                f"{r['Stage']:<25} {r['Candidates']:>12,}  {r['Passed']:>12,}  "
+                f"{pass_rate_str:>10}  {r['Cum_Pass_Rate']:>10.1%}  "
+                f"{r['Rejections']:>10,}  {rej_rate_str:>10}"
+            )
+
+
     def to_decision_dataframe(
         self,
         rating_recipe: Any | None = None,
@@ -87,40 +201,43 @@ class CreditSimResults:
         input_cols = [c for c in df.columns if not is_sim_col(c)]
 
         # 2. Extract decision based on hard filters
-        from .stages import RateStage
-
-        hard_stages = [
-            (i, stage) for i, stage in enumerate(pol.stages) if not isinstance(stage, RateStage)
-        ]
-
-        if not hard_stages:
-            df["decision"] = "Approved"
-            df["reason"] = "Approved"
+        if "decision" in df.columns and "reason" in df.columns:
+            pass
         else:
-            stage_cols = [f"stage_{i}_{stage.name}" for i, stage in hard_stages]
+            from .stages import RateStage
 
-            # Check for failure in any hard stage (< 0.5 for analytical / 0 for stochastic)
-            failed_df = pd.DataFrame(index=df.index)
-            for col_name in stage_cols:
-                if col_name in df.columns:
-                    failed_df[col_name] = df[col_name] < 0.5
-                else:
-                    failed_df[col_name] = False
+            hard_stages = [
+                (i, stage) for i, stage in enumerate(pol.stages) if not isinstance(stage, RateStage)
+            ]
 
-            has_failure = failed_df.any(axis=1)
+            if not hard_stages:
+                df["decision"] = "Approved"
+                df["reason"] = "Approved"
+            else:
+                stage_cols = [f"stage_{i}_{stage.name}" for i, stage in hard_stages]
 
-            # Reason: Position (1, 2...) and name of filter
-            col_to_label = {
-                f"stage_{i}_{stage.name}": f"{i + 1}: {stage.name}" for i, stage in hard_stages
-            }
+                # Check for failure in any hard stage (< 0.5 for analytical / 0 for stochastic)
+                failed_df = pd.DataFrame(index=df.index)
+                for col_name in stage_cols:
+                    if col_name in df.columns:
+                        failed_df[col_name] = df[col_name] < 0.5
+                    else:
+                        failed_df[col_name] = False
 
-            # Vectorized first failed stage
-            first_failed_col = np.where(has_failure, failed_df.idxmax(axis=1), None)
+                has_failure = failed_df.any(axis=1)
 
-            df["decision"] = np.where(has_failure, "Rejected", "Approved")
-            df["reason"] = (
-                pd.Series(first_failed_col, index=df.index).map(col_to_label).fillna("Approved")
-            )
+                # Reason: Position (1, 2...) and name of filter
+                col_to_label = {
+                    f"stage_{i}_{stage.name}": f"{i + 1}: {stage.name}" for i, stage in hard_stages
+                }
+
+                # Vectorized first failed stage
+                first_failed_col = np.where(has_failure, failed_df.idxmax(axis=1), None)
+
+                df["decision"] = np.where(has_failure, "Rejected", "Approved")
+                df["reason"] = (
+                    pd.Series(first_failed_col, index=df.index).map(col_to_label).fillna("Approved")
+                )
 
         # 3. Apply optional rating recipe
         active_recipe = (
@@ -267,6 +384,25 @@ def run_simulation(
         df = _classify_scenarios(df, policy, "approved_pre_rate")
         df = _assign_simulated_defaults(df, policy, method)
 
+    # Calculate reason/decision columns before dropping stage columns
+    hard_stages = [(i, stage) for i, stage in enumerate(policy.stages) if not isinstance(stage, RateStage)]
+    if not hard_stages:
+        df["decision"] = "Approved"
+        df["reason"] = "Approved"
+    else:
+        stage_cols = [f"stage_{i}_{stage.name}" for i, stage in hard_stages]
+        failed_df = pd.DataFrame(index=df.index)
+        for col_name in stage_cols:
+            if col_name in df.columns:
+                failed_df[col_name] = df[col_name] < 0.5
+            else:
+                failed_df[col_name] = False
+        has_failure = failed_df.any(axis=1)
+        col_to_label = {f"stage_{i}_{stage.name}": f"{i + 1}: {stage.name}" for i, stage in hard_stages}
+        first_failed_col = np.where(has_failure, failed_df.idxmax(axis=1), None)
+        df["decision"] = np.where(has_failure, "Rejected", "Approved")
+        df["reason"] = pd.Series(first_failed_col, index=df.index).map(col_to_label).fillna("Approved")
+
     if drop_stages:
         stage_cols = [c for c in df.columns if c.startswith("stage_")]
         df = df.drop(columns=stage_cols, errors="ignore")
@@ -315,25 +451,27 @@ def _assign_simulated_defaults_standalone(
     """Assign default outcomes for the final approved population in Standalone mode."""
     df["simulated_default"] = np.nan
 
-    # 1. Determine baseline PD
-    # Use observed default if available
+    # 1. Identify observed defaults
+    known_outcome = pd.Series(np.nan, index=df.index)
     if policy.actual_default_col is not None and policy.actual_default_col in df.columns:
-        baseline_pd = df[policy.actual_default_col].astype(float)
-        use_stochastic_draw = False
+        known_outcome = df[policy.actual_default_col].astype(float)
+
+    # 2. Identify simulated defaults baseline
+    use_stochastic_draw = False
+    if policy.estimated_default_col is not None and policy.estimated_default_col in df.columns:
+        sim_pd = df[policy.estimated_default_col].astype(float)
+        use_stochastic_draw = True
     else:
-        # Fallback to probabilities calculated by the stages
         rate_stages = [s for s in policy.stages if isinstance(s, RateStage)]
         if rate_stages:
             last_rate_stage = rate_stages[-1]
-            # Evaluate the last RateStage analytically to get float default probabilities
-            baseline_pd = last_rate_stage.apply(df, method="analytical", policy=policy).astype(float)
+            sim_pd = last_rate_stage.apply(df, method="analytical", policy=policy).astype(float)
             use_stochastic_draw = True
         else:
-            baseline_pd = pd.Series(np.nan, index=df.index)
-            use_stochastic_draw = False
+            sim_pd = pd.Series(np.nan, index=df.index)
 
-    # Apply stress scenarios if baseline PD has valid values
-    if policy.stress_scenarios and baseline_pd.notna().any():
+    # 3. Apply stress scenarios
+    if policy.stress_scenarios and sim_pd.notna().any():
         if len(policy.stress_scenarios) > 1:
             warnings.warn(
                 f"Multiple stress scenarios active ({len(policy.stress_scenarios)}). "
@@ -343,26 +481,37 @@ def _assign_simulated_defaults_standalone(
             )
         prob_matrix = pd.DataFrame(index=df.index)
         df_temp = df.copy()
-        df_temp["__baseline_pd"] = baseline_pd.values
+        df_temp["__baseline_pd"] = sim_pd.values
         for i, scenario in enumerate(policy.stress_scenarios):
             prob_matrix[f"prob_{i}"] = scenario.apply(df_temp, "__baseline_pd")
         final_probs = prob_matrix.max(axis=1).clip(0.0, 1.0)
         use_stochastic_draw = True
     else:
-        final_probs = baseline_pd.clip(0.0, 1.0)
+        final_probs = sim_pd.clip(0.0, 1.0)
 
-    # Assign to the approved population (new_approval > 0 / new_approval == 1)
+    # 4. Assign outcomes to the approved population (new_approval > 0)
     approved_mask = df["new_approval"] > 0
     if approved_mask.any():
-        if method == SimulationMethod.STOCHASTIC and use_stochastic_draw:
-            valid_probs = final_probs.loc[approved_mask]
-            not_na_mask = valid_probs.notna()
-            if not_na_mask.any():
-                random_draws = np.random.random(not_na_mask.sum())
-                outcomes = (random_draws < valid_probs.loc[not_na_mask]).astype(float)
-                df.loc[not_na_mask[not_na_mask].index, "simulated_default"] = outcomes
-        else:
-            df.loc[approved_mask, "simulated_default"] = final_probs.loc[approved_mask]
+        sim_defaults = pd.Series(np.nan, index=df.index)
+        
+        known_mask = approved_mask & known_outcome.notna()
+        unknown_mask = approved_mask & known_outcome.isna()
+        
+        if known_mask.any():
+            sim_defaults.loc[known_mask] = known_outcome.loc[known_mask]
+            
+        if unknown_mask.any():
+            if method == SimulationMethod.STOCHASTIC and use_stochastic_draw:
+                probs = final_probs.loc[unknown_mask]
+                not_na_mask = probs.notna()
+                if not_na_mask.any():
+                    random_draws = np.random.random(not_na_mask.sum())
+                    outcomes = (random_draws < probs.loc[not_na_mask]).astype(float)
+                    sim_defaults.loc[not_na_mask[not_na_mask].index] = outcomes
+            else:
+                sim_defaults.loc[unknown_mask] = final_probs.loc[unknown_mask]
+                
+        df["simulated_default"] = sim_defaults
 
     return df
 
@@ -425,6 +574,9 @@ def _estimate_swap_in_baseline_pd(
     """Estimate per-client baseline PD for Swap Ins using a score→PD
     local calibration built from the Keep In population.
     """
+    if policy.estimated_default_col is not None and policy.estimated_default_col in df.columns:
+        return swap_ins[policy.estimated_default_col].astype(float)
+
     keep_ins_mask = df["scenario"] == Quadrant.KEEP_IN.value
     actual_default_col = policy.actual_default_col
     global_pd = df.loc[keep_ins_mask, actual_default_col].mean() if keep_ins_mask.any() else 0.0

@@ -256,3 +256,169 @@ def test_standalone_deployment_predict_works(base_df):
     assert "hired" in res_df.columns
     assert "defaulted" in res_df.columns
     assert "scenario" not in res_df.columns  # standalone has no scenario
+
+
+def test_plot_funnel(base_df, capsys):
+    """Verify plot_funnel returns a Plotly Figure and maps nodes/links correctly."""
+    from pycreditools.visualization import plot_funnel
+
+    p = CreditPolicy(
+        applicant_id_col="applicant_id",
+        score_cols=("score_1", "score_2"),
+        current_approval_col="observed_default",
+        actual_default_col="observed_default",
+    ).cutoff("Cut 1", {"score_1": 600}).cutoff("Cut 2", {"score_2": 700})
+
+    # Test with drop_stages=False
+    results_no_drop = run_simulation(base_df, p, method="analytical", drop_stages=False)
+    fig_no_drop = plot_funnel(results_no_drop)
+    import plotly.graph_objects as go
+    assert isinstance(fig_no_drop, go.Figure)
+
+    # Test with drop_stages=True
+    results_drop = run_simulation(base_df, p, method="analytical", drop_stages=True)
+    fig_drop = plot_funnel(results_drop)
+    assert isinstance(fig_drop, go.Figure)
+
+    # Verify nodes (Total + 2 stages + Approved = 4 nodes)
+    node_labels = fig_drop.data[0].node.label
+    assert len(node_labels) == 4
+    assert "Total" in node_labels[0]
+    assert "1: Cut 1" in node_labels[1]
+    assert "2: Cut 2" in node_labels[2]
+    assert "Approved" in node_labels[3]
+
+    # Verify link values mapping
+    link_data = fig_drop.data[0].link
+    assert len(link_data.value) > 0
+
+    # Test to_funnel_dataframe
+    df_funnel = results_drop.to_funnel_dataframe()
+    assert isinstance(df_funnel, pd.DataFrame)
+    assert len(df_funnel) == 4
+    assert list(df_funnel.columns) == ["Stage", "Candidates", "Passed", "Stage_Pass_Rate", "Cum_Pass_Rate", "Rejections", "Stage_Rej_Rate"]
+
+    # Verify Stage_Pass_Rate and Stage_Rej_Rate are NaN for Total (first row) and Approved (last row)
+    assert pd.isna(df_funnel.iloc[0]["Stage_Pass_Rate"])
+    assert pd.isna(df_funnel.iloc[0]["Stage_Rej_Rate"])
+    assert pd.isna(df_funnel.iloc[-1]["Stage_Pass_Rate"])
+    assert pd.isna(df_funnel.iloc[-1]["Stage_Rej_Rate"])
+
+    # Verify Stage_Pass_Rate and Stage_Rej_Rate are NOT NaN for intermediate filter stages
+    assert not pd.isna(df_funnel.iloc[1]["Stage_Pass_Rate"])
+    assert not pd.isna(df_funnel.iloc[1]["Stage_Rej_Rate"])
+
+    # Test print_funnel_table
+    results_drop.print_funnel_table()
+    captured = capsys.readouterr().out
+    assert "CREDIT POLICY DECISION FUNNEL" in captured
+    
+    # Check that '-' is printed in the Stage Pass and Rej Rate columns for Total and Approved rows
+    lines = [line.strip() for line in captured.splitlines() if line.strip()]
+    
+    total_line = [line for line in lines if line.startswith("Total")]
+    assert len(total_line) == 1
+    assert "-" in total_line[0]
+    
+    approved_line = [line for line in lines if line.startswith("Approved")]
+    assert len(approved_line) == 1
+    assert "-" in approved_line[0]
+
+
+def test_multi_policy_delta_table(base_df, capsys):
+    """Verify comparing multiple policies and printing delta table."""
+    p_champion = CreditPolicy(
+        applicant_id_col="applicant_id",
+        score_cols=("score_1",),
+        current_approval_col="observed_default",
+        actual_default_col="observed_default",
+    ).cutoff("Cut 1", {"score_1": 600})
+
+    p_challenger1 = CreditPolicy(
+        applicant_id_col="applicant_id",
+        score_cols=("score_1",),
+        current_approval_col="observed_default",
+        actual_default_col="observed_default",
+    ).cutoff("Cut 1", {"score_1": 700})
+
+    p_challenger2 = CreditPolicy(
+        applicant_id_col="applicant_id",
+        score_cols=("score_1",),
+        current_approval_col="observed_default",
+        actual_default_col="observed_default",
+    ).cutoff("Cut 1", {"score_1": 800})
+
+    res_champion = run_simulation(base_df, p_champion, method="analytical")
+    res_chal1 = run_simulation(base_df, p_challenger1, method="analytical")
+    res_chal2 = run_simulation(base_df, p_challenger2, method="analytical")
+
+    # Call compare_policies with list
+    comparison = compare_policies([res_chal1, res_chal2], res_champion)
+    assert isinstance(comparison, list)
+    assert len(comparison) == 2
+    assert isinstance(comparison[0], dict)
+    assert isinstance(comparison[1], dict)
+
+    # Capture stdout of print_delta_table
+    print_delta_table([res_chal1, res_chal2], res_champion)
+    captured = capsys.readouterr().out
+
+    assert "=== DELTA TABLE: EXECUTIVE P&L ===" in captured
+    assert "Global Approval Rate (% ToF)" in captured
+    assert "Expected Bad Rate" in captured
+    assert "Expected Hired Volume" not in captured
+
+
+def test_estimated_default_col():
+    """Verify estimated_default_col behaves correctly in Swap and Standalone modes."""
+    # Create sample dataframe
+    df = pd.DataFrame({
+        "applicant_id": [1, 2, 3, 4, 5],
+        "score_1": [500, 600, 700, 800, 900],
+        "observed_default": [0.0, 1.0, 0.0, 1.0, 0.0],
+        "estimated_pd": [0.1, 0.2, 0.3, 0.4, 0.5],
+        "historical_approval": [1, 1, 0, 0, 1]  # Keep-ins: 1, 2, 5. Swap-ins: 3, 4.
+    })
+
+    p = CreditPolicy(
+        applicant_id_col="applicant_id",
+        score_cols=("score_1",),
+        current_approval_col="historical_approval",
+        actual_default_col="observed_default",
+        estimated_default_col="estimated_pd"
+    ).cutoff("Cut 1", {"score_1": 600})  # Approved: 2, 3, 4, 5.
+
+    # 1. Swap Mode: run_simulation
+    res_swap = run_simulation(df, p, method="analytical")
+    df_swap = res_swap.data
+
+    # keep_in: applicant 2, 5 (historical_approval == 1, score_1 >= 600)
+    # swap_in: applicant 3, 4 (historical_approval == 0, score_1 >= 600)
+    # Check keep_ins have actual default from observed_default
+    np.testing.assert_allclose(df_swap.loc[df_swap["scenario"] == "keep_in", "simulated_default"], [1.0, 0.0])
+    # Check swap_ins have estimated_pd values
+    np.testing.assert_allclose(df_swap.loc[df_swap["scenario"] == "swap_in", "simulated_default"], [0.3, 0.4])
+
+    # 2. Standalone Mode: run standalone simulation (current_approval_col is None)
+    p_standalone = CreditPolicy(
+        applicant_id_col="applicant_id",
+        score_cols=("score_1",),
+        current_approval_col=None,
+        actual_default_col="observed_default",
+        estimated_default_col="estimated_pd"
+    ).cutoff("Cut 1", {"score_1": 600})
+
+    # Add observed_default with NaN to test fallback/observed split
+    df_standalone = df.copy()
+    df_standalone.loc[df_standalone["applicant_id"] == 5, "observed_default"] = np.nan # Approved without observed default
+
+    res_std = run_simulation(df_standalone, p_standalone, method="analytical")
+    df_std = res_std.data
+
+    # Approved: 2, 3, 4, 5
+    # Applicant 2: observed_default is 1.0 (should copy observed)
+    # Applicant 3: observed_default is 0.0 (should copy observed)
+    # Applicant 4: observed_default is 1.0 (should copy observed)
+    # Applicant 5: observed_default is NaN (should use estimated_pd = 0.5)
+    np.testing.assert_allclose(df_std.loc[df_std["new_approval"] > 0, "simulated_default"], [1.0, 0.0, 1.0, 0.5])
+

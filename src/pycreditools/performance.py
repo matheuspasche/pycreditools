@@ -121,16 +121,23 @@ def summarize_results(results: CreditSimResults, by: str | list[str] | None = No
     return summary
 
 
-def compare_policies(sim_new: CreditSimResults, sim_old: CreditSimResults) -> dict[str, Any]:
-    """Compare two simulated policies.
+def compare_policies(
+    sim_new: CreditSimResults | list[CreditSimResults] | tuple[CreditSimResults, ...],
+    sim_old: CreditSimResults,
+) -> dict[str, Any] | list[dict[str, Any]]:
+    """Compare one or more simulated policies.
 
     Args:
-        sim_new: Results of the new policy simulation.
+        sim_new: Results of the new policy simulation (or a list/tuple of simulations).
         sim_old: Results of the old (or baseline) policy simulation.
 
     Returns:
-        Dict containing global metrics, swap summaries, and the swap-in to keep-in ratio.
+        Dict containing global metrics, swap summaries, and the swap-in to keep-in ratio,
+        or a list of such dicts if sim_new is a collection.
     """
+    if isinstance(sim_new, (list, tuple)):
+        return [compare_policies(sim, sim_old) for sim in sim_new]
+
     data_new = sim_new.data
     data_old = sim_old.data
     policy_new_dict = sim_new.metadata["policy"]
@@ -273,121 +280,164 @@ class ModelEvaluator:
 
 
 def print_delta_table(
-    sim_new: CreditSimResults,
+    sim_new: CreditSimResults | list[CreditSimResults] | tuple[CreditSimResults, ...],
     sim_old: CreditSimResults | pd.DataFrame | None = None,
 ) -> None:
-    """Print a beautiful executive P&L delta table comparing two simulations.
+    """Print a beautiful executive P&L delta table comparing one or more simulations against a legacy policy.
 
     Args:
-        sim_new: Results of the new policy simulation.
-        sim_old: Results of the old (or baseline) policy simulation or raw dataset.
-                 If None, legacy metrics are extracted directly from sim_new.data.
+        sim_new: Results of the new policy simulation or a list/tuple of simulations.
+        sim_old: Results of the old (or baseline) policy simulation, raw dataset, or None.
+                 If None, legacy metrics are extracted directly from the first new simulation.
     """
-    df_new = sim_new.data
-    policy_new_dict = sim_new.metadata["policy"]
-    if policy_new_dict.get("current_approval_col") is None:
-        raise ValueError(
-            "The new policy simulation is standalone (no current_approval_col) "
-            "and does not support comparison delta tables."
-        )
-    if isinstance(sim_old, CreditSimResults):
-        policy_old_dict = sim_old.metadata["policy"]
-        if policy_old_dict.get("current_approval_col") is None:
+    # 1. Normalize Input
+    sims_new = list(sim_new) if isinstance(sim_new, (list, tuple)) else [sim_new]
+
+    # Validate that none of the new simulations are standalone
+    for sim in sims_new:
+        policy_new_dict = sim.metadata["policy"]
+        if policy_new_dict.get("current_approval_col") is None:
             raise ValueError(
-                "The old/legacy policy simulation is standalone (no current_approval_col) "
+                "The new policy simulation is standalone (no current_approval_col) "
                 "and does not support comparison delta tables."
             )
-    actual_default_col = policy_new_dict["actual_default_col"]
-    current_approval_col = policy_new_dict.get("current_approval_col", "approved")
 
-    # 1. New policy metrics
-    vol_new = df_new.loc[df_new["scenario"].isin(["keep_in", "swap_in"]), "new_approval"].sum()
-    if vol_new > 0:
-        bad_new = (
-            (
-                df_new.loc[df_new["scenario"] == "keep_in", "simulated_default"]
-                * df_new.loc[df_new["scenario"] == "keep_in", "new_approval"]
-            ).sum()
-            + (
-                df_new.loc[df_new["scenario"] == "swap_in", "simulated_default"]
-                * df_new.loc[df_new["scenario"] == "swap_in", "new_approval"]
-            ).sum()
-        ) / vol_new
-    else:
-        bad_new = 0.0
-    if "approved_pre_rate" in df_new.columns:
-        aprov_new = (df_new["approved_pre_rate"] > 0).mean()
-    else:
-        aprov_new = (df_new["new_approval"] > 0).mean()
-
-    # 2. Legacy policy metrics
+    # 2. Extract Legacy Baseline
     if sim_old is not None:
         if isinstance(sim_old, CreditSimResults):
-            df_old = sim_old.data
             policy_old_dict = sim_old.metadata["policy"]
+            if policy_old_dict.get("current_approval_col") is None:
+                raise ValueError(
+                    "The old/legacy policy simulation is standalone (no current_approval_col) "
+                    "and does not support comparison delta tables."
+                )
+            df_old = sim_old.data
             old_default_col = policy_old_dict["actual_default_col"]
             old_approval_col = policy_old_dict.get("current_approval_col", "approved")
+            method = sim_old.metadata.get("method", "stochastic")
         else:
             df_old = sim_old
-            old_default_col = actual_default_col
-            old_approval_col = current_approval_col
+            policy_ref = sims_new[0].metadata["policy"]
+            old_default_col = policy_ref["actual_default_col"]
+            old_approval_col = policy_ref.get("current_approval_col", "approved")
+            method = sims_new[0].metadata.get("method", "stochastic")
 
-        aprov_old = (
-            (df_old[old_approval_col] > 0).mean()
-            if old_approval_col in df_old.columns
-            else (df_old["new_approval"] > 0).mean()
-        )
-        legacy_hired_col = (
-            "hired"
-            if "hired" in df_old.columns
-            else ("new_approval" if "new_approval" in df_old.columns else old_approval_col)
-        )
-        vol_old = df_old[legacy_hired_col].sum() if legacy_hired_col in df_old.columns else 0.0
-        if vol_old > 0:
-            bad_old = (df_old[old_default_col] * df_old[legacy_hired_col]).sum() / vol_old
-        else:
-            bad_old = 0.0
+        is_analytical = method == "analytical"
+        aprov_old = df_old[old_approval_col].mean() if is_analytical else (df_old[old_approval_col] > 0).mean()
+        legacy_hired = "hired" if "hired" in df_old.columns else old_approval_col
+        vol_old = df_old[legacy_hired].sum()
+        bad_old = (df_old[old_default_col] * df_old[legacy_hired]).sum() / vol_old if vol_old > 0 else 0.0
     else:
-        # Fallback to extracting from df_new
-        aprov_old = (
-            (df_new[current_approval_col] > 0).mean()
-            if current_approval_col in df_new.columns
-            else 0.0
+        # Fallback to extracting from sims_new[0]
+        ref_sim = sims_new[0]
+        df_old = ref_sim.data
+        policy_ref = ref_sim.metadata["policy"]
+        old_default_col = policy_ref["actual_default_col"]
+        old_approval_col = policy_ref.get("current_approval_col", "approved")
+        method = ref_sim.metadata.get("method", "stochastic")
+
+        is_analytical = method == "analytical"
+        aprov_old = df_old[old_approval_col].mean() if is_analytical else (df_old[old_approval_col] > 0).mean()
+        legacy_hired = "hired" if "hired" in df_old.columns else old_approval_col
+        vol_old = df_old[legacy_hired].sum()
+        bad_old = (df_old[old_default_col] * df_old[legacy_hired]).sum() / vol_old if vol_old > 0 else 0.0
+
+    # 3. Extract Challenger Metrics
+    aprov_news = []
+    bad_news = []
+    vol_news = []
+
+    for sim in sims_new:
+        df_new = sim.data
+        is_analytical = sim.metadata.get("method") == "analytical"
+        aprov_col = "approved_pre_rate" if "approved_pre_rate" in df_new.columns else "new_approval"
+        aprov_new = df_new[aprov_col].mean() if is_analytical else (df_new[aprov_col] > 0).mean()
+        vol_new = df_new["new_approval"].sum()
+        bad_new = (df_new["simulated_default"] * df_new["new_approval"]).sum() / vol_new if vol_new > 0 else 0.0
+
+        aprov_news.append(aprov_new)
+        bad_news.append(bad_new)
+        vol_news.append(vol_new)
+
+    # 4. Render Console Output
+    if len(sims_new) == 1:
+        # Standard single-comparison table
+        print("=== DELTA TABLE: EXECUTIVE P&L ===")
+        print(f"{'Metric':<35} {'Legacy':>10}  {'New':>10}  {'Delta Abs':>10}  {'Delta Rel':>10}")
+        print("-" * 78)
+
+        aprov_new = aprov_news[0]
+        bad_new = bad_news[0]
+        vol_new = vol_news[0]
+
+        # Approval comparison
+        aprov_diff_abs = aprov_new - aprov_old
+        aprov_diff_rel = (aprov_new / aprov_old) - 1.0 if aprov_old > 0 else 0.0
+        print(
+            f"{'Global Approval Rate (% ToF)':<35} {aprov_old:>10.2%}  {aprov_new:>10.2%}  "
+            f"{aprov_diff_abs:>+10.2%}  {aprov_diff_rel:>+10.1%}"
         )
-        legacy_hired_col = "hired" if "hired" in df_new.columns else current_approval_col
-        vol_old = df_new[legacy_hired_col].sum() if legacy_hired_col in df_new.columns else 0.0
-        if vol_old > 0:
-            bad_old = (df_new[actual_default_col] * df_new[legacy_hired_col]).sum() / vol_old
-        else:
-            bad_old = 0.0
 
-    print("=== TABELA DELTA: P&L EXECUTIVO ===")
-    print(f"{'Métrica':<35} {'Legacy':>10}  {'Nova':>10}  {'Δ Abs':>10}  {'Δ Rel':>10}")
-    print("─" * 78)
+        # Bad Rate comparison
+        bad_diff_abs = bad_new - bad_old
+        bad_diff_rel = (bad_new / bad_old) - 1.0 if bad_old > 0 else 0.0
+        print(
+            f"{'Expected Bad Rate':<35} {bad_old:>10.2%}  {bad_new:>10.2%}  "
+            f"{bad_diff_abs:>+10.2%}  {bad_diff_rel:>+10.1%}"
+        )
 
-    # Approval comparison
-    aprov_diff_abs = aprov_new - aprov_old
-    aprov_diff_rel = (aprov_new / aprov_old) - 1.0 if aprov_old > 0 else 0.0
-    print(
-        f"{'Aprovação Global (% ToF)':<35} {aprov_old:>10.2%}  {aprov_new:>10.2%}  "
-        f"{aprov_diff_abs:>+10.2%}  {aprov_diff_rel:>+10.1%}"
-    )
+        # Volume comparison
+        vol_diff_abs = vol_new - vol_old
+        vol_diff_rel = (vol_new / vol_old) - 1.0 if vol_old > 0 else 0.0
+        print(
+            f"{'Expected Hired Volume':<35} {vol_old:>10,.0f}  {vol_new:>10,.0f}  "
+            f"{vol_diff_abs:>+10,.0f}  {vol_diff_rel:>+10.1%}"
+        )
+    else:
+        # Multi-column delta table
+        headers = [f"New {idx + 1}" for idx in range(len(sims_new))]
+        header_str = f"{'Metric':<36}{'Legacy':>14}" + "".join(f"{h:>14}" for h in headers)
+        print("=== DELTA TABLE: EXECUTIVE P&L ===")
+        print(header_str)
+        print("-" * (36 + 14 + 14 * len(sims_new)))
 
-    # Bad Rate comparison
-    bad_diff_abs = bad_new - bad_old
-    bad_diff_rel = (bad_new / bad_old) - 1.0 if bad_old > 0 else 0.0
-    print(
-        f"{'Bad Rate Contratado (P&L)':<35} {bad_old:>10.2%}  {bad_new:>10.2%}  "
-        f"{bad_diff_abs:>+10.2%}  {bad_diff_rel:>+10.1%}"
-    )
+        # Global Approval Rate (% ToF)
+        ap_line = f"{'Global Approval Rate (% ToF)':<36}{aprov_old:>14.2%}" + "".join(
+            f"{aprov_new:>14.2%}" for aprov_new in aprov_news
+        )
+        print(ap_line)
 
-    # Volume comparison
-    vol_diff_abs = vol_new - vol_old
-    vol_diff_rel = (vol_new / vol_old) - 1.0 if vol_old > 0 else 0.0
-    print(
-        f"{'Vol. Contratado Esperado':<35} {vol_old:>10,.0f}  {vol_new:>10,.0f}  "
-        f"{vol_diff_abs:>+10,.0f}  {vol_diff_rel:>+10.1%}"
-    )
+        # Delta Abs (vs Legacy)
+        ap_abs_line = f"{'  Delta Abs (vs Legacy)':<36}{'':>14}" + "".join(
+            f"{aprov_new - aprov_old:>+14.2%}" for aprov_new in aprov_news
+        )
+        print(ap_abs_line)
+
+        # Delta Rel (vs Legacy)
+        ap_rel_line = f"{'  Delta Rel (vs Legacy)':<36}{'':>14}" + "".join(
+            f"{(aprov_new / aprov_old) - 1.0:>+14.1%}" if aprov_old > 0 else f"{0.0:>+14.1%}"
+            for aprov_new in aprov_news
+        )
+        print(ap_rel_line)
+
+        # Expected Bad Rate
+        bad_line = f"{'Expected Bad Rate':<36}{bad_old:>14.2%}" + "".join(
+            f"{bad_new:>14.2%}" for bad_new in bad_news
+        )
+        print(bad_line)
+
+        # Delta Abs (vs Legacy)
+        bad_abs_line = f"{'  Delta Abs (vs Legacy)':<36}{'':>14}" + "".join(
+            f"{bad_new - bad_old:>+14.2%}" for bad_new in bad_news
+        )
+        print(bad_abs_line)
+
+        # Delta Rel (vs Legacy)
+        bad_rel_line = f"{'  Delta Rel (vs Legacy)':<36}{'':>14}" + "".join(
+            f"{(bad_new / bad_old) - 1.0:>+14.1%}" if bad_old > 0 else f"{0.0:>+14.1%}"
+            for bad_new in bad_news
+        )
+        print(bad_rel_line)
 
 
 def print_quadrant_summary(sim_results: CreditSimResults) -> None:

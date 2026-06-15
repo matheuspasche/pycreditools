@@ -4,7 +4,10 @@ Visualization functions for credit risk policy analysis.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .simulation import CreditSimResults
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -373,4 +376,148 @@ def visualize_tradeoffs(*args, **kwargs) -> plt.Figure:
         stacklevel=2,
     )
     return plot_optimization(*args, **kwargs)
+
+
+def plot_funnel(sim_results: CreditSimResults) -> go.Figure:
+    """Create a decision funnel visualization using a Plotly Sankey diagram.
+
+    Args:
+        sim_results: Results of the credit policy simulation.
+
+    Returns:
+        A plotly.graph_objects.Figure.
+    """
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        raise ImportError(
+            "Plotly is required for plot_funnel. Please install it using "
+            "'pip install plotly' or install pycreditools with the [viz] extra."
+        )
+
+    # Policy Extraction
+    pol = sim_results.policy
+    if pol is None:
+        policy_dict = sim_results.metadata.get("policy")
+        if policy_dict:
+            from .policy import CreditPolicy
+            try:
+                pol = CreditPolicy.from_dict(policy_dict)
+            except Exception:
+                pass
+        if pol is None:
+            raise ValueError("No policy reference found in simulation results to extract hard filters.")
+
+    # Hard Stage Extraction
+    from .stages import RateStage
+    hard_stages = [stage for stage in pol.stages if not isinstance(stage, RateStage)]
+    H = len(hard_stages)
+
+    # Data Verification
+    if "reason" not in sim_results.data.columns:
+        raise ValueError(
+            "The 'reason' column is missing from simulation results. "
+            "Please ensure the simulation was run and calculated decision reasons."
+        )
+
+    # Node Count Calculations
+    N_total = len(sim_results.data)
+    
+    # Calculate R (rejected) and P (passed) for each stage
+    R = []
+    for i, stage in enumerate(hard_stages):
+        fail_label = f"{i + 1}: {stage.name}"
+        R.append((sim_results.data["reason"] == fail_label).sum())
+
+    P = []
+    total_approved = (sim_results.data["reason"] == "Approved").sum()
+    for i in range(H):
+        p_count = total_approved + sum(R[j] for j in range(i + 1, H))
+        P.append(p_count)
+
+    V_rejected = sum(R)
+    V_approved = P[H - 1] if H > 0 else N_total
+
+    # Sankey Node Mapping
+    labels = [
+        f"<b>Total</b><br><span style='font-size: 10px; color: #64748b;'>{N_total:,} (100.0%)</span>"
+    ]
+    node_colors = ["#475569"]  # Slate-600
+
+    for i in range(H):
+        passed_pct = P[i] / N_total if N_total > 0 else 0.0
+        labels.append(
+            f"<b>{i + 1}: {hard_stages[i].name}</b><br><span style='font-size: 10px; color: #64748b;'>{P[i]:,.0f} ({passed_pct:.1%})</span>"
+        )
+        node_colors.append("#6366f1")  # Indigo-500
+
+    approved_pct = V_approved / N_total if N_total > 0 else 0.0
+    labels.append(
+        f"<b>Approved</b><br><span style='font-size: 10px; color: #047857;'>{V_approved:,.0f} ({approved_pct:.1%})</span>"
+    )
+    node_colors.append("#10b981")  # Emerald-500
+
+    # Sankey Link Calculations
+    sources = []
+    targets = []
+    values = []
+    link_colors = []
+
+    def add_link(src, tgt, val, col):
+        if val > 0:
+            sources.append(src)
+            targets.append(tgt)
+            values.append(val)
+            link_colors.append(col)
+
+    if H == 0:
+        add_link(0, 1, N_total, "rgba(16, 185, 129, 0.2)")
+    else:
+        # Total to Stage 0
+        add_link(0, 1, P[0], "rgba(99, 102, 241, 0.15)")
+
+        for i in range(1, H):
+            # Stage i-1 to Stage i
+            add_link(i, i + 1, P[i], "rgba(99, 102, 241, 0.15)")
+
+        # Last Stage to Approved
+        add_link(H, H + 1, V_approved, "rgba(16, 185, 129, 0.2)")
+
+    # Build the figure
+    fig = go.Figure(data=[go.Sankey(
+        node=dict(
+            pad=18,
+            thickness=25,
+            line=dict(color="rgba(0,0,0,0)", width=0),
+            label=labels,
+            color=node_colors
+        ),
+        link=dict(
+            source=sources,
+            target=targets,
+            value=values,
+            color=link_colors
+        )
+    )])
+
+    fig.update_layout(
+        title=dict(
+            text="<b>Credit Policy Decision Funnel</b>",
+            font=dict(size=18, color="#1e293b", family="Outfit, Inter, sans-serif"),
+            y=0.95
+        ),
+        font_size=11,
+        font_family="Inter, sans-serif",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        margin=dict(l=40, r=40, t=60, b=40),
+        hoverlabel=dict(
+            bgcolor="white",
+            bordercolor="#e2e8f0",
+            font_size=12,
+            font_family="Inter, sans-serif"
+        )
+    )
+
+    return fig
 

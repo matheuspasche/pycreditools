@@ -444,6 +444,7 @@ class DeploymentPolicy:
             return res_df
 
         res_df = sim_res.data.copy()
+        res_df = res_df.drop(columns=["decision", "reason"], errors="ignore")
         if self.rating_recipe is not None:
             # Apply ratings to the full DataFrame
             if isinstance(self.rating_recipe, dict):

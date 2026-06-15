@@ -50,7 +50,7 @@ def test_printers(mock_sim_results, capsys):
     # Test print_delta_table with None (automatic legacy extraction)
     print_delta_table(mock_sim_results)
     captured = capsys.readouterr()
-    assert "P&L EXECUTIVO" in captured.out
+    assert "EXECUTIVE P&L" in captured.out
     
     # Test print_swap_in_by_rating (with dummy Rating column if needed)
     df = mock_sim_results.data

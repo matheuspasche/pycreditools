@@ -30,6 +30,7 @@ class CreditPolicy:
     calibration_bins: int | tuple[float, ...] | list[float] | None = None
     calibration_base: str = "keep_in"
     current_hired_col: str | None = None
+    estimated_default_col: str | None = None
 
 
     def __post_init__(self) -> None:
@@ -159,6 +160,8 @@ class CreditPolicy:
             required_cols.append(self.current_approval_col)
         if self.actual_default_col is not None:
             required_cols.append(self.actual_default_col)
+        if self.estimated_default_col is not None:
+            required_cols.append(self.estimated_default_col)
 
         # Add columns from stages
         from .expressions import Expression
@@ -204,6 +207,7 @@ class CreditPolicy:
             "calibration_bins": self.calibration_bins,
             "calibration_base": self.calibration_base,
             "current_hired_col": self.current_hired_col,
+            "estimated_default_col": self.estimated_default_col,
         }
 
     @classmethod
@@ -234,6 +238,7 @@ class CreditPolicy:
             calibration_bins=d.get("calibration_bins"),
             calibration_base=d.get("calibration_base", "keep_in"),
             current_hired_col=d.get("current_hired_col"),
+            estimated_default_col=d.get("estimated_default_col"),
         )
 
     def describe(self) -> str:
@@ -244,6 +249,7 @@ class CreditPolicy:
             f"  Score columns: {', '.join(self.score_cols)}",
             f"  Current approval: {self.current_approval_col}",
             f"  Actual default: {self.actual_default_col}",
+            f"  Estimated default: {self.estimated_default_col}",
         ]
 
         if self.stages:
