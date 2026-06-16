@@ -39,3 +39,7 @@ venv.bak/
 
 # Generated deployment files
 politica_final_producao.json
+
+# Project custom directories
+roadmap/
+scratch/
