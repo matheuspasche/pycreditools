@@ -418,6 +418,26 @@ This prevents stochastic noise from polluting historical data outcomes and keeps
 
 ---
 
+### 4. Direct Default Inference (estimated_default_col)
+
+If you have an external probability of default or a binary market target (e.g., from a credit bureau or external model), you can supply it using the `estimated_default_col` parameter in `CreditPolicy`. 
+
+When this column is active:
+* The simulator bypasses internal score-based calibration and uses these external metrics directly for swap-ins (or for missing observations in standalone mode).
+* All configured stress scenarios are ignored for simulated defaults, and a `UserWarning` is raised to inform the user.
+
+```python
+policy = CreditPolicy(
+    applicant_id_col="applicant_id",
+    score_cols=["score_5"],
+    current_approval_col="approved",
+    actual_default_col="actual_default",
+    estimated_default_col="target_mercado_binario" # Market target column (binary or probability)
+)
+```
+
+---
+
 ## 🛠️ Contribution and Development
 
 To run unit tests:
