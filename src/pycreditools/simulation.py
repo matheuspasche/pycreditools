@@ -472,20 +472,29 @@ def _assign_simulated_defaults_standalone(
 
     # 3. Apply stress scenarios
     if policy.stress_scenarios and sim_pd.notna().any():
-        if len(policy.stress_scenarios) > 1:
+        if policy.estimated_default_col is not None and policy.estimated_default_col in df.columns:
             warnings.warn(
-                f"Multiple stress scenarios active ({len(policy.stress_scenarios)}). "
-                "The simulator will use the maximum (worst-case) stressed PD for each applicant.",
+                f"An inference column '{policy.estimated_default_col}' is supplied. "
+                "Stress scenarios will be ignored for simulated defaults assignment.",
                 UserWarning,
                 stacklevel=2,
             )
-        prob_matrix = pd.DataFrame(index=df.index)
-        df_temp = df.copy()
-        df_temp["__baseline_pd"] = sim_pd.values
-        for i, scenario in enumerate(policy.stress_scenarios):
-            prob_matrix[f"prob_{i}"] = scenario.apply(df_temp, "__baseline_pd")
-        final_probs = prob_matrix.max(axis=1).clip(0.0, 1.0)
-        use_stochastic_draw = True
+            final_probs = sim_pd.clip(0.0, 1.0)
+        else:
+            if len(policy.stress_scenarios) > 1:
+                warnings.warn(
+                    f"Multiple stress scenarios active ({len(policy.stress_scenarios)}). "
+                    "The simulator will use the maximum (worst-case) stressed PD for each applicant.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            prob_matrix = pd.DataFrame(index=df.index)
+            df_temp = df.copy()
+            df_temp["__baseline_pd"] = sim_pd.values
+            for i, scenario in enumerate(policy.stress_scenarios):
+                prob_matrix[f"prob_{i}"] = scenario.apply(df_temp, "__baseline_pd")
+            final_probs = prob_matrix.max(axis=1).clip(0.0, 1.0)
+            use_stochastic_draw = True
     else:
         final_probs = sim_pd.clip(0.0, 1.0)
 
@@ -538,20 +547,29 @@ def _assign_simulated_defaults(
         if not policy.stress_scenarios:
             final_probs = baseline_pd
         else:
-            if len(policy.stress_scenarios) > 1:
+            if policy.estimated_default_col is not None and policy.estimated_default_col in df.columns:
                 warnings.warn(
-                    f"Multiple stress scenarios active ({len(policy.stress_scenarios)}). "
-                    "The simulator will use the maximum (worst-case) stressed PD for each applicant.",
+                    f"An inference column '{policy.estimated_default_col}' is supplied. "
+                    "Stress scenarios will be ignored for simulated defaults assignment.",
                     UserWarning,
                     stacklevel=2,
                 )
-            prob_matrix = pd.DataFrame(index=swap_ins.index)
-            # Create a copy to prevent warnings when modifying
-            swap_ins_temp = swap_ins.copy()
-            swap_ins_temp["__baseline_pd"] = baseline_pd.values
-            for i, scenario in enumerate(policy.stress_scenarios):
-                prob_matrix[f"prob_{i}"] = scenario.apply(swap_ins_temp, "__baseline_pd")
-            final_probs = prob_matrix.max(axis=1)
+                final_probs = baseline_pd
+            else:
+                if len(policy.stress_scenarios) > 1:
+                    warnings.warn(
+                        f"Multiple stress scenarios active ({len(policy.stress_scenarios)}). "
+                        "The simulator will use the maximum (worst-case) stressed PD for each applicant.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                prob_matrix = pd.DataFrame(index=swap_ins.index)
+                # Create a copy to prevent warnings when modifying
+                swap_ins_temp = swap_ins.copy()
+                swap_ins_temp["__baseline_pd"] = baseline_pd.values
+                for i, scenario in enumerate(policy.stress_scenarios):
+                    prob_matrix[f"prob_{i}"] = scenario.apply(swap_ins_temp, "__baseline_pd")
+                final_probs = prob_matrix.max(axis=1)
 
         final_probs = final_probs.clip(0.0, 1.0)
 

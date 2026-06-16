@@ -422,3 +422,52 @@ def test_estimated_default_col():
     # Applicant 5: observed_default is NaN (should use estimated_pd = 0.5)
     np.testing.assert_allclose(df_std.loc[df_std["new_approval"] > 0, "simulated_default"], [1.0, 0.0, 1.0, 0.5])
 
+
+def test_estimated_default_col_ignores_stress(base_df):
+    """Verify that when both estimated_default_col and stress_scenarios are provided,
+    a UserWarning is raised, the stress scenarios are ignored, and simulated_default
+    is assigned directly from estimated_default_col."""
+    import pytest
+    from pycreditools.stress import AggravationStress
+
+    df = pd.DataFrame({
+        "applicant_id": [1, 2, 3, 4, 5],
+        "score_1": [500, 600, 700, 800, 900],
+        "observed_default": [0.0, 1.0, 0.0, 1.0, 0.0],
+        "estimated_pd": [0.1, 0.2, 0.3, 0.4, 0.5],
+        "historical_approval": [1, 1, 0, 0, 1]
+    })
+
+    p = CreditPolicy(
+        applicant_id_col="applicant_id",
+        score_cols=("score_1",),
+        current_approval_col="historical_approval",
+        actual_default_col="observed_default",
+        estimated_default_col="estimated_pd"
+    ).cutoff("Cut 1", {"score_1": 600}).stress(2.0)
+
+    # 1. Swap Mode: run_simulation with stress and estimated_default_col
+    with pytest.warns(UserWarning, match="Stress scenarios will be ignored"):
+        res_swap = run_simulation(df, p, method="analytical")
+    df_swap = res_swap.data
+    # Swap-ins (applicants 3, 4) should have simulated_default = estimated_pd, NOT stressed (estimated_pd * 2)
+    np.testing.assert_allclose(df_swap.loc[df_swap["scenario"] == "swap_in", "simulated_default"], [0.3, 0.4])
+
+    # 2. Standalone Mode: run_simulation with stress and estimated_default_col
+    p_standalone = CreditPolicy(
+        applicant_id_col="applicant_id",
+        score_cols=("score_1",),
+        current_approval_col=None,
+        actual_default_col="observed_default",
+        estimated_default_col="estimated_pd"
+    ).cutoff("Cut 1", {"score_1": 600}).stress(2.0)
+
+    df_standalone = df.copy()
+    df_standalone.loc[df_standalone["applicant_id"] == 5, "observed_default"] = np.nan # Approved without observed default
+
+    with pytest.warns(UserWarning, match="Stress scenarios will be ignored"):
+        res_std = run_simulation(df_standalone, p_standalone, method="analytical")
+    df_std = res_std.data
+    # Applicant 5: observed_default is NaN (uses estimated_pd = 0.5, NOT stressed 1.0)
+    np.testing.assert_allclose(df_std.loc[df_std["new_approval"] > 0, "simulated_default"], [1.0, 0.0, 1.0, 0.5])
+
