@@ -35,6 +35,13 @@ package does — without writing code. The full spec is in `docs/prd/`.
    `pycreditools/studio/` (no `import streamlit` — ever). Only the thin Streamlit
    skin (`pycreditools/gui/`) may import `streamlit`. **PRD 00 §4b wins on file
    placement** even if a per-page PRD uses an older single-file name.
+9. **Keep the GitHub board in sync.** A GitHub Projects board mirrors
+   `PROGRESS.md` (one issue per PRD, status as labels — see `PROGRESS.md`
+   "GitHub Projects board"). Every time you change a PRD's Status in
+   `PROGRESS.md`, immediately run `python scripts/github_board.py sync`
+   afterwards, in the same step. This is **best-effort**: if `gh` isn't
+   installed/authenticated, print a one-line note and move on — never let it
+   block the gate.
 
 ---
 
@@ -57,7 +64,8 @@ If the `studio` extra doesn't exist yet (you are PRD 01), add it per
 
 0. **Select your PRD from `docs/prd/PROGRESS.md`** — the first row not `DONE`
    (obey its `IN PROGRESS` / `AWAITING APPROVAL` rules). Confirm its dependencies
-   are `DONE`. Set its Status → `IN PROGRESS` and commit (PROGRESS.md only).
+   are `DONE`. Set its Status → `IN PROGRESS`, commit (PROGRESS.md only), then run
+   `python scripts/github_board.py sync` (best-effort, see Golden Rule 9).
 1. **Read** this guide + `00-overview.md` + your selected PRD (in that order).
 2. **Print a 5-bullet plan** of how you'll implement the PRD (files you'll
    create/edit, the API calls, the tests you'll write). Keep it short.
@@ -65,9 +73,16 @@ If the `studio` extra doesn't exist yet (you are PRD 01), add it per
 4. **Write the tests** the PRD's "Validação automática" lists (under `tests/studio/`).
 5. **Run all 4 validation layers** (§3). Make everything green. If something can't
    pass, **STOP and ask** — do not delete/skip the test.
-6. Set the PRD's Status → `AWAITING APPROVAL` in PROGRESS.md, **produce the Gate
+6. Set the PRD's Status → `AWAITING APPROVAL` in PROGRESS.md, commit, run
+   `python scripts/github_board.py sync` (best-effort), **produce the Gate
    Report** (§4) and **STOP**. Wait for the owner's "aprovado".
-7. **After "aprovado":** set Status → `DONE` (+ date) in PROGRESS.md, commit, STOP.
+7. **After "aprovado":** set Status → `DONE` (+ date) in PROGRESS.md, commit, run
+   `python scripts/github_board.py sync` again, then STOP.
+
+**The board sync is best-effort, never blocking:** if `gh` isn't installed/authed
+or the call fails, print one line saying so and continue — it must never hold up
+the gate or your STOP. But always *attempt* it right after every PROGRESS.md status
+change (steps 0, 6, 7) so the owner's GitHub board stays a true mirror.
 
 You never advance to the next PRD yourself.
 
@@ -162,6 +177,9 @@ When done, output **exactly** this, filled in:
 
 ### Diff
 <output of `git diff --stat <base>..HEAD` and the list of new files>
+
+### GitHub board
+<"Synced — issue #N set to status:review" / or "gh not available, skipped (PROGRESS.md is authoritative)">
 
 ### Visual verification script (for you to run)
 <the PRD's "Verificação visual" steps, copied, ready to follow>
@@ -271,6 +289,12 @@ Pick your PRD from PROGRESS.md: the first row whose Status is not DONE. Obey its
 rules for IN PROGRESS / AWAITING APPROVAL. Confirm its dependencies are DONE, then
 set its Status to IN PROGRESS and commit (PROGRESS.md only).
 
+A GitHub Projects board mirrors PROGRESS.md (one issue per PRD, status as labels).
+After EVERY status change you make in PROGRESS.md, run
+`python scripts/github_board.py sync` right after committing. This is best-effort —
+if `gh` isn't available/authenticated, print one line saying so and move on; never
+let it block you. PROGRESS.md remains the source of truth either way.
+
 Hard rules (from the guide):
 - Implement ONLY that one PRD. Do not start any other PRD.
 - Never re-implement pycreditools logic — only call its public API.
@@ -281,11 +305,11 @@ Hard rules (from the guide):
 - Work in small commits. Then run ALL 4 validation layers (ruff, pytest logic,
   Streamlit AppTest, parity-if-applicable). Everything must be green.
 - BLOCKING GATE: when the PRD is done and green, set its Status to AWAITING
-  APPROVAL in PROGRESS.md, output the Gate Report (filled Definition-of-Done +
-  full test output + `git diff --stat` + the visual verification script), and STOP.
-  Wait for my explicit "aprovado".
+  APPROVAL in PROGRESS.md, commit, sync the board, output the Gate Report (filled
+  Definition-of-Done + full test output + `git diff --stat` + the GitHub board sync
+  result + the visual verification script), and STOP. Wait for my explicit "aprovado".
 - After I say "aprovado": set the row to DONE (with date) in PROGRESS.md, commit,
-  and STOP — do not start the next PRD.
+  sync the board again, and STOP — do not start the next PRD.
 - If anything is ambiguous or a test can't pass, STOP and ask me — do not guess.
 
 Start by reading the 4 items, then print a 5-bullet plan for your PRD, then implement.

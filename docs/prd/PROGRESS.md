@@ -113,3 +113,25 @@ python scripts/prd_board.py
 
 It prints the PRDs grouped by status (`TODO` / `IN PROGRESS` / `AWAITING APPROVAL`
 / `DONE`), marks the next actionable PRD, and flags any blocked by dependencies.
+
+### GitHub Projects board (already set up — mirrors this file)
+
+Live board: **https://github.com/users/matheuspasche/projects/5** (issues #5–#15,
+one per PRD, in `matheuspasche/pycreditools`). In the project view, switch to
+**Board** and **Group by Label** to get status columns.
+
+**Agents: this is not optional housekeeping — it's part of every status change.**
+Any time you edit a Status cell in the table above, immediately run, in the same
+step:
+
+```bash
+python scripts/github_board.py sync
+```
+
+It updates each issue's `status:todo|in-progress|review|done` label, opens/closes
+the issue, and sets/clears `blocked` from the dependency column — purely derived
+from this file. **This file (`PROGRESS.md`) is still the single source of truth**;
+the sync is best-effort (skip with a one-line note if `gh` isn't
+installed/authenticated — never let it block a gate). First-time setup (already
+done once; re-run only if recreating the board) was
+`gh auth login -s project -w` then `python scripts/github_board.py setup`.
