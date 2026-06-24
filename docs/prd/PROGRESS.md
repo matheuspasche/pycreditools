@@ -43,7 +43,7 @@ apply the fixes, re-run all 4 layers, re-issue the Gate Report.
 
 | # | PRD file | Depends on | Status | Done |
 |---|----------|-----------|--------|------|
-| 01 | [01-app-shell-and-design-system.md](01-app-shell-and-design-system.md) | — | TODO | |
+| 01 | [01-app-shell-and-design-system.md](01-app-shell-and-design-system.md) | — | IN PROGRESS | |
 | 02 | [02-data-ingestion-and-projects.md](02-data-ingestion-and-projects.md) | 01 | TODO | |
 | 03 | [03-score-evaluation.md](03-score-evaluation.md) | 02 | TODO | |
 | 04 | [04-policy-studio.md](04-policy-studio.md) | 02 | TODO | |
