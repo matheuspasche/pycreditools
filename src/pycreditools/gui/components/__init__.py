@@ -1,5 +1,1 @@
-# Components package
-
-from . import ingestion, studio, simulation, risk
-
-__all__ = ["ingestion", "studio", "simulation", "risk"]
+"""Small reusable Streamlit render helpers (no engine logic)."""

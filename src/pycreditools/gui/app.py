@@ -1,86 +1,39 @@
-import dash
-import dash_mantine_components as dmc
-from dash import html, dcc, _dash_renderer
+"""Streamlit entrypoint: page config, theme, navigation, sidebar context."""
 
-_dash_renderer._set_react_version("18.2.0")
+import streamlit as st
 
-app = dash.Dash(
-    __name__,
-    external_stylesheets=[
-        "https://unpkg.com/@mantine/dates@7/styles.css",
-        "https://unpkg.com/@mantine/code-highlight@7/styles.css",
-        "https://unpkg.com/@mantine/charts@7/styles.css",
-        "https://unpkg.com/@mantine/carousel@7/styles.css",
-        "https://unpkg.com/@mantine/notifications@7/styles.css",
-        "https://unpkg.com/@mantine/nprogress@7/styles.css",
-    ],
-    suppress_callback_exceptions=True
-)
+from pycreditools.gui.session import get_state, init_state
+from pycreditools.gui.theme import apply_theme
 
-app.title = "Pycreditools Studio"
+st.set_page_config(page_title="Pycreditools Studio", page_icon="📊", layout="wide")
+apply_theme()
+init_state()
 
-def create_layout():
-    return dmc.MantineProvider(
-        id="mantine-provider",
-        forceColorScheme="dark",
-        theme={
-            "primaryColor": "blue",
-            "fontFamily": "Inter, sans-serif",
-            "components": {
-                "Card": {"defaultProps": {"shadow": "sm", "radius": "md", "withBorder": True}},
-                "Button": {"defaultProps": {"radius": "md"}},
-            }
-        },
-        children=[
-            dmc.NotificationProvider(),
-            dmc.AppShell(
-                [
-                    dmc.AppShellHeader(
-                        dmc.Group(
-                            [
-                                dmc.Title("Pycreditools Studio", order=3),
-                                dmc.Badge("No-Code", color="blue", variant="light"),
-                            ],
-                            h="100%",
-                            px="md",
-                            align="center"
-                        ),
-                    ),
-                    dmc.AppShellNavbar(
-                        [
-                            dcc.Link(dmc.NavLink(label="Data Ingestion", active=True), href="/"),
-                            dcc.Link(dmc.NavLink(label="Policy Studio"), href="/studio"),
-                            dcc.Link(dmc.NavLink(label="Score Evaluation"), href="/evaluation"),
-                            dcc.Link(dmc.NavLink(label="Simulation & Trade-off"), href="/simulation"),
-                            dcc.Link(dmc.NavLink(label="Risk Tiers Configuration"), href="/risk-tiers"),
-                        ],
-                        p="md"
-                    ),
-                    dmc.AppShellMain(
-                        [
-                            dcc.Store(id="dataset-store", storage_type="session"),
-                            dcc.Store(id="dataset-config-store", storage_type="session", data={}),
-                            dcc.Store(id="policies-store", storage_type="session", data={}),
-                            # Routing container
-                            dcc.Location(id="url"),
-                            html.Div(id="page-content")
-                        ]
-                    )
-                ],
-                header={"height": 60},
-                navbar={"width": 250, "breakpoint": "sm"},
-                padding="md",
-            )
-        ]
-    )
+pages = [
+    st.Page("pages/1_Ingestion.py", title="Ingestão", icon="📥"),
+    st.Page("pages/2_Score_Evaluation.py", title="Avaliação de Score", icon="📈"),
+    st.Page("pages/3_Policy_Studio.py", title="Policy Studio", icon="🧱"),
+    st.Page("pages/4_Simulation.py", title="Simulação", icon="🧪"),
+    st.Page("pages/5_Tradeoff.py", title="Trade-off", icon="⚖️"),
+    st.Page("pages/6_Optimization.py", title="Otimização", icon="🎯"),
+    st.Page("pages/7_Risk_Grouping.py", title="Risk Grouping", icon="🗂️"),
+    st.Page("pages/8_Risk_Screening.py", title="Screening", icon="🔬"),
+    st.Page("pages/9_Crash_Test.py", title="Crash Test", icon="💥"),
+    st.Page("pages/10_Deployment.py", title="Deploy & Scoring", icon="🚀"),
+]
+nav = st.navigation(pages, position="sidebar")
 
-app.layout = create_layout
 
-def run_dashboard(debug: bool = True, port: int = 8050):
-    """Run the Pycreditools Dash Studio locally."""
-    # Ensure callbacks are registered
-    from . import callbacks  # noqa
-    app.run(debug=debug, port=port)
+def render_sidebar_context() -> None:
+    """Show the active dataset name/row count and active policy in the sidebar."""
+    state = get_state()
+    with st.sidebar:
+        st.markdown("## 📊 Pycreditools Studio")
+        st.divider()
+        n_rows = f"{len(state.df):,}" if state.df is not None else "0"
+        st.caption(f"Base: `{state.df_name or '—'}` · {n_rows} linhas")
+        st.caption(f"Política ativa: `{state.active_policy or '—'}`")
 
-if __name__ == "__main__":
-    run_dashboard()
+
+render_sidebar_context()
+nav.run()

@@ -1,0 +1,49 @@
+:root {
+    --bg: #0B0E14;
+    --surface: #141925;
+    --surface-2: #1C2233;
+    --border: #232A3B;
+    --text: #E6EAF2;
+    --text-dim: #94A0B8;
+    --accent: #4F8CFF;
+    --success: #3DD68C;
+    --warning: #F5A623;
+    --danger: #FF5C5C;
+    --radius: 12px;
+}
+
+html, body, [data-testid="stAppViewContainer"] {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: "Inter", system-ui, sans-serif;
+}
+
+[data-testid="stSidebar"] {
+    background-color: var(--surface);
+    border-right: 1px solid var(--border);
+}
+
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+}
+
+h1, h2, h3, h4 {
+    font-family: "Inter", system-ui, sans-serif;
+    letter-spacing: -0.01em;
+}
+
+[data-testid="stCaptionContainer"] {
+    color: var(--text-dim);
+}
+
+[data-testid="stDataFrame"] thead tr th {
+    color: var(--text-dim);
+    font-weight: 500;
+}
+
+.block-container {
+    padding-top: 2rem;
+}
