@@ -57,3 +57,24 @@ ev.compute_ks_table(col: str, bins: int = 10) -> pd.DataFrame
   lowest, KS values plausible (~0.30 vs ~0.25). Numbers match
   `ModelEvaluator(df_hist, scores, "actual_default").compute_ks()` from a notebook.
 - Decile table shows monotonically decreasing `Bad_Rate` from Bucket 1→N.
+
+## Validação & Gate (BLOQUEANTE)
+
+> Não avance sem as 4 camadas verdes **E** o "aprovado" do dono. Ver `IMPLEMENTATION_GUIDE.md` §3–§4.
+
+### Definition of Done
+- [ ] Ranking KS (bar chart) + curva KS + tabela decil renderizam.
+- [ ] População default = Contratados; `dropna` no target; N efetivo mostrado.
+- [ ] Seletor de bins e de score para a tabela decil funcionam.
+
+### Validação automática
+- **L1** `ruff check ...` → 0.
+- **L2** colunas de `compute_ks_table` corretas; o helper da página não recalcula KS à mão (chama `ModelEvaluator`).
+- **L3** AppTest com `studio_state`: bar chart + dataframe presentes, sem exceção; trocar bins re-renderiza.
+- **L4** **Paridade**: KS da página `== ModelEvaluator(subset, scores, target).compute_ks()` direto no mesmo subset (`np.isclose`).
+
+### Verificação visual (dono)
+1. Avaliação no sample (Contratados): `score_5` no topo, `legacy_score` embaixo. 2. Tabela decil com `Bad_Rate` decrescente.
+
+### Gate
+Entregue o **Gate Report** e **pare**. Pergunte: "Aprova o PRD 03?".

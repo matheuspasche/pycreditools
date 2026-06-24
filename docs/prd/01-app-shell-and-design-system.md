@@ -122,3 +122,27 @@ maxUploadSize = 1024   # allow large CSVs (MB)
   message, never a traceback.
 - A throwaway Plotly figure rendered on the home/empty state uses the `pct_dark`
   template (dark, Inter, accent color).
+
+## Validação & Gate (BLOQUEANTE)
+
+> Não avance sem as 4 camadas verdes **E** o "aprovado" do dono. Ver `IMPLEMENTATION_GUIDE.md` §3–§4.
+
+### Definition of Done
+- [ ] `pycreditools-studio` e `streamlit run src/pycreditools/gui/app.py` abrem o app dark com a sidebar de 10 itens e o header de contexto.
+- [ ] Nenhum import do Dash em lugar algum; `pip install -e ".[studio,dev]"` instala sem dash.
+- [ ] `theme.py` injeta o CSS e registra/define o template Plotly `pct_dark`.
+- [ ] `state.py` expõe `init_state/get_state/guard_dataset/guard_roles/require_policy`.
+- [ ] `components/{kpi,tables,charts}.py` existem com as assinaturas do PRD.
+- [ ] `tests/studio/conftest.py` com os fixtures do guia §5.
+
+### Validação automática
+- **L1** `ruff check src/pycreditools/gui tests/studio` → 0 erros.
+- **L2** `pytest tests/studio -q -k "not apptest and not parity"`: `get_state` cria o estado; `guard_dataset` chama `st.stop`/avisa sem dados; cada builder de `charts.*` retorna `plotly.graph_objects.Figure`; `tables.dataframe`/`kpi_row` não levantam.
+- **L3** `pytest tests/studio/apptest -q`: `AppTest.from_file(".../app.py").run()` sem exceção; abrir qualquer página sem dataset mostra warning (não traceback).
+- **L4** Paridade: **N/A** neste PRD.
+
+### Verificação visual (dono)
+1. `streamlit run src/pycreditools/gui/app.py`. 2. Conferir tema escuro, sidebar de 10 itens, header de contexto, espaçamento "leve". 3. Abrir página sem base → mensagem amigável.
+
+### Gate
+Entregue o **Gate Report** (guia §4) e **pare**. Pergunte: "Aprova o PRD 01 para eu seguir?".

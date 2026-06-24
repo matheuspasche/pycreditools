@@ -87,3 +87,26 @@ plot_tradeoffs(tradeoff_df, legacy_approval_rate=None, legacy_bad_rate=None,
   legacy point sits above the frontier.
 - The three scenarios match the notebook's selection logic for `score_5` on DEV.
 - "Aplicar cutoff" updates the active policy and the funnel/sim pages reflect it.
+
+## Validação & Gate (BLOQUEANTE)
+
+> Não avance sem as 4 camadas verdes **E** o "aprovado" do dono. Ver `IMPLEMENTATION_GUIDE.md` §3–§4.
+
+### Definition of Done
+- [ ] Varrer cutoff por score(s) selecionado(s); concat com `Score_Model`.
+- [ ] Fronteira eficiente (Plotly) + ponto de referência legado.
+- [ ] 3 cenários (conservador/neutro/agressivo) calculados como no v14 Cell 7.
+- [ ] Botão "Aplicar cutoff ao Policy Studio" altera a política ativa.
+- [ ] População default = DEV; spinner em runs grandes.
+
+### Validação automática
+- **L1** `ruff check ...` → 0.
+- **L2** seleção de cenário (`idxmin` de |approval-legacy| etc.) correta dado um `res` sintético; "aplicar cutoff" muda a policy em estado.
+- **L3** AppTest com `studio_state_with_policy`: rodar fronteira → chart + tabela; sem exceção.
+- **L4** **Paridade**: linhas da fronteira == `TradeoffAnalyzer(base).vary_cutoff(...).run(df)` direto (mesma base/steps).
+
+### Verificação visual (dono)
+1. Fronteira: `score_5` domina o canto inferior; legado acima da curva. 2. Cenários batem com o notebook para `score_5`/DEV.
+
+### Gate
+Entregue o **Gate Report** e **pare**. Pergunte: "Aprova o PRD 06?".

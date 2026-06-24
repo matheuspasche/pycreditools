@@ -123,3 +123,27 @@ filtros do v14" quick-fill button that injects the 4 masterclass hard filters
   funnel volumes.
 - Switching/duplicating policies preserves each policy's rules independently.
 - The built `CreditPolicy.to_dict()` round-trips through `from_dict` unchanged.
+
+## Validação & Gate (BLOQUEANTE)
+
+> Não avance sem as 4 camadas verdes **E** o "aprovado" do dono. Ver `IMPLEMENTATION_GUIDE.md` §3–§4.
+
+### Definition of Done
+- [ ] Gerenciar políticas (nova/duplicar/renomear/excluir), persistidas em `StudioState.policies`.
+- [ ] Rule rows: Filtro (`col` expr), Cutoff, Rate, Stress plano — adicionar/reordenar/excluir.
+- [ ] `policy_builder.build_policy(roles, rows)` monta a `CreditPolicy` na ordem das rows.
+- [ ] `.validate(df)` com feedback verde/erro traduzido; `describe()` no expander.
+- [ ] Funil ao vivo (`@st.fragment`) com chart + tabela + KPIs.
+- [ ] Quick-fill "filtros do v14" injeta os 4 filtros quando as colunas existem.
+
+### Validação automática
+- **L1** `ruff check ...` → 0.
+- **L2** `build_policy` gera a policy esperada; `to_dict`↔`from_dict` idêntico; a `Expression` montada de uma row, avaliada no df, == máscara feita à mão (`col(c) <op> v`); lógica fora dos `pages/*`.
+- **L3** AppTest de `3_Policy_Studio.py` com `studio_state`: adicionar uma row → funil aparece; quick-fill v14 cria 4 filtros; sem exceção.
+- **L4** **Paridade**: `sim.to_funnel_dataframe()` da policy montada `== run_simulation(df, policy)` direto; volumes batem com `run_v14_benchmark.py` para a `policy_hf` + cutoff legado.
+
+### Verificação visual (dono)
+1. Recriar `policy_hf` (4 filtros) + `legacy_score >= p78` via cliques. 2. Conferir os volumes do funil contra `run_v14_benchmark.py`. 3. Adicionar fator de stress → bad rate muda, volumes não.
+
+### Gate
+Entregue o **Gate Report** e **pare**. Pergunte: "Aprova o PRD 04?".

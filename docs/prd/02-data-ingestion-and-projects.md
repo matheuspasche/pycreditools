@@ -108,3 +108,26 @@ A project bundles the analysis so the user can resume. Single-user/local.
   friendly error.
 - Saving then "Novo projeto" then loading restores roles + policies + ratings, and
   the dataset is re-loaded/regenerated.
+
+## Validação & Gate (BLOQUEANTE)
+
+> Não avance sem as 4 camadas verdes **E** o "aprovado" do dono. Ver `IMPLEMENTATION_GUIDE.md` §3–§4.
+
+### Definition of Done
+- [ ] Upload CSV/Parquet **e** "Gerar base de exemplo" populam `StudioState.df/df_name/df_hash`.
+- [ ] `detect_roles` preenche os papéis no v14 sample (ids, scores, default, approved, hired, safra, region, oot≈2025-01); usuário pode sobrescrever.
+- [ ] Painel de validação roda `CreditPolicy.validate` e mostra ok/erro traduzido.
+- [ ] Salvar / Carregar / Novo projeto funcionam; dataset re-carregado ou regenerado por `{n,seed}`.
+- [ ] `population_filter` (All/Aprovados/Contratados/DEV/OOT/Custom) implementado e reutilizável.
+
+### Validação automática
+- **L1** `ruff check ...` → 0.
+- **L2** `detect_roles(sample_df)` retorna os papéis esperados; `population_filter` subsetta certo (DEV = `time_col < oot_date`); `projects.save`→`load` faz round-trip de roles+policies+recipe.
+- **L3** AppTest de `1_Ingestion.py`: sem estado → mostra uploader; com base injetada via fixture → KPIs + preview sem exceção; alterar um role atualiza `session_state`.
+- **L4** Paridade: **N/A** (a única chamada de engine é `validate`/`generate_sample_data`).
+
+### Verificação visual (dono)
+1. Gerar base (50k, seed 42) → conferir roles auto-detectados. 2. Salvar projeto → "Novo projeto" → Carregar → tudo volta (roles/políticas/rating).
+
+### Gate
+Entregue o **Gate Report** e **pare**. Pergunte: "Aprova o PRD 02?".

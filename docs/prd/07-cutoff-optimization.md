@@ -90,3 +90,26 @@ plot_optimization(opt_results, type="tradeoff"|"pareto") -> plt.Figure
   reflects feasibility.
 - Pareto points are non-dominated (match `find_pareto_frontier(all_results)`).
 - "Aplicar melhor combinação" updates the active policy's cutoff.
+
+## Validação & Gate (BLOQUEANTE)
+
+> Não avance sem as 4 camadas verdes **E** o "aprovado" do dono. Ver `IMPLEMENTATION_GUIDE.md` §3–§4.
+
+### Definition of Done
+- [ ] `optimize_cutoffs` rodando; KPIs do `best_combination`/`metrics`/`constraints_met`.
+- [ ] Fronteira de Pareto (Plotly) com linhas de restrição e ponto ótimo destacado.
+- [ ] Painel `find_equivalent`; tabela `all_results`.
+- [ ] Botão "Aplicar melhor combinação" altera a política ativa.
+- [ ] Aviso/guarda para grids explosivos (`steps ** n_scores`).
+
+### Validação automática
+- **L1** `ruff check ...` → 0.
+- **L2** validação de parâmetros (faixas) tratada; `find_pareto_frontier(all_results)` == `result.pareto_frontier`.
+- **L3** AppTest single-score com `studio_state_with_policy`: KPIs + chart de pareto; aviso quando grid grande.
+- **L4** **Paridade**: `optimize_cutoffs(...)` via studio == chamada direta (`best_combination`, `metrics`).
+
+### Verificação visual (dono)
+1. Rodar com `score_5`: melhor combinação dentro das restrições quando viável; `constraints_met` coerente.
+
+### Gate
+Entregue o **Gate Report** e **pare**. Pergunte: "Aprova o PRD 07?".

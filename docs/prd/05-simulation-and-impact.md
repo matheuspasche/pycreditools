@@ -91,3 +91,27 @@ print_delta_table(sim_new, sim_old)
 - Setting the legacy baseline then comparing shows Approval/Bad-rate deltas
   consistent with `compare_policies`.
 - With a fitted rating, swap-in-by-rating and Rating×region sections populate.
+
+## Validação & Gate (BLOQUEANTE)
+
+> Não avance sem as 4 camadas verdes **E** o "aprovado" do dono. Ver `IMPLEMENTATION_GUIDE.md` §3–§4.
+
+### Definition of Done
+- [ ] `run_simulation` rodando (analytical default); `last_sim` em estado.
+- [ ] KPIs com delta vs baseline; quadrantes 2×2 (volume + bad rate por célula).
+- [ ] Swap-in por rating e por segmento (quando houver rating/segment_col).
+- [ ] Comparação vs baseline (`compare_policies`) + tabela de delta P&L.
+- [ ] Preview de decisões (`to_decision_dataframe`).
+- [ ] Nenhum scraping de stdout dos `print_*` — números recalculados de `sim.data`.
+
+### Validação automática
+- **L1** `ruff check ...` → 0.
+- **L2** o builder dos quadrantes == agregação direta de `summarize_results(sim)`; baseline set/compare em estado.
+- **L3** AppTest com `studio_state_with_policy`: KPIs + quadrante renderizam; com `studio_state_with_rating` a seção swap-in-por-rating aparece.
+- **L4** **Paridade**: volumes/bad rates por quadrante == cálculo direto sobre `sim.data`; `compare_policies(last, legacy)` reproduzido na UI.
+
+### Verificação visual (dono)
+1. Rodar a policy v14; conferir quadrantes vs `print_quadrant_summary` do notebook. 2. Definir baseline legado; conferir deltas.
+
+### Gate
+Entregue o **Gate Report** e **pare**. Pergunte: "Aprova o PRD 05?".

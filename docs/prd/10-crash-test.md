@@ -57,3 +57,24 @@ plot_crash_test(crash_df, legacy_bad_rate: float,
 - On v14 sample/DEV with factors 1→10, the curve rises monotonically and the
   breakeven matches the notebook's computed factor (first crossing of legacy bad
   rate) within interpolation tolerance.
+
+## Validação & Gate (BLOQUEANTE)
+
+> Não avance sem as 4 camadas verdes **E** o "aprovado" do dono. Ver `IMPLEMENTATION_GUIDE.md` §3–§4.
+
+### Definition of Done
+- [ ] `vary_stress_aggravation` rodando; `legacy_bad_rate` auto-preenchido com override.
+- [ ] Breakeven calculado (primeiro cruzamento, com interpolação); KPI + texto interpretativo.
+- [ ] Crash chart (Plotly) com hline legado + vline breakeven; tabela de resultados.
+
+### Validação automática
+- **L1** `ruff check ...` → 0.
+- **L2** a função de breakeven retorna o fator correto para um `crash_df` sintético conhecido (e `None` quando não cruza).
+- **L3** AppTest com `studio_state_with_policy`: rodar crash → chart + tabela + KPI breakeven.
+- **L4** **Paridade**: a curva == `TradeoffAnalyzer(policy).vary_stress_aggravation(values).run(df)` direto.
+
+### Verificação visual (dono)
+1. DEV, fatores 1→10: curva sobe; vline no breakeven; valor coerente com o notebook.
+
+### Gate
+Entregue o **Gate Report** e **pare**. Pergunte: "Aprova o PRD 10 (Crash Test)?".

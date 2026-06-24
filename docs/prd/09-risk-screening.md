@@ -68,3 +68,25 @@ ScreeningRecipe: variable, boundaries: dict[int,list[float]], sub_mappings: dict
 - Running on v14 sample with `base_risk_col=Rating` and a couple candidates (e.g.
   `income`, `age`) yields an IV ranking and a per-variable bad-rate breakdown.
 - Selecting a variable shows its boundaries and a populated sub-segment table.
+
+## Validação & Gate (BLOQUEANTE)
+
+> Não avance sem as 4 camadas verdes **E** o "aprovado" do dono. Ver `IMPLEMENTATION_GUIDE.md` §3–§4.
+
+### Definition of Done
+- [ ] Base rating obtida (recipe aplicada ou coluna escolhida); hint se faltar.
+- [ ] `fit_risk_segments` rodando; ranking de IV (tabela + bar).
+- [ ] Detalhe por variável: boundaries + bad rate por (tier × sub-segmento) + heatmap.
+- [ ] `screening_result` persistido em estado.
+
+### Validação automática
+- **L1** `ruff check ...` → 0.
+- **L2** `fit_risk_segments` via studio == direto (métricas de IV); shape de `predict` correto.
+- **L3** AppTest com `studio_state_with_rating`: ranking de IV renderiza; selecionar variável → tabela.
+- **L4** **Paridade**: IV por candidato == chamada direta (`np.isclose`).
+
+### Verificação visual (dono)
+1. Rodar com `income`/`age` → ver IV e bad rate por sub-segmento.
+
+### Gate
+Entregue o **Gate Report** e **pare**. Pergunte: "Aprova o PRD 09?".

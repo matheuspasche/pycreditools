@@ -102,3 +102,26 @@ plot_vintage_stability(df, rating_col="Rating", time_col="safra",
   the DEV/OOT lines are visible around the boundary.
 - After fitting, the Simulation page's swap-in-by-rating section becomes available.
 - `recipe.to_dict()` round-trips via `from_dict` (used by project save & deploy).
+
+## Validação & Gate (BLOQUEANTE)
+
+> Não avance sem as 4 camadas verdes **E** o "aprovado" do dono. Ver `IMPLEMENTATION_GUIDE.md` §3–§4.
+
+### Definition of Done
+- [ ] `fit_risk_groups` (modo Único, 1–2 scores) e `fit_pairwise_risk_groups` (modo Pairwise).
+- [ ] Labels A–E por PD ascendente; `rating_result` + `rating_labels` em estado.
+- [ ] Tabela de grupos + bar de PD por tier (RISK_COLORS); stability report (com `oot_date`).
+- [ ] Gráfico de vintage stability (Plotly) com vline no `oot_date`.
+- [ ] `max_groups` clampado a `≤ bins`.
+
+### Validação automática
+- **L1** `ruff check ...` → 0.
+- **L2** o mapeamento A–E ordena por PD asc corretamente; `recipe.to_dict`↔`from_dict` idêntico; o resumo de PD por tier == `groupby` direto em `result.data`.
+- **L3** AppTest com `studio_state`: rodar grouping → tabela + bar; com `oot_date` → report presente.
+- **L4** **Paridade**: `fit_risk_groups` via studio == chamada direta (mesmos `n_groups` e PDs por tier).
+
+### Verificação visual (dono)
+1. Aprovados/DEV, `score_5`, bins=30, max_groups=5 → ~5 tiers com PD monotônica A→E. 2. Vintage chart com DEV/OOT separados.
+
+### Gate
+Entregue o **Gate Report** e **pare**. Pergunte: "Aprova o PRD 08?".

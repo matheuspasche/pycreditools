@@ -78,3 +78,25 @@ Two tabs: **Exportar política** and **Escorar arquivo**.
 - Re-loading that JSON and predicting on a 10-row sample yields decisão + rating +
   cenário per row (matches notebook Cell 14 `dep_loaded.predict(amostra, simple=True)`).
 - Downloaded scored CSV opens with the expected columns.
+
+## Validação & Gate (BLOQUEANTE)
+
+> Não avance sem as 4 camadas verdes **E** o "aprovado" do dono. Ver `IMPLEMENTATION_GUIDE.md` §3–§4.
+
+### Definition of Done
+- [ ] Export JSON (política + production-rules), toggle `clean`, preview + download.
+- [ ] Batch predict: usar política atual **ou** upload de JSON; `simple` toggle.
+- [ ] KPIs (total, taxa de aprovação, mix de rating) + distribuição + download do CSV escorado.
+- [ ] Nota listando colunas mockadas pelo `predict`.
+
+### Validação automática
+- **L1** `ruff check ...` → 0.
+- **L2** `policy.export().to_dict()`↔`from_dict` round-trip; `DeploymentPolicy.load(save(x))` == `x` (estrutura).
+- **L3** AppTest: aba export mostra JSON + botões de download; aba scoring com arquivo injetado → tabela de decisões.
+- **L4** **Paridade**: `dep.predict(df)` via studio == `policy.simulate(df)`/`DeploymentPolicy.predict` direto (mesmas decisões/ratings).
+
+### Verificação visual (dono)
+1. Exportar a policy v14 + recipe; recarregar o JSON; escorar 10 linhas → decisão + rating + cenário por linha.
+
+### Gate
+Entregue o **Gate Report** e **pare**. Pergunte: "Aprova o PRD 11 — concluímos o v1?".
