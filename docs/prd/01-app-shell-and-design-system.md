@@ -139,6 +139,61 @@ maxUploadSize = 1024   # allow large CSVs (MB)
   signatures + a shared `_apply_layout(fig, title, height)` helper. Pages render
   them with `st.plotly_chart(fig, use_container_width=True)` (the only st part).
 
+## Test scaffolding (build carefully — every later PRD reuses it)
+
+You create the scaffold now; later PRDs **extend** it (guide §5). Only seed what
+PRD 01 needs — **never import a module that doesn't exist yet** (e.g. don't import
+`studio.detection`/`policy_builder` here; those arrive in PRD 02/04).
+
+### `tests/studio/conftest.py` (PRD 01 seeds these fixtures)
+```python
+import pytest
+from pycreditools import generate_sample_data
+from pycreditools.studio.models import StudioState, ColumnRoles  # defined in this PRD
+
+@pytest.fixture(scope="session")
+def sample_df():
+    return generate_sample_data(5000, seed=42)
+
+@pytest.fixture
+def studio_state(sample_df):
+    """Basic state: dataset loaded, roles empty. PRD 02 fills roles; PRD 04/08 extend."""
+    return StudioState(
+        df_name="sample", df=sample_df, df_hash="sample-5000-42",
+        roles=ColumnRoles(), policies={}, active_policy=None,
+        rating_result=None, rating_labels=None, screening_result=None,
+        last_sim=None, legacy_sim=None,
+    )  # match exactly the dataclass you define in studio/models.py
+```
+(Use `as_dict`/`asdict` if the skin stores a dict under `st.session_state["studio"]`;
+AppTests inject via `at.session_state["studio"] = studio_state`.)
+
+### `tests/studio/test_boundary.py` (mandatory, Layer 2 — keeps the framework swappable)
+```python
+import ast, pathlib
+
+CORE = pathlib.Path(__file__).resolve().parents[2] / "src" / "pycreditools" / "studio"
+
+def test_core_has_no_streamlit_import():
+    offenders = []
+    for py in CORE.rglob("*.py"):
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import) and any(
+                a.name.split(".")[0] == "streamlit" for a in node.names
+            ):
+                offenders.append(py.name)
+            if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "streamlit":
+                offenders.append(py.name)
+    assert not offenders, f"streamlit imported in studio/ core: {offenders}"
+```
+
+### Also create in PRD 01
+- `tests/studio/test_models.py` — `studio.models` dataclasses construct/round-trip;
+  `gui/session.py` guards (`guard_dataset` stops without data) tested via a thin call.
+- `tests/studio/apptest/test_app.py` — `AppTest.from_file(".../app.py").run()` has no
+  exception; an arbitrary page with no dataset shows a warning (guard), no traceback.
+
 ## Acceptance criteria
 - `pycreditools-studio` (or `streamlit run src/pycreditools/gui/app.py`) launches a
   dark, well-spaced app with the 10-item sidebar and the context header.

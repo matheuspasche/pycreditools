@@ -57,3 +57,59 @@ apply the fixes, re-run all 4 layers, re-issue the Gate Report.
 
 > Note: `<NN>` in commit messages = the row number (01–11). The PRD file name also
 > carries it. When all rows are `DONE`, the v1 studio is complete (00-overview §12).
+
+## Dependency map (visual)
+
+Renders on GitHub / VS Code (Mermaid). Arrows = "must be DONE before". The table
+above carries live status; this graph carries structure.
+
+```mermaid
+graph LR
+  P01[01 App Shell + core/skin] --> P02[02 Ingestion + Projects]
+  P02 --> P03[03 Score Eval / KS]
+  P02 --> P04[04 Policy Studio]
+  P02 --> P08[08 Risk Grouping]
+  P04 --> P05[05 Simulation]
+  P04 --> P06[06 Trade-off]
+  P04 --> P07[07 Optimization]
+  P04 --> P10[10 Crash Test]
+  P08 --> P09[09 Screening]
+  P04 --> P11[11 Deploy & Scoring]
+  P08 --> P11
+```
+
+## What each PRD delivers — your gate briefing
+
+At each gate the agent tells you **"validate this now / don't expect that yet"**
+(guide §4). This is the source for that briefing — what becomes testable in the
+running app when the PRD is `DONE`:
+
+- **01** — App opens (dark theme, sidebar, guards) + the core/skin skeleton & test
+  scaffold. *No analysis pages yet.*
+- **02** — Upload a CSV or generate sample data; auto-detected column roles;
+  save/load a project.
+- **03** — KS ranking of your scores + decile (KS) table.
+- **04** — Build a policy by clicking (filters/cutoff/rate + flat stress) with a
+  live funnel preview.
+- **05** — Run the policy: approval/bad rate, swap quadrants, compare vs baseline.
+- **06** — Efficient frontier + conservative/neutral/aggressive scenario picker.
+- **07** — Grid-search optimal cutoffs + Pareto frontier.
+- **08** — Risk ratings A–E (clustering) + vintage-stability chart.
+- **09** — Sub-segments inside ratings ranked by IV (screening).
+- **10** — Crash test: breakeven stress factor.
+- **11** — Export the policy JSON + batch-score an uploaded file.
+
+> So, e.g., during PRD 04 don't try to validate ratings (PRD 08) or deployment
+> (PRD 11) — they aren't built yet. The agent will spell this out at each gate.
+
+## Visual board (live kanban)
+
+For a terminal kanban derived from the table above (always accurate — single
+source of truth), run:
+
+```bash
+python scripts/prd_board.py
+```
+
+It prints the PRDs grouped by status (`TODO` / `IN PROGRESS` / `AWAITING APPROVAL`
+/ `DONE`), marks the next actionable PRD, and flags any blocked by dependencies.

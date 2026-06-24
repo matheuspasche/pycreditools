@@ -166,6 +166,14 @@ When done, output **exactly** this, filled in:
 ### Visual verification script (for you to run)
 <the PRD's "Verificação visual" steps, copied, ready to follow>
 
+### Briefing de validação (o que conferir agora — e o que NÃO conferir ainda)
+**Valide agora** (entregue neste PRD): <the PRD's "Delivers" from PROGRESS.md —
+the concrete things the owner can/should test in the running app now>.
+**Ainda NÃO existe — não tente validar** (vem depois): <read PROGRESS.md and list
+every row still not DONE with its "Delivers", so the owner doesn't waste time
+testing a page/feature that isn't built yet, e.g. "Risk Grouping (ratings A–E) →
+PRD 08", "Deploy/scoring → PRD 11">.
+
 ### Ask
 "PRD <NN> está completo e com as 4 camadas verdes. Aprova para eu seguir para o
 próximo PRD?" 
@@ -190,14 +198,16 @@ tests/studio/
     └── test_<topic>.py
 ```
 
-`tests/studio/conftest.py` must provide:
-- `sample_df` → `generate_sample_data(5000, seed=42)`.
-- `roles` → the `ColumnRoles` auto-detected from `sample_df`.
-- `studio_state` → a fully-populated `StudioState` dict ready to inject into
-  `at.session_state["studio"]` (dataset + roles set; no policy yet).
-- `studio_state_with_policy` → same, plus one built `CreditPolicy` (v14 hard
-  filters) as the active policy.
-- `studio_state_with_rating` → plus a fitted `RiskGroupResult` + labels.
+**Fixtures are added incrementally — never import a not-yet-built module in
+conftest.** Each PRD adds the fixtures its capability enables:
+- **PRD 01** seeds: `sample_df` → `generate_sample_data(5000, seed=42)`; a basic
+  `studio_state` (dataset set, roles empty) built straight from
+  `studio.models`; and `test_boundary.py`.
+- **PRD 02** adds `roles` (via `studio.detection.detect_roles`) and fills the
+  roles in `studio_state`.
+- **PRD 04** adds `studio_state_with_policy` (one built `CreditPolicy` = v14 hard
+  filters, as the active policy).
+- **PRD 08** adds `studio_state_with_rating` (a fitted `RiskGroupResult` + labels).
 
 Keep fixtures fast: 5000 rows, `method="analytical"`.
 
