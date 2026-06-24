@@ -43,8 +43,13 @@ test layers green AND the owner's explicit "aprovado".**
 - **Streamlit** · **Plotly** charts · **dark fintech** theme.
 - **100% no-code**; custom-function notebook steps become presets.
 - **Full parity** with the package in v1.
-- **Single-user, local** (`streamlit run`).
-- Old **Dash GUI is replaced** (deleted) — Streamlit lives in `src/pycreditools/gui/`.
+- **Single-user, local** (`streamlit run`) — but built to be server-publishable
+  without rework (see `00-overview.md` §13).
+- **Two-layer architecture** (no-rework insurance, `00-overview.md` §4b): a
+  framework-agnostic **core** `pycreditools/studio/` (no streamlit) + a thin
+  Streamlit **skin** `pycreditools/gui/`. If Streamlit is ever outgrown, the core is
+  reused behind FastAPI; only the skin is rewritten.
+- Old **Dash GUI is replaced** (deleted) — Streamlit skin lives in `src/pycreditools/gui/`.
 - Stress = **flat aggravation factor only**; angulated/linear/monotonic stress and
   any user-typed Python are **out of v1** (see `00-overview.md` §10).
 - Data: sample-data generator · column auto-detection · ~1M-row support · projects.

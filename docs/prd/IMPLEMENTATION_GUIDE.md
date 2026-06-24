@@ -29,6 +29,10 @@ package does — without writing code. The full spec is in `docs/prd/`.
    "aprovado". Do not continue without it.
 7. **Read before you write.** Read `IMPLEMENTATION_GUIDE.md` (this file),
    `00-overview.md`, and your assigned PRD — in that order — before any edit.
+8. **Respect the core/skin boundary (`00-overview.md` §4b).** All logic goes in
+   `pycreditools/studio/` (no `import streamlit` — ever). Only the thin Streamlit
+   skin (`pycreditools/gui/`) may import `streamlit`. **PRD 00 §4b wins on file
+   placement** even if a per-page PRD uses an older single-file name.
 
 ---
 
@@ -81,12 +85,18 @@ pytest tests/studio/parity -q
 ```
 
 ### Layer 2 — logic tests
-Test the **pure helpers**, not Streamlit. Examples: `detect_roles(df)` returns the
-right roles on sample data; `population_filter` subsets correctly;
-`policy_builder.build_policy(roles, rows)` produces a `CreditPolicy` whose
-`to_dict()` round-trips; a chart builder returns a `plotly.graph_objects.Figure`
-with the expected number of traces. Use the shared fixtures in
-`tests/studio/conftest.py` (§5).
+Test the **pure helpers** in `pycreditools/studio/`, not Streamlit. Examples:
+`detect_roles(df)` returns the right roles on sample data; `population_filter`
+subsets correctly; `policy_builder.build_policy(roles, rows)` produces a
+`CreditPolicy` whose `to_dict()` round-trips; a chart builder returns a
+`plotly.graph_objects.Figure` with the expected number of traces. Use the shared
+fixtures in `tests/studio/conftest.py` (§5).
+
+**Mandatory boundary test** (`tests/studio/test_boundary.py`): assert that **no
+module under `pycreditools/studio/` imports `streamlit`** (walk the package source
+and check imports, or import each module with `streamlit` removed from
+`sys.modules` and a guard). This is what keeps the framework swappable
+(`00-overview.md` §4b) — it must pass on every PRD.
 
 ### Layer 3 — Streamlit AppTest (headless, no browser)
 Use `streamlit.testing.v1.AppTest`. Pattern:
@@ -164,8 +174,9 @@ re-issue the Gate Report.
 ```
 tests/studio/
 ├── conftest.py            # shared fixtures
-├── test_state.py          # logic
-├── test_data_access.py    # logic
+├── test_boundary.py       # core has no `streamlit` import (Layer 2, mandatory)
+├── test_models.py         # studio/models + session bridge (logic)
+├── test_data.py           # studio/data + studio/detection (logic)
 ├── apptest/               # Streamlit AppTest (Layer 3)
 │   └── test_<page>.py
 └── parity/                # Layer 4
@@ -190,9 +201,11 @@ Keep fixtures fast: 5000 rows, `method="analytical"`.
 - Python ≥ 3.10, type hints on public functions, docstrings one-liner.
 - `ruff` config already in `pyproject.toml` (line-length 100, rules E/F/I/W/UP).
 - UI copy in **pt-BR**; identifiers in English (`00-overview.md` §9.8).
-- Pure logic lives in `state.py` / `data_access.py` / `components/*` / `projects.py`
-  so it's unit-testable **without** Streamlit. Page files (`pages/*.py`) should be
-  thin: read state → call helpers → render. Don't bury logic in page files.
+- Pure logic lives in the **`pycreditools/studio/`** core (`models`, `detection`,
+  `data`, `policy_builder`, `analyses`, `charts`, `projects`) — unit-testable
+  **without** Streamlit and importing **no** `streamlit`. The `pycreditools/gui/`
+  skin (`session.py`, `components/*`, `pages/*.py`) is thin: read session → call
+  core → render. Don't bury logic in page files or in `gui/` (`00-overview.md` §4b).
 - Wrap engine calls in `try/except` → `st.error(translated message)`. Never show a
   raw traceback (`00-overview.md` §9.6).
 - Cache expensive calls with `@st.cache_data` keyed on `(df_hash, params)`
@@ -211,6 +224,8 @@ Keep fixtures fast: 5000 rows, `method="analytical"`.
 - ❌ Adding angulated/linear/monotonic stress or any user Python → out of scope.
 - ❌ `actual_default` is NaN for non-hired rows; KS/grouping must `dropna` on the
   target and report effective N (`00-overview.md` §9.5).
+- ❌ `import streamlit` inside `pycreditools/studio/` → breaks the core/skin
+  boundary and fails `test_boundary.py` (`00-overview.md` §4b).
 - ❌ Touching files outside the PRD's scope.
 - ❌ Continuing past the gate without an explicit "aprovado".
 
@@ -238,6 +253,8 @@ Hard rules (from the guide):
 - Never re-implement pycreditools logic — only call its public API.
 - 100% no-code: no user-typed Python in the UI. Respect 00-overview §10 non-goals
   (e.g. only flat AggravationStress).
+- Keep the core/skin split: all logic in `pycreditools/studio/` with NO
+  `import streamlit`; only `pycreditools/gui/` imports streamlit (00-overview §4b).
 - Work in small commits. Then run ALL 4 validation layers (ruff, pytest logic,
   Streamlit AppTest, parity-if-applicable). Everything must be green.
 - BLOCKING GATE: when PRD <NN> is done and green, STOP and output the Gate Report

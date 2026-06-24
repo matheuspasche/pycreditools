@@ -10,18 +10,37 @@ Stand up the Streamlit app skeleton with a polished **dark fintech** look, the
 sidebar navigation, the shared `state.py`, and the `components/` + `theme.py`
 helpers — so pages 02–11 only have to fill in content.
 
+> **Architecture (read PRD 00 §4b first).** This PRD establishes the two layers:
+> the framework-agnostic **core** `pycreditools/studio/` (no `streamlit`) and the
+> Streamlit **skin** `pycreditools/gui/`. Get this split right here — every later
+> PRD depends on it.
+
 ## Deliverables
 
-1. `src/pycreditools/gui/app.py` — entrypoint.
-2. `src/pycreditools/gui/__init__.py` — `run_studio()`.
-3. `src/pycreditools/gui/theme.py` — `apply_theme()` + Plotly template `pct_dark`.
-4. `src/pycreditools/gui/assets/studio.css`.
-5. `.streamlit/config.toml` — dark theme tokens.
-6. `src/pycreditools/gui/state.py` — `StudioState`, `get_state`, `guard_dataset`,
-   `guard_roles`, `require_policy`.
-7. `src/pycreditools/gui/components/{__init__,kpi,tables,charts}.py` — themed primitives.
-8. `pyproject.toml` updates: add `studio` extra + `[project.scripts]`, remove `gui` Dash extra.
-9. Delete the old Dash app (see PRD 00 §4 "Delete" list).
+**Core — `src/pycreditools/studio/` (must NOT import streamlit):**
+1. `__init__.py`.
+2. `models.py` — `StudioState`, `ColumnRoles`, `PolicyEntry`, `ProjectBundle`
+   (pure dataclasses, per Master §6).
+3. `charts.py` — registers the Plotly template `pct_dark` (from §7 tokens),
+   exports `RISK_COLORS`, and stubs the themed `go.Figure` builders (PRD 01 §charts).
+
+**Skin — `src/pycreditools/gui/` (only place `import streamlit` appears):**
+4. `app.py` — entrypoint (`st.navigation`).
+5. `__init__.py` — `run_studio()`.
+6. `theme.py` — `apply_theme()`: inject `assets/studio.css` and set
+   `plotly.io.templates.default = "pct_dark"` (template comes from `studio.charts`).
+7. `assets/studio.css`.
+8. `session.py` — bridges `st.session_state` ↔ `studio.models`; `init_state`,
+   `get_state`, `guard_dataset`, `guard_roles`, `require_policy`.
+9. `components/{__init__,kpi,tables}.py` — st rendering helpers (call
+   `studio.charts` for figures; never build figures with `st` inside).
+
+**Shared:**
+10. `.streamlit/config.toml` — dark theme tokens.
+11. `pyproject.toml`: add `studio` extra + `[project.scripts]`, remove `gui` Dash extra.
+12. `tests/studio/conftest.py` (fixtures, guide §5) + `tests/studio/test_boundary.py`
+    (core has no `streamlit` import).
+13. Delete the old Dash app (see PRD 00 §4 "Delete" list).
 
 ## Details
 
@@ -55,14 +74,18 @@ nav.run()
   shows, in `st.sidebar`: app title/logo, a divider, then "Base: `{df_name}` ·
   `{n:,} linhas`" and "Política ativa: `{active_policy or '—'}`". Muted text.
 
-### `theme.py`
+### `studio/charts.py` — Plotly template + colors (pure, no streamlit)
+- On import, build and register a Plotly template `pct_dark` from the §7 tokens
+  (`plotly.io.templates["pct_dark"] = ...`): transparent paper/plot bg, Inter font,
+  `--text` font color, `--border` gridlines, colorway
+  `["#4F8CFF", "#3DD68C", "#F5C84B", "#F5853F", "#FF5C5C", "#9B8CFF"]`.
+- Export `RISK_COLORS = {"A": "#3DD68C", "B": "#9BD460", "C": "#F5C84B", "D": "#F5853F", "E": "#FF5C5C"}`.
+
+### `gui/theme.py` (skin)
 - `apply_theme()`:
   1. read `assets/studio.css`, inject with `st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)`.
-  2. build a Plotly template named `pct_dark` from the §7 tokens and register it
-     (`plotly.io.templates["pct_dark"] = ...; plotly.io.templates.default = "pct_dark"`).
-     Set transparent paper/plot bg, Inter font, `--text` font color, `--border`
-     gridlines, colorway `["#4F8CFF", "#3DD68C", "#F5C84B", "#F5853F", "#FF5C5C", "#9B8CFF"]`.
-- Export `RISK_COLORS = {"A": "#3DD68C", "B": "#9BD460", "C": "#F5C84B", "D": "#F5853F", "E": "#FF5C5C"}`.
+  2. `import pycreditools.studio.charts` (registers `pct_dark`) and set
+     `plotly.io.templates.default = "pct_dark"`.
 
 ### `assets/studio.css`
 - Apply the §7 tokens as CSS variables on `:root`.
@@ -87,13 +110,14 @@ font = "sans serif"
 maxUploadSize = 1024   # allow large CSVs (MB)
 ```
 
-### `state.py`
-- Implement the `StudioState`, `ColumnRoles`, `PolicyEntry` per Master §6 (a
-  dataclass stored under `st.session_state["studio"]`).
-- `init_state()` — create the state once if missing.
-- `get_state() -> StudioState`.
-- `guard_dataset()`, `guard_roles(*required)`, `require_policy()` — friendly
-  `st.warning(...)` + `st.stop()` when prerequisites are missing.
+### `studio/models.py` (pure) + `gui/session.py` (skin)
+- `studio/models.py`: the `StudioState`, `ColumnRoles`, `PolicyEntry`,
+  `ProjectBundle` dataclasses per Master §6 — **no streamlit**.
+- `gui/session.py`:
+  - `init_state()` — create a `StudioState` once under `st.session_state["studio"]`.
+  - `get_state() -> StudioState`.
+  - `guard_dataset()`, `guard_roles(*required)`, `require_policy()` — friendly
+    `st.warning(...)` + `st.stop()` when prerequisites are missing.
 
 ### `components/kpi.py`
 - `kpi_row(items: list[dict])` where each item = `{label, value, delta?, delta_good?: bool, help?}`.
@@ -106,13 +130,14 @@ maxUploadSize = 1024   # allow large CSVs (MB)
   `column_config` (PercentColumn/NumberColumn with formats).
 - `pct(x)`, `thousands(x)`, `score(x)` formatters.
 
-### `components/charts.py`
+### `studio/charts.py` — figure builders (pure, no streamlit)
 - Stub the themed builders other PRDs will use (each returns `go.Figure`,
   `template="pct_dark"`, explicit height, tight margins):
   `frontier(...)`, `funnel(...)`, `ks_curve(...)`, `bars(...)`,
   `vintage_stability(...)`, `crash(...)`, `pareto(...)`, `distribution(...)`.
   PRDs 03–11 specify each one's data contract; here just create the module with
-  signatures + a shared `_apply_layout(fig, title, height)` helper.
+  signatures + a shared `_apply_layout(fig, title, height)` helper. Pages render
+  them with `st.plotly_chart(fig, use_container_width=True)` (the only st part).
 
 ## Acceptance criteria
 - `pycreditools-studio` (or `streamlit run src/pycreditools/gui/app.py`) launches a

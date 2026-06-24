@@ -90,6 +90,12 @@ pipeline, export the result.
 Delete the Dash app and create the Streamlit app under the **same** package path
 so it ships with `pip install pycreditools[studio]`.
 
+> **Two layers (read §4b first).** The studio is split into a framework-agnostic
+> **core** (`pycreditools/studio/`, no Streamlit) and a thin Streamlit **skin**
+> (`pycreditools/gui/`). The tree below is the *skin*; every logic module it
+> references (`data_access`, `policy_builder`, `charts`, `projects`, the pure parts
+> of `state.py`) actually lives in the **core** per §4b. `gui/` holds only `st.*` code.
+
 ```
 src/pycreditools/gui/
 ├── __init__.py                 # exposes run_studio()
@@ -125,6 +131,47 @@ Delete: `src/pycreditools/gui/app.py` (Dash), `callbacks.py`, `callbacks_fixed.p
 and the root scratch scripts that only existed to patch Dash callbacks
 (`find_dupes.py`, `fix_callbacks.py`). Keep `parse_nb.py` / `read_v14_notebook.py`
 / `run_v14_benchmark.py` only if useful as a parity oracle (see §9).
+
+### 4b. Two-layer architecture — the "no-rework" rule (IMPORTANT)
+
+The owner wants to keep the option of moving to a server / scaling later **without
+rewriting everything**. The framework choice is made reversible by a hard split:
+
+- **Core — `src/pycreditools/studio/` — framework-agnostic. MUST NOT import
+  `streamlit`.** Holds ALL studio logic: dataclasses (`models.py`: `ColumnRoles`,
+  `PolicyEntry`, `ProjectBundle`), column detection (`detection.py`), data IO +
+  population filter (`data.py`), policy assembly (`policy_builder.py`), analysis
+  orchestration (`analyses.py` — thin wrappers over `pycreditools` returning plain
+  DataFrames/dicts), Plotly figure builders (`charts.py` → `go.Figure`, which is
+  framework-agnostic; also registers the `pct_dark` template), and project
+  (de)serialization (`projects.py`). Pure functions, unit-testable with zero Streamlit.
+- **Skin — `src/pycreditools/gui/` — the ONLY place `import streamlit` appears.**
+  `app.py`, `theme.py` (CSS injection), `session.py` (bridges `st.session_state` ↔
+  `studio.models` + `@st.cache_data` wrappers around `studio.analyses`),
+  `components/` (st widgets that call core), `pages/` (thin: read session → call
+  core → render).
+
+```
+src/pycreditools/studio/            # CORE — no streamlit anywhere
+├── __init__.py
+├── models.py        # ColumnRoles, PolicyEntry, ProjectBundle (pure dataclasses)
+├── detection.py     # detect_roles(df) -> ColumnRoles
+├── data.py          # load_csv/parquet, df hashing, population_filter(...)
+├── policy_builder.py# build_policy(roles, rule_rows) -> CreditPolicy
+├── analyses.py      # evaluate_scores/run_policy_sim/tradeoff/optimize/
+│                    #   fit_groups/screen/crash_test/score_batch -> plain data
+├── charts.py        # frontier/funnel/ks_curve/bars/vintage_stability/crash/pareto
+│                    #   -> go.Figure (+ pct_dark template registration)
+└── projects.py      # ProjectBundle <-> JSON
+```
+
+**Placement rule (authoritative — overrides per-page PRDs):** wherever a per-page
+PRD (01–11) names a *logic* module (`data_access.py`, `policy_builder.py`,
+`charts.py`, `projects.py`, `detect_roles`, `population_filter`, or the pure parts
+of `state.py`), that code goes in **`pycreditools/studio/`**. Only the `st.*`
+binding goes in `pycreditools/gui/`. Function names stay identical; import from the
+core (e.g. `from pycreditools.studio import charts`). The boundary is enforced by a
+test — see `IMPLEMENTATION_GUIDE.md` §3 Layer 2 (`test_core_has_no_streamlit_import`).
 
 ### Entrypoint
 
@@ -171,10 +218,12 @@ The sidebar header shows the active **dataset name + row count** and the active
 
 ---
 
-## 6. Shared state model (`state.py`)
+## 6. Shared state model (`studio/models.py` dataclasses + `gui/session.py` bridge)
 
-Streamlit reruns top-to-bottom on every interaction. Persist everything in
-`st.session_state` behind a small typed accessor. Engine objects
+The dataclasses below are **pure** and live in `studio/models.py` (no Streamlit).
+The bridge that stores them in `st.session_state` and provides the guards lives in
+`gui/session.py` (skin). Streamlit reruns top-to-bottom on every interaction;
+persist everything in `st.session_state` behind a small typed accessor. Engine objects
 (`CreditPolicy`, `RiskGroupResult`) are **not** JSON-serializable widget values —
 keep the live objects in session state and serialize only when saving a project.
 
@@ -211,7 +260,7 @@ StudioState:
     legacy_sim: CreditSimResults | None   # baseline simulation for comparisons
 ```
 
-Helpers in `state.py`:
+Helpers in `gui/session.py`:
 - `get_state() -> StudioState`
 - `guard_dataset()` — if `df is None`, `st.warning("Carregue uma base na página Ingestion.")` + `st.stop()`.
 - `guard_roles(*required)` — ensure required roles are set, else friendly stop.
@@ -407,3 +456,29 @@ fintech theme applied consistently; no raw tracebacks; responsive on a laptop.
 `run_v14_benchmark.py` (repo root) reproduces the v14 numbers in pure code. Use it
 as a regression check: the studio's funnel volumes, legacy approval/bad rate, and
 trade-off neutral scenario must match the script's output for the same inputs.
+
+---
+
+## 13. Deployment & evolution path (decided: stay Streamlit, keep the door open)
+
+The owner's eventual scale is **undecided** — the directive is "avoid rework".
+Therefore: **build on Streamlit now, enforce the §4b core/skin split, and do not
+pre-build for scale.** This keeps the framework a reversible decision.
+
+- **Run locally:** `pycreditools-studio` or `streamlit run`.
+- **Publish on a server (no framework change needed):** containerize
+  (`streamlit run app.py --server.port 8501 --server.address 0.0.0.0` in a
+  Dockerfile), put behind nginx/traefik; add auth via Streamlit's native OIDC
+  (`st.login` / `st.user`, Streamlit ≥ 1.42) or the reverse proxy. Streamlit
+  Community Cloud / Snowflake are also options. **Deployment ≠ scale.**
+- **Streamlit's real ceiling is concurrency:** full-script rerun per interaction +
+  one in-memory DataFrame per session → RAM/CPU grow with concurrent users, and
+  heavy compute blocks the session. Mitigate with `@st.cache_data`, running heavy
+  analyses on the DEV/sample subset (§9.3), container resource limits, and multiple
+  replicas with sticky sessions. Comfortable for an internal tool / small team.
+- **If you ever outgrow it (only then):** reuse `pycreditools` + the
+  `pycreditools/studio/` core **unchanged** behind a **FastAPI** service
+  (`analyses.py` functions → endpoints; `charts.py` figures → `fig.to_json()` for a
+  JS frontend), and build a JS UI or a heavier Python UI (Reflex / NiceGUI). You
+  rewrite the **skin**, not the risk logic or the studio core. That is the entire
+  purpose of §4b — a bounded migration, not a rewrite.
