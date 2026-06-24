@@ -15,6 +15,11 @@ Then **[`00-overview.md`](00-overview.md)** — locked decisions, architecture, 
 layout, session-state schema, design system, API→feature map, cross-cutting
 conventions, build order and global acceptance criteria. Every other PRD references it.
 
+**Which PRD is next is tracked in [`PROGRESS.md`](PROGRESS.md)** — the work queue.
+A fresh agent reads it, takes the first row that isn't `DONE`, implements that PRD,
+and marks the row `DONE` after the owner approves. So the **kickoff prompt is the
+same every time** (it never names a PRD) — see `IMPLEMENTATION_GUIDE.md` §8.
+
 Each per-page PRD ends with a **"Validação & Gate (BLOQUEANTE)"** section:
 Definition-of-Done checklist, the specific automated tests, the visual-verification
 script, and the gate question. **An agent never advances past a PRD without all 4
@@ -25,6 +30,7 @@ test layers green AND the owner's explicit "aprovado".**
 | # | PRD | Wraps / covers |
 |---|---|---|
 | — | [Implementation Guide](IMPLEMENTATION_GUIDE.md) | **read first** — rules, 4-layer validation, blocking gate, kickoff prompt |
+| — | [PROGRESS](PROGRESS.md) | **work queue** — which PRD is next; agents update status here |
 | 00 | [Overview / Master](00-overview.md) | vision, architecture, design system, state, API map, non-goals |
 | 01 | [App Shell & Design System](01-app-shell-and-design-system.md) | theme, navigation, components, `state.py` |
 | 02 | [Data Ingestion & Projects](02-data-ingestion-and-projects.md) | upload / `generate_sample_data`, column auto-detect, save/load projects |

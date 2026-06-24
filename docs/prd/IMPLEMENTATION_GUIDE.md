@@ -12,8 +12,10 @@ package does — without writing code. The full spec is in `docs/prd/`.
 
 ## 0. Golden rules (violating any of these fails the gate)
 
-1. **One PRD at a time.** You are assigned exactly **one** PRD (e.g. "PRD 04").
-   Implement only that. **Do not start the next PRD.** Stop at its gate.
+1. **One PRD at a time.** You don't need to be told which PRD — read
+   `docs/prd/PROGRESS.md` and take the **first row that is not `DONE`** (obey its
+   rules for `IN PROGRESS` / `AWAITING APPROVAL`). Implement only that one.
+   **Do not start the next PRD.** Stop at its gate.
 2. **Never re-implement engine logic.** The studio only *calls* `pycreditools`
    public API (see `00-overview.md` §8). If you feel tempted to compute KS, fit
    clusters, or simulate by hand — stop; call the package.
@@ -53,14 +55,19 @@ If the `studio` extra doesn't exist yet (you are PRD 01), add it per
 
 ## 2. The per-PRD workflow (do this for every PRD)
 
-1. **Read** this guide + `00-overview.md` + your PRD.
+0. **Select your PRD from `docs/prd/PROGRESS.md`** — the first row not `DONE`
+   (obey its `IN PROGRESS` / `AWAITING APPROVAL` rules). Confirm its dependencies
+   are `DONE`. Set its Status → `IN PROGRESS` and commit (PROGRESS.md only).
+1. **Read** this guide + `00-overview.md` + your selected PRD (in that order).
 2. **Print a 5-bullet plan** of how you'll implement the PRD (files you'll
    create/edit, the API calls, the tests you'll write). Keep it short.
 3. **Implement** the PRD's deliverables, in small commits.
 4. **Write the tests** the PRD's "Validação automática" lists (under `tests/studio/`).
 5. **Run all 4 validation layers** (§3). Make everything green. If something can't
    pass, **STOP and ask** — do not delete/skip the test.
-6. **Produce the Gate Report** (§4) and **STOP**. Wait for the owner's "aprovado".
+6. Set the PRD's Status → `AWAITING APPROVAL` in PROGRESS.md, **produce the Gate
+   Report** (§4) and **STOP**. Wait for the owner's "aprovado".
+7. **After "aprovado":** set Status → `DONE` (+ date) in PROGRESS.md, commit, STOP.
 
 You never advance to the next PRD yourself.
 
@@ -231,25 +238,31 @@ Keep fixtures fast: 5000 rows, `method="analytical"`.
 
 ---
 
-## 8. Kickoff prompt for a fresh session (the owner pastes this)
+## 8. Kickoff prompt for a fresh session (the owner pastes this — UNCHANGED every time)
 
-> Template — replace `<NN>` and `<name>` with the PRD to implement.
+> Paste this **as-is** for every PRD. It does not name a PRD — the agent picks the
+> next one from `PROGRESS.md`. Only thing to fill once: the repo path.
 
 ```
-You are implementing ONE PRD of the Pycreditools Studio — a Streamlit, 100%
-no-code GUI that wraps the `pycreditools` package. You have NO prior context;
+You are implementing the Pycreditools Studio — a Streamlit, 100% no-code GUI that
+wraps the `pycreditools` package — ONE PRD at a time. You have NO prior context;
 everything you need is in this repo.
 
-Repo root: <fill path>. First run `git branch --show-current`; it must be
+Repo root: <fill path once>. First run `git branch --show-current`; it must be
 `feature/gui-streamlit-studio` (if not, `git checkout feature/gui-streamlit-studio`).
 
 MANDATORY reading, in this order, before writing any code:
 1. docs/prd/IMPLEMENTATION_GUIDE.md   (rules, validation, gate — follow exactly)
-2. docs/prd/00-overview.md            (architecture, file layout, state, design system, non-goals)
-3. docs/prd/<NN>-<name>.md            (the ONLY PRD you implement now)
+2. docs/prd/PROGRESS.md               (tells you WHICH PRD to do — the first row not DONE)
+3. docs/prd/00-overview.md            (architecture, file layout, state, design system, non-goals)
+4. the PRD file PROGRESS.md points you to (the ONLY PRD you implement now)
+
+Pick your PRD from PROGRESS.md: the first row whose Status is not DONE. Obey its
+rules for IN PROGRESS / AWAITING APPROVAL. Confirm its dependencies are DONE, then
+set its Status to IN PROGRESS and commit (PROGRESS.md only).
 
 Hard rules (from the guide):
-- Implement ONLY PRD <NN>. Do not start any other PRD.
+- Implement ONLY that one PRD. Do not start any other PRD.
 - Never re-implement pycreditools logic — only call its public API.
 - 100% no-code: no user-typed Python in the UI. Respect 00-overview §10 non-goals
   (e.g. only flat AggravationStress).
@@ -257,14 +270,16 @@ Hard rules (from the guide):
   `import streamlit`; only `pycreditools/gui/` imports streamlit (00-overview §4b).
 - Work in small commits. Then run ALL 4 validation layers (ruff, pytest logic,
   Streamlit AppTest, parity-if-applicable). Everything must be green.
-- BLOCKING GATE: when PRD <NN> is done and green, STOP and output the Gate Report
-  (filled Definition-of-Done + full test output + `git diff --stat` + the visual
-  verification script). Then wait for my explicit "aprovado". Do not continue.
+- BLOCKING GATE: when the PRD is done and green, set its Status to AWAITING
+  APPROVAL in PROGRESS.md, output the Gate Report (filled Definition-of-Done +
+  full test output + `git diff --stat` + the visual verification script), and STOP.
+  Wait for my explicit "aprovado".
+- After I say "aprovado": set the row to DONE (with date) in PROGRESS.md, commit,
+  and STOP — do not start the next PRD.
 - If anything is ambiguous or a test can't pass, STOP and ask me — do not guess.
 
-Start by reading the 3 docs, then print a 5-bullet plan for PRD <NN>, then implement.
+Start by reading the 4 items, then print a 5-bullet plan for your PRD, then implement.
 ```
 
-Implement PRDs in the build order in `00-overview.md` §11
-(01 → 02 → 03/04 → 05/06/07/08 → 09 → 10 → 11). Don't start a PRD whose
-dependencies haven't passed their gate.
+The build order lives in `PROGRESS.md` (and `00-overview.md` §11). Always take the
+first non-DONE row; never start a PRD whose dependencies aren't DONE.
