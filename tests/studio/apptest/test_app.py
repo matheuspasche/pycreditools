@@ -25,9 +25,9 @@ def test_page_without_dataset_shows_warning_not_traceback():
     assert "Carregue uma base" in at.warning[0].value
 
 
-def test_page_with_injected_dataset_does_not_warn(studio_state):
+def test_page_with_injected_dataset_does_not_warn(studio_state_with_roles):
     at = AppTest.from_file(str(GUI / "pages" / "2_Score_Evaluation.py"))
-    at.session_state["studio"] = studio_state
+    at.session_state["studio"] = studio_state_with_roles
     at.run()
     assert not at.exception
     assert len(at.warning) == 0

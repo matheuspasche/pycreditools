@@ -73,23 +73,66 @@ def funnel(df: pd.DataFrame, *, stage_col: str = "stage", count_col: str = "n") 
     return _apply_layout(fig, "Funil da política")
 
 
-def ks_curve(
-    df: pd.DataFrame, *, x: str = "decile", y_good: str = "cum_good", y_bad: str = "cum_bad"
-) -> go.Figure:
-    """Cumulative good/bad curves for KS visualization."""
+def bars(series: pd.Series, *, percent: bool = True, highlight: str | None = None) -> go.Figure:
+    """Horizontal bar chart from a labeled `series`, sorted descending top-to-bottom.
+
+    `highlight` (e.g. the legacy score's label) is rendered in a muted color.
+    """
     fig = go.Figure()
-    if not df.empty:
-        fig.add_trace(go.Scatter(x=df[x], y=df[y_good], mode="lines", name="Bons (cum.)"))
-        fig.add_trace(go.Scatter(x=df[x], y=df[y_bad], mode="lines", name="Maus (cum.)"))
+    if not series.empty:
+        ordered = series.sort_values(ascending=True)
+        labels = [str(idx) for idx in ordered.index]
+        colors = [TEXT_DIM if label == highlight else ACCENT for label in labels]
+        text = [f"{v * 100:.1f}%" if percent else f"{v:.2f}" for v in ordered.values]
+        fig.add_trace(
+            go.Bar(
+                x=ordered.values,
+                y=labels,
+                orientation="h",
+                marker={"color": colors},
+                text=text,
+                textposition="outside",
+            )
+        )
+    return _apply_layout(fig, "", height=max(220, 40 * len(series) + 80))
+
+
+def ks_curve(table_df: pd.DataFrame) -> go.Figure:
+    """Cumulative good/bad curves over `Bucket`, with the max-gap (KS) point marked."""
+    fig = go.Figure()
+    if not table_df.empty:
+        df = table_df.sort_values("Bucket")
+        fig.add_trace(
+            go.Scatter(
+                x=df["Bucket"],
+                y=df["Cum_Goods"],
+                mode="lines+markers",
+                name="Bons (cum.)",
+                line={"color": SUCCESS},
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=df["Bucket"],
+                y=df["Cum_Bads"],
+                mode="lines+markers",
+                name="Maus (cum.)",
+                line={"color": DANGER},
+                fill="tonexty",
+                fillcolor="rgba(79,140,255,0.15)",
+            )
+        )
+        ks_row = df.loc[df["KS"].idxmax()]
+        fig.add_vline(x=ks_row["Bucket"], line={"color": ACCENT, "dash": "dash"})
+        fig.add_annotation(
+            x=ks_row["Bucket"],
+            y=(ks_row["Cum_Goods"] + ks_row["Cum_Bads"]) / 2,
+            text=f"KS = {ks_row['KS'] * 100:.1f}%",
+            showarrow=False,
+            yshift=14,
+            font={"color": TEXT},
+        )
     return _apply_layout(fig, "Curva KS")
-
-
-def bars(df: pd.DataFrame, *, x: str, y: str) -> go.Figure:
-    """Generic themed bar chart."""
-    fig = go.Figure()
-    if not df.empty:
-        fig.add_trace(go.Bar(x=df[x], y=df[y]))
-    return _apply_layout(fig, "")
 
 
 def vintage_stability(

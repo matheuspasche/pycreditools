@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
+from pycreditools.studio import analyses
 from pycreditools.studio.models import PolicyEntry, StudioState
 
 _KEY = "studio"
@@ -47,3 +49,28 @@ def require_policy() -> PolicyEntry:
         st.warning("Construa uma política na página Policy Studio.")
         st.stop()
     return state.policies[state.active_policy]
+
+
+@st.cache_data(show_spinner="Calculando KS...")
+def compute_ks(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    score_cols: tuple[str, ...],
+    target_col: str,
+) -> dict[str, float]:
+    """Cached KS per score; `df_hash`/`population` are cache-key-only (not used in the body)."""
+    return analyses.evaluate_scores(_df, list(score_cols), target_col)
+
+
+@st.cache_data(show_spinner="Calculando tabela de decis...")
+def compute_ks_table(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    score_col: str,
+    target_col: str,
+    bins: int,
+) -> pd.DataFrame:
+    """Cached per-bucket KS table; `df_hash`/`population` are cache-key-only."""
+    return analyses.ks_table(_df, score_col, target_col, bins)
