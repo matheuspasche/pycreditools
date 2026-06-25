@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
 
 from pycreditools import CreditPolicy
@@ -31,6 +33,26 @@ _ROLE_WIDGET_KEYS = (
     "role_estimated",
     "role_oot",
 )
+
+
+def _pick_folder_dialog(initial_dir: str | None = None) -> str | None:
+    """Open a native OS folder picker (this app is single-user/local, §13)."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError:
+        st.error("Seletor de pasta não disponível neste ambiente; digite o caminho manualmente.")
+        return None
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        root.wm_attributes("-topmost", 1)
+        selected = filedialog.askdirectory(initialdir=initial_dir or str(Path.home()))
+        root.destroy()
+    except Exception:  # noqa: BLE001 - no display/Tcl available
+        st.error("Seletor de pasta não disponível neste ambiente; digite o caminho manualmente.")
+        return None
+    return selected or None
 
 
 def _set_dataset(df, df_name: str, df_hash: str, *, source: dict) -> None:
@@ -162,9 +184,18 @@ with tab_roles:
 with tab_projects:
     st.subheader("Salvar projeto")
     project_name = st.text_input("Nome do projeto", key="project_save_name")
-    custom_dir = st.text_input(
-        "Pasta (opcional, padrão ~/.pycreditools_studio/projects)", key="project_save_dir"
-    )
+    col_path, col_pick = st.columns([4, 1])
+    with col_path:
+        custom_dir = st.text_input(
+            "Pasta (opcional, padrão ~/.pycreditools_studio/projects)", key="project_save_dir"
+        )
+    with col_pick:
+        st.write("")
+        if st.button("Escolher pasta...", key="pick_save_dir"):
+            picked = _pick_folder_dialog(custom_dir or None)
+            if picked:
+                st.session_state["project_save_dir"] = picked
+                st.rerun()
     if st.button("Salvar projeto", disabled=not project_name):
         source = st.session_state.get(_SOURCE_KEY, {})
         dataset_meta = {
@@ -175,14 +206,28 @@ with tab_projects:
             "sample": source.get("sample"),
         }
         bundle = studio_projects.bundle_from_state(state, project_name, dataset=dataset_meta)
+        target_dir = Path(custom_dir) if custom_dir else studio_projects.DEFAULT_PROJECTS_DIR
+        dir_existed = target_dir.exists()
         path = studio_projects.save_project(bundle, custom_dir or None)
-        st.success(f"Projeto salvo em {path}")
+        if not dir_existed:
+            st.success(f"Pasta criada e projeto salvo em {path}")
+        else:
+            st.success(f"Projeto salvo em {path}")
 
     st.divider()
     st.subheader("Carregar projeto")
-    load_dir = st.text_input(
-        "Pasta (opcional, padrão ~/.pycreditools_studio/projects)", key="project_load_dir"
-    )
+    col_load_path, col_load_pick = st.columns([4, 1])
+    with col_load_path:
+        load_dir = st.text_input(
+            "Pasta (opcional, padrão ~/.pycreditools_studio/projects)", key="project_load_dir"
+        )
+    with col_load_pick:
+        st.write("")
+        if st.button("Escolher pasta...", key="pick_load_dir"):
+            picked = _pick_folder_dialog(load_dir or None)
+            if picked:
+                st.session_state["project_load_dir"] = picked
+                st.rerun()
     available = studio_projects.list_projects(load_dir or None)
     selected = st.selectbox("Projeto", ["—", *available], key="project_load_select")
     if st.button("Carregar projeto", disabled=selected == "—"):
