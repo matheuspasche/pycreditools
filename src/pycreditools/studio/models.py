@@ -37,6 +37,7 @@ class PolicyEntry:
     name: str
     policy: CreditPolicy
     flat_stress_factor: float | None = None
+    rows: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

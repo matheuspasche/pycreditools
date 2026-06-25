@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from pycreditools import CreditPolicy, CreditSimResults
 from pycreditools.studio import analyses
 from pycreditools.studio.models import PolicyEntry, StudioState
 
@@ -74,3 +75,16 @@ def compute_ks_table(
 ) -> pd.DataFrame:
     """Cached per-bucket KS table; `df_hash`/`population` are cache-key-only."""
     return analyses.ks_table(_df, score_col, target_col, bins)
+
+
+@st.cache_data(show_spinner="Simulando política...")
+def run_policy_sim(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    _policy: CreditPolicy,
+    policy_key: str,
+    method: str = "analytical",
+) -> CreditSimResults:
+    """Cached policy simulation; `df_hash`/`population`/`policy_key` are cache-key-only."""
+    return analyses.run_policy_sim(_df, _policy, method=method)

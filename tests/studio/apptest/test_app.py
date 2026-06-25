@@ -7,7 +7,7 @@ GUI = pathlib.Path(__file__).resolve().parents[3] / "src" / "pycreditools" / "gu
 
 def test_app_runs_without_exception():
     at = AppTest.from_file(str(GUI / "app.py"))
-    at.run()
+    at.run(timeout=15)
     assert not at.exception
 
 

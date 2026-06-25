@@ -2,7 +2,8 @@ import pytest
 
 from pycreditools import generate_sample_data
 from pycreditools.studio.detection import detect_roles
-from pycreditools.studio.models import ColumnRoles, StudioState
+from pycreditools.studio.models import ColumnRoles, PolicyEntry, StudioState
+from pycreditools.studio.policy_builder import build_policy, v14_quickfill_rows
 
 
 @pytest.fixture(scope="session")
@@ -44,6 +45,27 @@ def studio_state_with_roles(sample_df, roles):
         roles=roles,
         policies={},
         active_policy=None,
+        rating_result=None,
+        rating_labels=None,
+        screening_result=None,
+        last_sim=None,
+        legacy_sim=None,
+    )
+
+
+@pytest.fixture
+def studio_state_with_policy(sample_df, roles):
+    """`StudioState` with a v14 hard-filters `CreditPolicy` as the active policy (PRD 04)."""
+    rows = v14_quickfill_rows(sample_df.columns)
+    policy = build_policy(roles, rows)
+    entry = PolicyEntry(name="v14", policy=policy, rows=rows)
+    return StudioState(
+        df_name="sample",
+        df=sample_df,
+        df_hash="sample-5000-42",
+        roles=roles,
+        policies={"v14": entry},
+        active_policy="v14",
         rating_result=None,
         rating_labels=None,
         screening_result=None,
