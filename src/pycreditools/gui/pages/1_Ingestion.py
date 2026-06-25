@@ -184,6 +184,10 @@ with tab_roles:
 with tab_projects:
     st.subheader("Salvar projeto")
     project_name = st.text_input("Nome do projeto", key="project_save_name")
+
+    if "project_save_dir_pending" in st.session_state:
+        st.session_state["project_save_dir"] = st.session_state.pop("project_save_dir_pending")
+
     col_path, col_pick = st.columns([4, 1])
     with col_path:
         custom_dir = st.text_input(
@@ -194,7 +198,7 @@ with tab_projects:
         if st.button("Escolher pasta...", key="pick_save_dir"):
             picked = _pick_folder_dialog(custom_dir or None)
             if picked:
-                st.session_state["project_save_dir"] = picked
+                st.session_state["project_save_dir_pending"] = picked
                 st.rerun()
     if st.button("Salvar projeto", disabled=not project_name):
         source = st.session_state.get(_SOURCE_KEY, {})
@@ -216,6 +220,10 @@ with tab_projects:
 
     st.divider()
     st.subheader("Carregar projeto")
+
+    if "project_load_dir_pending" in st.session_state:
+        st.session_state["project_load_dir"] = st.session_state.pop("project_load_dir_pending")
+
     col_load_path, col_load_pick = st.columns([4, 1])
     with col_load_path:
         load_dir = st.text_input(
@@ -226,7 +234,7 @@ with tab_projects:
         if st.button("Escolher pasta...", key="pick_load_dir"):
             picked = _pick_folder_dialog(load_dir or None)
             if picked:
-                st.session_state["project_load_dir"] = picked
+                st.session_state["project_load_dir_pending"] = picked
                 st.rerun()
     available = studio_projects.list_projects(load_dir or None)
     selected = st.selectbox("Projeto", ["—", *available], key="project_load_select")
