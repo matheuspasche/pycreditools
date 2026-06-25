@@ -50,6 +50,8 @@ class ProjectBundle:
     active_policy: str | None = None
     rating_recipe: dict[str, Any] | None = None
     rating_labels: dict[int, str] | None = None
+    created_at: str | None = None
+    dataset: dict[str, Any] | None = None
 
 
 @dataclass
