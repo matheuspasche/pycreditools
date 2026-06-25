@@ -24,8 +24,10 @@ package does — without writing code. The full spec is in `docs/prd/`.
    programmatically from widgets (`00-overview.md` §10 lists all non-goals).
 4. **Stay in scope.** Only create/edit the files the PRD lists. Don't refactor
    unrelated code. Don't add dependencies beyond the `studio` extra.
-5. **Small, reversible commits.** Commit logically small chunks. Each commit must
-   leave the automated validation green (see §3).
+5. **Small, reversible commits — local only until approval.** Commit logically
+   small chunks. Each commit must leave the automated validation green (see §3).
+   Do **not** `git push` while implementing or while `AWAITING APPROVAL` — keep
+   work local until the owner approves (rule 10).
 6. **Blocking gate.** When the PRD is done and all 4 validation layers pass,
    **STOP and produce the Gate Report (§4)**, then wait for the owner's explicit
    "aprovado". Do not continue without it.
@@ -42,6 +44,11 @@ package does — without writing code. The full spec is in `docs/prd/`.
    afterwards, in the same step. This is **best-effort**: if `gh` isn't
    installed/authenticated, print a one-line note and move on — never let it
    block the gate.
+10. **Push only once, right after the owner approves.** All your work for this
+    PRD (every commit since you set it `IN PROGRESS`) stays local until the owner
+    says "aprovado". The moment you mark the row `DONE`, `git push origin
+    feature/gui-streamlit-studio` **before** you stop. This is the one and only
+    push for this PRD — not before, not after starting the next one.
 
 ---
 
@@ -73,11 +80,12 @@ If the `studio` extra doesn't exist yet (you are PRD 01), add it per
 4. **Write the tests** the PRD's "Validação automática" lists (under `tests/studio/`).
 5. **Run all 4 validation layers** (§3). Make everything green. If something can't
    pass, **STOP and ask** — do not delete/skip the test.
-6. Set the PRD's Status → `AWAITING APPROVAL` in PROGRESS.md, commit, run
-   `python scripts/github_board.py sync` (best-effort), **produce the Gate
-   Report** (§4) and **STOP**. Wait for the owner's "aprovado".
+6. Set the PRD's Status → `AWAITING APPROVAL` in PROGRESS.md, commit (still
+   **local, no push**), run `python scripts/github_board.py sync` (best-effort),
+   **produce the Gate Report** (§4) and **STOP**. Wait for the owner's "aprovado".
 7. **After "aprovado":** set Status → `DONE` (+ date) in PROGRESS.md, commit, run
-   `python scripts/github_board.py sync` again, then STOP.
+   `python scripts/github_board.py sync` again, then `git push origin
+   feature/gui-streamlit-studio` (the one push for this PRD), then STOP.
 
 **The board sync is best-effort, never blocking:** if `gh` isn't installed/authed
 or the call fails, print one line saying so and continue — it must never hold up
@@ -177,6 +185,7 @@ When done, output **exactly** this, filled in:
 
 ### Diff
 <output of `git diff --stat <base>..HEAD` and the list of new files>
+<note: this is LOCAL work, not yet pushed — push happens only after "aprovado" (rule 10)>
 
 ### GitHub board
 <"Synced — issue #N set to status:review" / or "gh not available, skipped (PROGRESS.md is authoritative)">
@@ -263,6 +272,10 @@ Keep fixtures fast: 5000 rows, `method="analytical"`.
   boundary and fails `test_boundary.py` (`00-overview.md` §4b).
 - ❌ Touching files outside the PRD's scope.
 - ❌ Continuing past the gate without an explicit "aprovado".
+- ❌ Pushing before approval (rule 10) — keep everything local while implementing
+  / AWAITING APPROVAL.
+- ❌ Forgetting to push after approval — the owner needs the approved PRD on
+  `origin` (board links, continuity across sessions) before you stop.
 
 ---
 
@@ -302,14 +315,18 @@ Hard rules (from the guide):
   (e.g. only flat AggravationStress).
 - Keep the core/skin split: all logic in `pycreditools/studio/` with NO
   `import streamlit`; only `pycreditools/gui/` imports streamlit (00-overview §4b).
-- Work in small commits. Then run ALL 4 validation layers (ruff, pytest logic,
-  Streamlit AppTest, parity-if-applicable). Everything must be green.
+- Work in small commits, but do NOT push while implementing or while AWAITING
+  APPROVAL — keep everything local until I approve. Then run ALL 4 validation
+  layers (ruff, pytest logic, Streamlit AppTest, parity-if-applicable). Everything
+  must be green.
 - BLOCKING GATE: when the PRD is done and green, set its Status to AWAITING
-  APPROVAL in PROGRESS.md, commit, sync the board, output the Gate Report (filled
-  Definition-of-Done + full test output + `git diff --stat` + the GitHub board sync
-  result + the visual verification script), and STOP. Wait for my explicit "aprovado".
+  APPROVAL in PROGRESS.md, commit (still local), sync the board, output the Gate
+  Report (filled Definition-of-Done + full test output + `git diff --stat` + the
+  GitHub board sync result + the visual verification script), and STOP. Wait for
+  my explicit "aprovado".
 - After I say "aprovado": set the row to DONE (with date) in PROGRESS.md, commit,
-  sync the board again, and STOP — do not start the next PRD.
+  sync the board again, THEN `git push origin feature/gui-streamlit-studio` (the
+  one push for this PRD), and STOP — do not start the next PRD.
 - If anything is ambiguous or a test can't pass, STOP and ask me — do not guess.
 
 Start by reading the 4 items, then print a 5-bullet plan for your PRD, then implement.

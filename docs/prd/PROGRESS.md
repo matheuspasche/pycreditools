@@ -30,8 +30,10 @@ Never work on more than one PRD. Never start the next row until the current one 
 2. **When all 4 validation layers are green** (guide §3): set Status →
    `AWAITING APPROVAL`, produce the **Gate Report** (guide §4), and **STOP**.
 3. **After the owner replies "aprovado"**: set Status → `DONE`, fill the **Done**
-   date (YYYY-MM-DD), then `git commit -m "chore(studio): PRD <NN> approved"`.
-   **STOP** — do not begin the next PRD in this session.
+   date (YYYY-MM-DD), then `git commit -m "chore(studio): PRD <NN> approved"`,
+   then `git push origin feature/gui-streamlit-studio` (the **one** push for this
+   PRD — everything before this stays local). **STOP** — do not begin the next
+   PRD in this session.
 
 If the owner requests changes instead of approving: keep Status `AWAITING APPROVAL`,
 apply the fixes, re-run all 4 layers, re-issue the Gate Report.
