@@ -5,7 +5,13 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from pycreditools import CreditPolicy, CreditSimResults, OptimizationResult, RiskGroupResult
+from pycreditools import (
+    CreditPolicy,
+    CreditSimResults,
+    OptimizationResult,
+    RiskGroupResult,
+    ScreeningResult,
+)
 from pycreditools.studio import analyses
 from pycreditools.studio.models import PolicyEntry, StudioState
 
@@ -203,4 +209,28 @@ def fit_pairwise_risk_groups(
         time_col=time_col,
         method=method,
         oot_date=oot_date,
+    )
+
+
+@st.cache_data(show_spinner="Rodando screening de sub-segmentos...")
+def screen_segments(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    base_risk_col: str,
+    candidate_cols: tuple[str, ...],
+    default_col: str,
+    n_bins: int = 10,
+    method: str = "quantiles",
+    parallel: bool = False,
+) -> ScreeningResult:
+    """Cached risk screening; `df_hash`/`population` are cache-key-only."""
+    return analyses.screen_segments(
+        _df,
+        base_risk_col,
+        list(candidate_cols),
+        default_col,
+        n_bins=n_bins,
+        method=method,
+        parallel=parallel,
     )
