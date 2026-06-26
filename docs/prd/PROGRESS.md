@@ -52,7 +52,7 @@ all 4 layers already green: finish per the guide §0 rule 6 and mark `DONE`.)
 | 05 | [05-simulation-and-impact.md](05-simulation-and-impact.md) | 04 | DONE | 2026-06-26 |
 | 06 | [06-tradeoff-and-scenarios.md](06-tradeoff-and-scenarios.md) | 04 | DONE | 2026-06-26 |
 | 07 | [07-cutoff-optimization.md](07-cutoff-optimization.md) | 04 | DONE | 2026-06-26 |
-| 08 | [08-risk-grouping-and-ratings.md](08-risk-grouping-and-ratings.md) | 02 | TODO | |
+| 08 | [08-risk-grouping-and-ratings.md](08-risk-grouping-and-ratings.md) | 02 | IN PROGRESS | |
 | 09 | [09-risk-screening.md](09-risk-screening.md) | 08 | TODO | |
 | 10 | [10-crash-test.md](10-crash-test.md) | 04 | TODO | |
 | 11 | [11-deployment-and-scoring.md](11-deployment-and-scoring.md) | 04, 08 | TODO | |
