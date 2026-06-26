@@ -123,6 +123,20 @@ def run_tradeoff(
     )
 
 
+@st.cache_data(show_spinner="Rodando crash test...")
+def run_crash_test(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    _policy: CreditPolicy,
+    policy_key: str,
+    factors: tuple[float, ...],
+    parallel: bool = False,
+) -> pd.DataFrame:
+    """Cached crash-test sweep; `df_hash`/`population`/`policy_key` are cache-key-only."""
+    return analyses.run_crash_test(_df, _policy, list(factors), parallel=parallel)
+
+
 @st.cache_data(show_spinner="Otimizando cortes...")
 def run_optimization(
     _df: pd.DataFrame,

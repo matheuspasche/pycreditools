@@ -219,16 +219,48 @@ def vintage_stability(
 def crash(
     df: pd.DataFrame,
     *,
-    x: str = "stress_factor",
-    y: str = "bad_rate",
+    x: str = "aggravation_factor",
+    y: str = "default_rate",
+    legacy_bad_rate: float | None = None,
     breakeven: float | None = None,
 ) -> go.Figure:
-    """Crash-test curve with an optional breakeven marker."""
+    """Crash-test curve: default rate vs aggravation factor.
+
+    `legacy_bad_rate` draws a reference hline with the area below it shaded "safe";
+    `breakeven` (the first crossing) draws a vline marker.
+    """
     fig = go.Figure()
+    if legacy_bad_rate is not None and not df.empty:
+        fig.add_shape(
+            type="rect",
+            x0=float(df[x].min()),
+            x1=float(df[x].max()),
+            y0=0,
+            y1=legacy_bad_rate,
+            fillcolor=SUCCESS,
+            opacity=0.08,
+            line_width=0,
+            layer="below",
+        )
     if not df.empty:
-        fig.add_trace(go.Scatter(x=df[x], y=df[y], mode="lines+markers"))
-        if breakeven is not None:
-            fig.add_vline(x=breakeven, line={"color": DANGER, "dash": "dash"})
+        ordered = df.sort_values(x)
+        fig.add_trace(
+            go.Scatter(
+                x=ordered[x], y=ordered[y], mode="lines+markers", name="Inadimplência simulada"
+            )
+        )
+    if legacy_bad_rate is not None:
+        fig.add_hline(
+            y=legacy_bad_rate,
+            line={"color": DANGER, "dash": "dash"},
+            annotation_text=f"Legado ({legacy_bad_rate * 100:.1f}%)",
+        )
+    if breakeven is not None:
+        fig.add_vline(
+            x=breakeven,
+            line={"color": ACCENT, "dash": "dash"},
+            annotation_text=f"Breakeven {breakeven:.2f}×",
+        )
     return _apply_layout(fig, "Crash test")
 
 

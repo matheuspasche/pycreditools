@@ -197,3 +197,34 @@ def test_vintage_stability_empty_df_returns_empty_figure():
     fig = charts.vintage_stability(pd.DataFrame())
     assert isinstance(fig, go.Figure)
     assert len(fig.data) == 0
+
+
+def test_crash_draws_curve_legacy_hline_and_breakeven_vline_with_safe_shading():
+    df = pd.DataFrame(
+        {
+            "aggravation_factor": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "default_rate": [0.01, 0.02, 0.03, 0.04, 0.05],
+        }
+    )
+    fig = charts.crash(df, legacy_bad_rate=0.035, breakeven=3.5)
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    assert list(fig.data[0].x) == [1.0, 2.0, 3.0, 4.0, 5.0]
+    # 1 shaded safe-region rect + 1 legacy hline + 1 breakeven vline
+    assert len(fig.layout.shapes) == 3
+    rect = next(s for s in fig.layout.shapes if s.type == "rect")
+    assert rect.fillcolor is not None
+    assert len(fig.layout.annotations) == 2
+
+
+def test_crash_without_legacy_or_breakeven_draws_only_the_curve():
+    df = pd.DataFrame({"aggravation_factor": [1.0, 2.0], "default_rate": [0.01, 0.02]})
+    fig = charts.crash(df)
+    assert len(fig.data) == 1
+    assert len(fig.layout.shapes) == 0
+
+
+def test_crash_empty_df_returns_empty_figure():
+    fig = charts.crash(pd.DataFrame())
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 0

@@ -54,7 +54,7 @@ all 4 layers already green: finish per the guide §0 rule 6 and mark `DONE`.)
 | 07 | [07-cutoff-optimization.md](07-cutoff-optimization.md) | 04 | DONE | 2026-06-26 |
 | 08 | [08-risk-grouping-and-ratings.md](08-risk-grouping-and-ratings.md) | 02 | DONE | 2026-06-26 |
 | 09 | [09-risk-screening.md](09-risk-screening.md) | 08 | DONE | 2026-06-26 |
-| 10 | [10-crash-test.md](10-crash-test.md) | 04 | IN PROGRESS | |
+| 10 | [10-crash-test.md](10-crash-test.md) | 04 | DONE | 2026-06-26 |
 | 11 | [11-deployment-and-scoring.md](11-deployment-and-scoring.md) | 04, 08 | TODO | |
 
 > Note: `<NN>` in commit messages = the row number (01–11). The PRD file name also

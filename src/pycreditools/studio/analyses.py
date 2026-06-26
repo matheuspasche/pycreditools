@@ -263,6 +263,44 @@ def run_tradeoff(
     return result
 
 
+def run_crash_test(
+    df: pd.DataFrame,
+    policy: CreditPolicy,
+    factors: list[float],
+    *,
+    parallel: bool = False,
+) -> pd.DataFrame:
+    """Sweep the flat stress aggravation factor, via `TradeoffAnalyzer.vary_stress_aggravation()`.
+
+    Reproduces v14 Cell 13: the result has `aggravation_factor`/`approval_rate`/`default_rate`.
+    """
+    return TradeoffAnalyzer(policy).vary_stress_aggravation(factors).run(df, parallel=parallel)
+
+
+def breakeven_aggravation_factor(
+    crash_df: pd.DataFrame, legacy_bad_rate: float
+) -> float | None:
+    """First `aggravation_factor` whose `default_rate` reaches `legacy_bad_rate`.
+
+    Linearly interpolated between the bracketing rows for a smoother number; `None`
+    when `default_rate` never reaches `legacy_bad_rate` within `crash_df`'s range.
+    """
+    ordered = crash_df.sort_values("aggravation_factor").reset_index(drop=True)
+    reached = ordered.index[ordered["default_rate"] >= legacy_bad_rate]
+    if len(reached) == 0:
+        return None
+    idx = reached[0]
+    if idx == 0:
+        return float(ordered.loc[0, "aggravation_factor"])
+    prev, curr = ordered.loc[idx - 1], ordered.loc[idx]
+    rate_gap = curr["default_rate"] - prev["default_rate"]
+    if rate_gap <= 0:
+        return float(curr["aggravation_factor"])
+    frac = (legacy_bad_rate - prev["default_rate"]) / rate_gap
+    factor_gap = curr["aggravation_factor"] - prev["aggravation_factor"]
+    return float(prev["aggravation_factor"] + frac * factor_gap)
+
+
 def tradeoff_scenarios(
     res_s: pd.DataFrame, legacy_approval_rate: float, legacy_bad_rate: float
 ) -> dict[str, pd.Series]:

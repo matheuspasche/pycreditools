@@ -18,6 +18,7 @@ from pycreditools import (
 from pycreditools.optimization import find_pareto_frontier
 from pycreditools.studio.analyses import (
     attach_rating,
+    breakeven_aggravation_factor,
     clamp_max_groups,
     compare_with_baseline,
     cutoff_range,
@@ -35,6 +36,7 @@ from pycreditools.studio.analyses import (
     optimization_grid_size,
     quadrant_table,
     recipe_breaks_table,
+    run_crash_test,
     run_optimization,
     run_tradeoff,
     screen_segments,
@@ -702,3 +704,56 @@ def test_screening_boundaries_table_unknown_variable_returns_empty_with_expected
     table = screening_boundaries_table(screening_result, "not_a_real_variable")
     assert table.empty
     assert list(table.columns) == ["Tier", "Subsegmento", "Min", "Max"]
+
+
+def test_breakeven_aggravation_factor_interpolates_between_bracketing_rows():
+    crash_df = pd.DataFrame(
+        {
+            "aggravation_factor": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "default_rate": [0.01, 0.02, 0.03, 0.04, 0.05],
+        }
+    )
+    breakeven = breakeven_aggravation_factor(crash_df, 0.035)
+    assert breakeven == pytest.approx(3.5)
+
+
+def test_breakeven_aggravation_factor_returns_none_when_never_reached():
+    crash_df = pd.DataFrame(
+        {
+            "aggravation_factor": [1.0, 2.0, 3.0],
+            "default_rate": [0.01, 0.02, 0.03],
+        }
+    )
+    assert breakeven_aggravation_factor(crash_df, 0.10) is None
+
+
+def test_breakeven_aggravation_factor_returns_first_factor_when_already_above_legacy():
+    crash_df = pd.DataFrame(
+        {
+            "aggravation_factor": [1.0, 2.0, 3.0],
+            "default_rate": [0.05, 0.06, 0.07],
+        }
+    )
+    assert breakeven_aggravation_factor(crash_df, 0.02) == pytest.approx(1.0)
+
+
+def test_breakeven_aggravation_factor_is_robust_to_unsorted_input():
+    crash_df = pd.DataFrame(
+        {
+            "aggravation_factor": [3.0, 1.0, 2.0],
+            "default_rate": [0.03, 0.01, 0.02],
+        }
+    )
+    assert breakeven_aggravation_factor(crash_df, 0.025) == pytest.approx(2.5)
+
+
+def test_run_crash_test_sweeps_the_stress_factor_and_default_rate_rises(sample_df, roles):
+    subset = population_filter(sample_df, roles, "DEV").head(800)
+    rows = v14_quickfill_rows(subset.columns)
+    policy = build_policy(roles, rows)
+    factors = [1.0, 2.0, 5.0]
+
+    crash_df = run_crash_test(subset, policy, factors)
+
+    assert list(crash_df["aggravation_factor"]) == factors
+    assert crash_df["default_rate"].is_monotonic_increasing
