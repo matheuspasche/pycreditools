@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from pycreditools import (
+    GroupingRecipe,
     ModelEvaluator,
     TradeoffAnalyzer,
     compare_policies,
@@ -538,3 +539,9 @@ def test_recipe_breaks_table_score_ranges_are_monotonic_with_rating(fitted_resul
     table = recipe_breaks_table(fitted_result, labels)
     assert list(table["Rating"]) == sorted(table["Rating"])
     assert {"score_5_min", "score_5_max"}.issubset(table.columns)
+
+
+def test_fitted_recipe_round_trips_via_to_dict_from_dict(fitted_result):
+    recipe = fitted_result.recipe
+    restored = GroupingRecipe.from_dict(recipe.to_dict())
+    assert restored.to_dict() == recipe.to_dict()
