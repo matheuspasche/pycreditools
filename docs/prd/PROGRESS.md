@@ -16,30 +16,30 @@ Then handle its current status:
 - **`IN PROGRESS`** → a previous session already started this PRD. Read what
   exists in the repo, **continue/finish it** — do not restart from scratch unless
   it's empty or broken. Don't skip to a later PRD.
-- **`AWAITING APPROVAL`** → this PRD is implemented and its 4 validation layers
-  passed, but the owner hasn't approved yet. **Do NOT re-implement and do NOT start
-  the next PRD.** Re-show the Gate Report and ask the owner to approve.
 
-Never work on more than one PRD. Never start the next row until the current one is
-`DONE`.
+There is no approval gate — once all 4 validation layers are green, mark the PRD
+`DONE` yourself and push. Never work on more than one PRD. Never start the next
+row until the current one is `DONE`.
 
 ## How to update your row
 
 1. **On start** (status was `TODO`): set Status → `IN PROGRESS`, then
    `git commit -m "chore(studio): start PRD <NN>"` (PROGRESS.md only).
-2. **When all 4 validation layers are green** (guide §3): set Status →
-   `AWAITING APPROVAL`, produce the **Gate Report** (guide §4), and **STOP**.
-3. **After the owner replies "aprovado"**: set Status → `DONE`, fill the **Done**
-   date (YYYY-MM-DD), then `git commit -m "chore(studio): PRD <NN> approved"`,
-   then `git push origin feature/gui-streamlit-studio` (the **one** push for this
-   PRD — everything before this stays local). **STOP** — do not begin the next
-   PRD in this session.
+2. **When all 4 validation layers are green** (guide §3): set Status → `DONE`,
+   fill the **Done** date (YYYY-MM-DD), then
+   `git commit -m "chore(studio): PRD <NN>"`, then `git push origin
+   feature/gui-streamlit-studio` (the **one** push for this PRD — everything
+   before this stays local), produce the **Completion Report** (guide §4), and
+   **STOP** — do not begin the next PRD in this session.
 
-If the owner requests changes instead of approving: keep Status `AWAITING APPROVAL`,
-apply the fixes, re-run all 4 layers, re-issue the Gate Report.
+If a layer won't go green, or something is genuinely ambiguous: don't mark `DONE`
+and don't push — stop and say so (`STATUS: BLOCKED`) instead.
 
 ## Status legend
-`TODO` · `IN PROGRESS` · `AWAITING APPROVAL` · `DONE`
+`TODO` · `IN PROGRESS` · `DONE`
+(`AWAITING APPROVAL` is a legacy status from before the approval gate was removed —
+it should never appear on a new row; if you see it, treat it as `IN PROGRESS` with
+all 4 layers already green: finish per the guide §0 rule 6 and mark `DONE`.)
 
 ## Queue (top to bottom = build order; take the first non-DONE row)
 

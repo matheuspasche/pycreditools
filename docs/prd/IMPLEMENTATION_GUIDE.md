@@ -14,8 +14,8 @@ package does — without writing code. The full spec is in `docs/prd/`.
 
 1. **One PRD at a time.** You don't need to be told which PRD — read
    `docs/prd/PROGRESS.md` and take the **first row that is not `DONE`** (obey its
-   rules for `IN PROGRESS` / `AWAITING APPROVAL`). Implement only that one.
-   **Do not start the next PRD.** Stop at its gate.
+   rules for `IN PROGRESS`). Implement only that one. **Do not start the next PRD**
+   — finish this one (through commit + push), then stop.
 2. **Never re-implement engine logic.** The studio only *calls* `pycreditools`
    public API (see `00-overview.md` §8). If you feel tempted to compute KS, fit
    clusters, or simulate by hand — stop; call the package.
@@ -24,13 +24,17 @@ package does — without writing code. The full spec is in `docs/prd/`.
    programmatically from widgets (`00-overview.md` §10 lists all non-goals).
 4. **Stay in scope.** Only create/edit the files the PRD lists. Don't refactor
    unrelated code. Don't add dependencies beyond the `studio` extra.
-5. **Small, reversible commits — local only until approval.** Commit logically
-   small chunks. Each commit must leave the automated validation green (see §3).
-   Do **not** `git push` while implementing or while `AWAITING APPROVAL` — keep
-   work local until the owner approves (rule 10).
-6. **Blocking gate.** When the PRD is done and all 4 validation layers pass,
-   **STOP and produce the Gate Report (§4)**, then wait for the owner's explicit
-   "aprovado". Do not continue without it.
+5. **Small, reversible commits.** Commit logically small chunks. Each commit must
+   leave the automated validation green (see §3). Don't `git push` mid-PRD —
+   push happens once, right after the PRD is marked `DONE` (rule 10).
+6. **No approval gate — just finish and stop.** When the PRD is done and all 4
+   validation layers pass, mark it `DONE`, push, produce the Completion Report
+   (§4), and stop. There is no "wait for aprovado" step anymore — you decide the
+   PRD is complete based on the Definition of Done and green validation, the same
+   way you'd decide any other task is finished. (This applies everywhere — both
+   interactive sessions and the unattended Docker loop, §9.) If something is
+   genuinely ambiguous or a test won't pass, that's `STATUS: BLOCKED` — stop and
+   ask, don't guess and don't ship it as done.
 7. **Read before you write.** Read `IMPLEMENTATION_GUIDE.md` (this file),
    `00-overview.md`, and your assigned PRD — in that order — before any edit.
 8. **Respect the core/skin boundary (`00-overview.md` §4b).** All logic goes in
@@ -44,11 +48,11 @@ package does — without writing code. The full spec is in `docs/prd/`.
    afterwards, in the same step. This is **best-effort**: if `gh` isn't
    installed/authenticated, print a one-line note and move on — never let it
    block the gate.
-10. **Push only once, right after the owner approves.** All your work for this
-    PRD (every commit since you set it `IN PROGRESS`) stays local until the owner
-    says "aprovado". The moment you mark the row `DONE`, `git push origin
-    feature/gui-streamlit-studio` **before** you stop. This is the one and only
-    push for this PRD — not before, not after starting the next one.
+10. **Push only once, right after you mark the PRD `DONE`.** All your work for
+    this PRD (every commit since you set it `IN PROGRESS`) stays local until then.
+    The moment you mark the row `DONE`, `git push origin feature/gui-streamlit-studio`
+    **before** you stop. This is the one and only push for this PRD — not before,
+    not after starting the next one (you don't start the next one).
 
 ---
 
@@ -70,8 +74,8 @@ If the `studio` extra doesn't exist yet (you are PRD 01), add it per
 ## 2. The per-PRD workflow (do this for every PRD)
 
 0. **Select your PRD from `docs/prd/PROGRESS.md`** — the first row not `DONE`
-   (obey its `IN PROGRESS` / `AWAITING APPROVAL` rules). Confirm its dependencies
-   are `DONE`. Set its Status → `IN PROGRESS`, commit (PROGRESS.md only), then run
+   (obey its `IN PROGRESS` rules). Confirm its dependencies are `DONE`. Set its
+   Status → `IN PROGRESS`, commit (PROGRESS.md only), then run
    `python scripts/github_board.py sync` (best-effort, see Golden Rule 9).
 1. **Read** this guide + `00-overview.md` + your selected PRD (in that order).
 2. **Print a 5-bullet plan** of how you'll implement the PRD (files you'll
@@ -79,26 +83,25 @@ If the `studio` extra doesn't exist yet (you are PRD 01), add it per
 3. **Implement** the PRD's deliverables, in small commits.
 4. **Write the tests** the PRD's "Validação automática" lists (under `tests/studio/`).
 5. **Run all 4 validation layers** (§3). Make everything green. If something can't
-   pass, **STOP and ask** — do not delete/skip the test.
-6. Set the PRD's Status → `AWAITING APPROVAL` in PROGRESS.md, commit (still
-   **local, no push**), run `python scripts/github_board.py sync` (best-effort),
-   **produce the Gate Report** (§4) and **STOP**. Wait for the owner's "aprovado".
-7. **After "aprovado":** set Status → `DONE` (+ date) in PROGRESS.md, commit, run
-   `python scripts/github_board.py sync` again, then `git push origin
-   feature/gui-streamlit-studio` (the one push for this PRD), then STOP.
+   pass, **STOP and ask** (`STATUS: BLOCKED`) — do not delete/skip the test, and
+   do not mark the PRD `DONE` with a layer still red.
+6. Set the PRD's Status → `DONE` (+ date) in PROGRESS.md, commit, run
+   `python scripts/github_board.py sync`, then `git push origin
+   feature/gui-streamlit-studio` (the one push for this PRD), produce the
+   **Completion Report** (§4), then **STOP**.
 
 **The board sync is best-effort, never blocking:** if `gh` isn't installed/authed
 or the call fails, print one line saying so and continue — it must never hold up
-the gate or your STOP. But always *attempt* it right after every PROGRESS.md status
-change (steps 0, 6, 7) so the owner's GitHub board stays a true mirror.
+your STOP. But always *attempt* it right after every PROGRESS.md status change
+(steps 0 and 6) so the owner's GitHub board stays a true mirror.
 
-You never advance to the next PRD yourself.
+You never advance to the next PRD yourself — that's a fresh session's job.
 
 ---
 
 ## 3. Automated validation — the 4 layers (all must be green)
 
-Run these from the repo root. Paste the **full output** into the Gate Report.
+Run these from the repo root. Paste the **full output** into the Completion Report.
 
 ```bash
 # Layer 1 — Lint / style
@@ -167,12 +170,13 @@ large `dataset_v14.csv` in tests.
 
 ---
 
-## 4. The Gate Report (what you hand the owner — then STOP)
+## 4. The Completion Report (what you hand the owner — then STOP)
 
-When done, output **exactly** this, filled in:
+When done — PRD marked `DONE`, board synced, pushed — output **exactly** this,
+filled in:
 
 ```
-## Gate Report — PRD <NN> <title>
+## Completion Report — PRD <NN> <title>
 
 ### Definition of Done
 <the PRD's DoD checklist, every box checked, each with a one-line note>
@@ -185,29 +189,34 @@ When done, output **exactly** this, filled in:
 
 ### Diff
 <output of `git diff --stat <base>..HEAD` and the list of new files>
-<note: this is LOCAL work, not yet pushed — push happens only after "aprovado" (rule 10)>
+<note: pushed to origin/feature/gui-streamlit-studio as part of this PRD>
 
 ### GitHub board
-<"Synced — issue #N set to status:review" / or "gh not available, skipped (PROGRESS.md is authoritative)">
+<"Synced — issue #N set to status:done" / or "gh not available, skipped (PROGRESS.md is authoritative)">
 
-### Visual verification script (for you to run)
+### Visual verification script (for you, if you want to look)
 <the PRD's "Verificação visual" steps, copied, ready to follow>
 
-### Briefing de validação (o que conferir agora — e o que NÃO conferir ainda)
-**Valide agora** (entregue neste PRD): <the PRD's "Delivers" from PROGRESS.md —
-the concrete things the owner can/should test in the running app now>.
-**Ainda NÃO existe — não tente validar** (vem depois): <read PROGRESS.md and list
-every row still not DONE with its "Delivers", so the owner doesn't waste time
-testing a page/feature that isn't built yet, e.g. "Risk Grouping (ratings A–E) →
-PRD 08", "Deploy/scoring → PRD 11">.
+### O que dá pra validar agora — e o que ainda não existe
+**Dá pra ver agora** (entregue neste PRD): <the PRD's "Delivers" from PROGRESS.md
+— the concrete things the owner can test in the running app now>.
+**Ainda NÃO existe** (vem depois): <read PROGRESS.md and list every row still not
+DONE with its "Delivers", e.g. "Risk Grouping (ratings A–E) → PRD 08",
+"Deploy/scoring → PRD 11">.
 
-### Ask
-"PRD <NN> está completo e com as 4 camadas verdes. Aprova para eu seguir para o
-próximo PRD?" 
+STATUS: DONE_AND_PUSHED
 ```
-Then **wait**. Do not implement anything else until the owner replies "aprovado"
-(or gives fixes). If they request changes, apply them, re-run all 4 layers, and
-re-issue the Gate Report.
+The final `STATUS: <CODE>` line is **machine-readable** — keep it exactly as
+specified, on its own line, as the very last line of your message, in every run
+(interactive or headless/looped — see §9). Codes:
+- `STATUS: DONE_AND_PUSHED` — normal success: PRD marked `DONE`, board synced,
+  pushed. This is the expected end state for every PRD — no approval step first.
+- `STATUS: BLOCKED` — you hit a genuine ambiguity, a failing test you can't
+  resolve, or anything else requiring the owner's judgment. Stop *before*
+  marking `DONE` or pushing — don't ship something you're not sure about.
+- `STATUS: ERROR` — an unrecoverable failure (env broken, dependency missing, etc.).
+
+After `STATUS: DONE_AND_PUSHED`, stop — don't start the next PRD in this session.
 
 ---
 
@@ -271,11 +280,12 @@ Keep fixtures fast: 5000 rows, `method="analytical"`.
 - ❌ `import streamlit` inside `pycreditools/studio/` → breaks the core/skin
   boundary and fails `test_boundary.py` (`00-overview.md` §4b).
 - ❌ Touching files outside the PRD's scope.
-- ❌ Continuing past the gate without an explicit "aprovado".
-- ❌ Pushing before approval (rule 10) — keep everything local while implementing
-  / AWAITING APPROVAL.
-- ❌ Forgetting to push after approval — the owner needs the approved PRD on
-  `origin` (board links, continuity across sessions) before you stop.
+- ❌ Pushing mid-PRD (rule 10) — keep everything local until you mark it `DONE`.
+- ❌ Marking `DONE` and pushing with a validation layer still red, or a test you
+  quietly skipped — that's exactly what `STATUS: BLOCKED` is for instead.
+- ❌ Forgetting to push after marking `DONE` — the owner needs the finished PRD
+  on `origin` (board links, continuity across sessions) before you stop.
+- ❌ Starting the next PRD in the same session — one PRD, then stop.
 
 ---
 
@@ -299,8 +309,8 @@ MANDATORY reading, in this order, before writing any code:
 4. the PRD file PROGRESS.md points you to (the ONLY PRD you implement now)
 
 Pick your PRD from PROGRESS.md: the first row whose Status is not DONE. Obey its
-rules for IN PROGRESS / AWAITING APPROVAL. Confirm its dependencies are DONE, then
-set its Status to IN PROGRESS and commit (PROGRESS.md only).
+rules for IN PROGRESS. Confirm its dependencies are DONE, then set its Status to
+IN PROGRESS and commit (PROGRESS.md only).
 
 A GitHub Projects board mirrors PROGRESS.md (one issue per PRD, status as labels).
 After EVERY status change you make in PROGRESS.md, run
@@ -315,22 +325,38 @@ Hard rules (from the guide):
   (e.g. only flat AggravationStress).
 - Keep the core/skin split: all logic in `pycreditools/studio/` with NO
   `import streamlit`; only `pycreditools/gui/` imports streamlit (00-overview §4b).
-- Work in small commits, but do NOT push while implementing or while AWAITING
-  APPROVAL — keep everything local until I approve. Then run ALL 4 validation
-  layers (ruff, pytest logic, Streamlit AppTest, parity-if-applicable). Everything
-  must be green.
-- BLOCKING GATE: when the PRD is done and green, set its Status to AWAITING
-  APPROVAL in PROGRESS.md, commit (still local), sync the board, output the Gate
-  Report (filled Definition-of-Done + full test output + `git diff --stat` + the
-  GitHub board sync result + the visual verification script), and STOP. Wait for
-  my explicit "aprovado".
-- After I say "aprovado": set the row to DONE (with date) in PROGRESS.md, commit,
-  sync the board again, THEN `git push origin feature/gui-streamlit-studio` (the
-  one push for this PRD), and STOP — do not start the next PRD.
-- If anything is ambiguous or a test can't pass, STOP and ask me — do not guess.
+- Work in small commits, but do NOT push mid-PRD — keep everything local until
+  the PRD is marked DONE. Run ALL 4 validation layers (ruff, pytest logic,
+  Streamlit AppTest, parity-if-applicable). Everything must be green.
+- No approval gate. Once the PRD is done and all 4 layers are green: set its
+  Status to DONE (with date) in PROGRESS.md, commit, sync the board, THEN
+  `git push origin feature/gui-streamlit-studio` (the one push for this PRD),
+  output the Completion Report (filled Definition-of-Done + full test output +
+  `git diff --stat` + the GitHub board sync result + the visual verification
+  script), and STOP — do not start the next PRD.
+- If anything is genuinely ambiguous or a test can't pass, STOP and say so
+  (`STATUS: BLOCKED`) rather than guessing or shipping it anyway.
+- End your FINAL message with one line, exactly: `STATUS: DONE_AND_PUSHED` (normal
+  success) or `STATUS: BLOCKED` (if you must stop before finishing) or
+  `STATUS: ERROR` (unrecoverable failure). This line is parsed by automation —
+  see guide §4.
 
 Start by reading the 4 items, then print a 5-bullet plan for your PRD, then implement.
 ```
 
 The build order lives in `PROGRESS.md` (and `00-overview.md` §11). Always take the
 first non-DONE row; never start a PRD whose dependencies aren't DONE.
+
+---
+
+## 9. Running this unattended (Docker "ralph loop")
+
+If the owner is running you inside the container described in `docker/`
+(`docker/Dockerfile` + `docker/ralph_loop.sh`), nothing in this guide changes —
+there's no separate "unattended mode" to behave differently for. You get the
+kickoff prompt above, do the work, mark `DONE`, push, and end with
+`STATUS: DONE_AND_PUSHED` — same as an interactive session. The loop script then
+starts a brand-new session for the next PRD on its own.
+
+You never need to call `notify.sh` yourself or touch anything under `.ralph/` —
+that's the loop script's job, not yours.
