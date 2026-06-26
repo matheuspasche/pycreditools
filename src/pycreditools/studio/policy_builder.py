@@ -12,6 +12,8 @@ import uuid
 from collections.abc import Iterable
 from typing import Any
 
+import pandas as pd
+
 from pycreditools import CreditPolicy, col
 from pycreditools.expressions import Expression
 
@@ -159,6 +161,23 @@ def build_policy(
     if rating_recipe is not None:
         policy = policy.with_rating(rating_recipe)
     return policy
+
+
+def legacy_cutoff_policy(
+    roles: ColumnRoles,
+    df: pd.DataFrame,
+    score_col: str = "legacy_score",
+    quantile: float = 0.78,
+) -> tuple[CreditPolicy, list[dict[str, Any]]] | None:
+    """A v14-style legacy-only baseline: one cutoff on `score_col` at its historical quantile.
+
+    Returns `None` if `score_col` isn't present in `df` (mirrors `v14_quickfill_rows`).
+    """
+    if score_col not in df.columns:
+        return None
+    cutoff_value = float(df[score_col].quantile(quantile))
+    rows = [make_cutoff_row(name="Corte legado", cutoffs={score_col: cutoff_value})]
+    return build_policy(roles, rows), rows
 
 
 def clone_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

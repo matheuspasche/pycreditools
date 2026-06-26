@@ -174,6 +174,49 @@ def crash(
     return _apply_layout(fig, "Crash test")
 
 
+def rating_bars(
+    table: pd.DataFrame,
+    *,
+    rating_col: str = "Rating",
+    volume_col: str = "Vol_Esperado",
+    rate_col: str = "Inad_Stressed",
+) -> go.Figure:
+    """Volume per rating tier (A..E), colored by `RISK_COLORS`, with bad rate as labels."""
+    fig = go.Figure()
+    if not table.empty:
+        ordered = table.sort_values(rating_col)
+        labels = [str(v) for v in ordered[rating_col]]
+        colors = [RISK_COLORS.get(label, ACCENT) for label in labels]
+        text = [f"{v * 100:.1f}%" if pd.notna(v) else "—" for v in ordered[rate_col]]
+        fig.add_trace(
+            go.Bar(
+                x=labels,
+                y=ordered[volume_col],
+                marker={"color": colors},
+                text=text,
+                textposition="outside",
+                name="Volume swap-in",
+            )
+        )
+    return _apply_layout(fig, "Swap-in por rating")
+
+
+def heatmap(table: pd.DataFrame, *, title: str = "") -> go.Figure:
+    """Themed heatmap from a `rating x segment` crosstab (index/columns become axis labels)."""
+    fig = go.Figure()
+    if not table.empty:
+        fig.add_trace(
+            go.Heatmap(
+                z=table.values,
+                x=[str(c) for c in table.columns],
+                y=[str(i) for i in table.index],
+                colorscale=[[0, SURFACE], [1, ACCENT]],
+                showscale=True,
+            )
+        )
+    return _apply_layout(fig, title, height=max(260, 50 * len(table.index) + 100))
+
+
 def pareto(df: pd.DataFrame, *, x: str, y: str) -> go.Figure:
     """Pareto frontier scatter."""
     fig = go.Figure()

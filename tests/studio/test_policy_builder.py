@@ -7,6 +7,7 @@ from pycreditools.studio.policy_builder import (
     build_filter_expression,
     build_policy,
     clone_rows,
+    legacy_cutoff_policy,
     make_cutoff_row,
     make_filter_row,
     make_rate_row,
@@ -126,3 +127,19 @@ def test_policy_cache_key_is_stable_and_distinguishes_policies(roles):
     policy_b = build_policy(roles, rows_b)
     assert policy_cache_key(policy_a) == policy_cache_key(build_policy(roles, rows_a))
     assert policy_cache_key(policy_a) != policy_cache_key(policy_b)
+
+
+def test_legacy_cutoff_policy_cuts_at_the_historical_quantile(sample_df, roles):
+    result = legacy_cutoff_policy(roles, sample_df, score_col="legacy_score", quantile=0.78)
+    assert result is not None
+    policy, rows = result
+    assert len(rows) == 1
+    assert rows[0]["type"] == "cutoff"
+    expected_cutoff = float(sample_df["legacy_score"].quantile(0.78))
+    assert rows[0]["cutoffs"] == {"legacy_score": expected_cutoff}
+    assert [type(s).__name__ for s in policy.stages] == ["CutoffStage"]
+
+
+def test_legacy_cutoff_policy_returns_none_when_score_missing(roles):
+    df = pd.DataFrame({"applicant_id": [1, 2, 3]})
+    assert legacy_cutoff_policy(roles, df, score_col="legacy_score") is None

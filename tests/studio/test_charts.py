@@ -41,3 +41,49 @@ def test_ks_curve_empty_table_returns_empty_figure():
     fig = charts.ks_curve(pd.DataFrame())
     assert isinstance(fig, go.Figure)
     assert len(fig.data) == 0
+
+
+def test_rating_bars_colors_by_risk_rating_and_orders_a_to_e():
+    table = pd.DataFrame(
+        {
+            "Rating": ["C", "A", "B"],
+            "Vol_Esperado": [100, 300, 200],
+            "Inad_Stressed": [0.10, 0.02, 0.05],
+        }
+    )
+    fig = charts.rating_bars(table)
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    bar = fig.data[0]
+    assert list(bar.x) == ["A", "B", "C"]
+    assert list(bar.marker.color) == [
+        charts.RISK_COLORS["A"],
+        charts.RISK_COLORS["B"],
+        charts.RISK_COLORS["C"],
+    ]
+    assert list(bar.text) == ["2.0%", "5.0%", "10.0%"]
+
+
+def test_rating_bars_empty_table_returns_empty_figure():
+    fig = charts.rating_bars(pd.DataFrame())
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 0
+
+
+def test_heatmap_builds_a_heatmap_trace_from_a_crosstab():
+    table = pd.DataFrame(
+        {"Sudeste": [10, 20], "Sul": [5, 15]}, index=pd.Index(["A", "B"], name="Rating")
+    )
+    fig = charts.heatmap(table, title="Volume swap-in")
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 1
+    heat = fig.data[0]
+    assert list(heat.x) == ["Sudeste", "Sul"]
+    assert list(heat.y) == ["A", "B"]
+    assert heat.z.tolist() == [[10, 5], [20, 15]]
+
+
+def test_heatmap_empty_table_returns_empty_figure():
+    fig = charts.heatmap(pd.DataFrame())
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 0
