@@ -17,8 +17,10 @@ from pycreditools import (
     CreditSimResults,
     CutoffStage,
     ModelEvaluator,
+    OptimizationResult,
     TradeoffAnalyzer,
     compare_policies,
+    optimize_cutoffs,
     summarize_results,
 )
 
@@ -272,3 +274,46 @@ def decision_preview(
 ) -> pd.DataFrame:
     """Head of the row-level decision table, via `CreditSimResults.to_decision_dataframe()`."""
     return sim.to_decision_dataframe(rating_recipe, rating_labels).head(n)
+
+
+def optimization_grid_size(score_cols: list[str] | tuple[str, ...], cutoff_steps: int) -> int:
+    """Total grid combinations `optimize_cutoffs` evaluates: `cutoff_steps ** len(score_cols)`."""
+    return cutoff_steps ** len(score_cols)
+
+
+def run_optimization(
+    df: pd.DataFrame,
+    policy: CreditPolicy,
+    *,
+    cutoff_steps: int = 10,
+    target_default_rate: float = 0.05,
+    min_approval_rate: float = 0.3,
+    method: str = "analytical",
+    parallel: bool = False,
+    percentiles: tuple[float, float] | None = (0.05, 0.95),
+    cutoff_ranges: dict[str, list[float]] | None = None,
+) -> OptimizationResult:
+    """Grid-search `policy.score_cols`' cutoffs, via `optimize_cutoffs()`."""
+    return optimize_cutoffs(
+        df,
+        policy,
+        cutoff_steps=cutoff_steps,
+        target_default_rate=target_default_rate,
+        min_approval_rate=min_approval_rate,
+        method=method,
+        parallel=parallel,
+        percentiles=percentiles,
+        cutoff_ranges=cutoff_ranges,
+    )
+
+
+def find_equivalent(
+    result: OptimizationResult,
+    target_metric: str = "approval_rate",
+    target_value: float = 0.20,
+    tolerance: float = 0.01,
+) -> pd.DataFrame:
+    """Grid combinations matching `target_value`, via `OptimizationResult.find_equivalent()`."""
+    return result.find_equivalent(
+        target_metric=target_metric, target_value=target_value, tolerance=tolerance
+    )

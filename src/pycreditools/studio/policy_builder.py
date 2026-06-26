@@ -201,6 +201,18 @@ def apply_cutoff_to_rows(
     return rows
 
 
+def apply_cutoffs_to_rows(
+    rows: list[dict[str, Any]], cutoffs: dict[str, float], direction: str = "gte"
+) -> list[dict[str, Any]]:
+    """Update/append a `Cutoff` row for each `{score: value}` pair in `cutoffs`.
+
+    Used by the Optimization page to carry a best combination back to Policy Studio.
+    """
+    for score, value in cutoffs.items():
+        rows = apply_cutoff_to_rows(rows, score, value, direction)
+    return rows
+
+
 def clone_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Deep-copy `rows` with fresh row ids, so a duplicated policy edits independently."""
     cloned = []

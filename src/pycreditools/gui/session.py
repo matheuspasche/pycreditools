@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from pycreditools import CreditPolicy, CreditSimResults
+from pycreditools import CreditPolicy, CreditSimResults, OptimizationResult
 from pycreditools.studio import analyses
 from pycreditools.studio.models import PolicyEntry, StudioState
 
@@ -114,4 +114,31 @@ def run_tradeoff(
         stress_values=list(stress_values) if stress_values else None,
         rate_stage=rate_stage,
         parallel=parallel,
+    )
+
+
+@st.cache_data(show_spinner="Otimizando cortes...")
+def run_optimization(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    _policy: CreditPolicy,
+    policy_key: str,
+    cutoff_steps: int = 10,
+    target_default_rate: float = 0.05,
+    min_approval_rate: float = 0.3,
+    method: str = "analytical",
+    parallel: bool = False,
+    percentiles: tuple[float, float] | None = (0.05, 0.95),
+) -> OptimizationResult:
+    """Cached cutoff grid-search; `df_hash`/`population`/`policy_key` are cache-key-only."""
+    return analyses.run_optimization(
+        _df,
+        _policy,
+        cutoff_steps=cutoff_steps,
+        target_default_rate=target_default_rate,
+        min_approval_rate=min_approval_rate,
+        method=method,
+        parallel=parallel,
+        percentiles=percentiles,
     )

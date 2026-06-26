@@ -1,8 +1,17 @@
+import dataclasses
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from pycreditools import ModelEvaluator, TradeoffAnalyzer, compare_policies, summarize_results
+from pycreditools import (
+    ModelEvaluator,
+    TradeoffAnalyzer,
+    compare_policies,
+    optimize_cutoffs,
+    summarize_results,
+)
+from pycreditools.optimization import find_pareto_frontier
 from pycreditools.studio.analyses import (
     attach_rating,
     compare_with_baseline,
@@ -11,8 +20,11 @@ from pycreditools.studio.analyses import (
     delta_table,
     effective_n,
     evaluate_scores,
+    find_equivalent,
     ks_table,
+    optimization_grid_size,
     quadrant_table,
+    run_optimization,
     run_tradeoff,
     strip_cutoff,
     swap_in_by_rating,
@@ -297,10 +309,67 @@ def test_run_tradeoff_matches_a_direct_tradeoffanalyzer_call_on_the_stripped_pol
 ):
     values = [400, 500, 600]
     res = run_tradeoff(small_df, hf_policy, "score_5", values)
-    expected = TradeoffAnalyzer(strip_cutoff(hf_policy, "score_5")).vary_cutoff(
-        "score_5", values
-    ).run(small_df, parallel=False)
+    expected = (
+        TradeoffAnalyzer(strip_cutoff(hf_policy, "score_5"))
+        .vary_cutoff("score_5", values)
+        .run(small_df, parallel=False)
+    )
     pd.testing.assert_frame_equal(
         res[["score_5_cutoff", "approval_rate", "default_rate"]],
         expected[["score_5_cutoff", "approval_rate", "default_rate"]],
     )
+
+
+@pytest.fixture(scope="module")
+def single_score_policy(hf_policy):
+    return dataclasses.replace(hf_policy, score_cols=("score_5",))
+
+
+def test_optimization_grid_size_is_steps_power_n_scores():
+    assert optimization_grid_size(["score_5"], 10) == 10
+    assert optimization_grid_size(["score_4", "score_5"], 10) == 100
+    assert optimization_grid_size([], 10) == 1
+
+
+def test_run_optimization_matches_a_direct_optimize_cutoffs_call(single_score_policy, small_df):
+    result = run_optimization(small_df, single_score_policy, cutoff_steps=5)
+    expected = optimize_cutoffs(small_df, single_score_policy, cutoff_steps=5)
+    assert result.best_combination == expected.best_combination
+    assert result.metrics == expected.metrics
+    pd.testing.assert_frame_equal(result.all_results, expected.all_results)
+
+
+def test_run_optimization_best_combination_respects_constraints_when_feasible(
+    single_score_policy, small_df
+):
+    result = run_optimization(
+        small_df,
+        single_score_policy,
+        cutoff_steps=10,
+        target_default_rate=0.05,
+        min_approval_rate=0.1,
+    )
+    if result.metrics["constraints_met"]:
+        assert result.metrics["overall_default_rate"] <= 0.05
+        assert result.metrics["overall_approval_rate"] >= 0.1
+
+
+def test_run_optimization_pareto_frontier_matches_find_pareto_frontier_on_all_results(
+    single_score_policy, small_df
+):
+    result = run_optimization(small_df, single_score_policy, cutoff_steps=10)
+    expected_pareto = find_pareto_frontier(result.all_results)
+    pd.testing.assert_frame_equal(result.pareto_frontier, expected_pareto)
+
+
+def test_find_equivalent_matches_the_optimizationresult_method_directly(
+    single_score_policy, small_df
+):
+    result = run_optimization(small_df, single_score_policy, cutoff_steps=10)
+    matches = find_equivalent(
+        result, target_metric="approval_rate", target_value=0.3, tolerance=0.5
+    )
+    expected = result.find_equivalent(
+        target_metric="approval_rate", target_value=0.3, tolerance=0.5
+    )
+    pd.testing.assert_frame_equal(matches, expected)

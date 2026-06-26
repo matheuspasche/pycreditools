@@ -77,9 +77,7 @@ def frontier(
             for name, group in df.groupby(hue_col):
                 ordered = group.sort_values(x)
                 fig.add_trace(
-                    go.Scatter(
-                        x=ordered[x], y=ordered[y], mode="lines+markers", name=str(name)
-                    )
+                    go.Scatter(x=ordered[x], y=ordered[y], mode="lines+markers", name=str(name))
                 )
         else:
             ordered = df.sort_values(x)
@@ -262,11 +260,69 @@ def heatmap(table: pd.DataFrame, *, title: str = "") -> go.Figure:
     return _apply_layout(fig, title, height=max(260, 50 * len(table.index) + 100))
 
 
-def pareto(df: pd.DataFrame, *, x: str, y: str) -> go.Figure:
-    """Pareto frontier scatter."""
+def pareto(
+    all_df: pd.DataFrame,
+    pareto_df: pd.DataFrame,
+    best: tuple[float, float] | None = None,
+    *,
+    x: str = "overall_approval_rate",
+    y: str = "overall_default_rate",
+    constraints: tuple[float, float] | None = None,
+) -> go.Figure:
+    """Optimization Pareto frontier: all grid combinations (muted), the non-dominated
+    frontier highlighted and connected, the best combination starred, and dashed
+    constraint guides (`target_default_rate`, `min_approval_rate`) with the feasible
+    region shaded.
+    """
     fig = go.Figure()
-    if not df.empty:
-        fig.add_trace(go.Scatter(x=df[x], y=df[y], mode="markers"))
+    if constraints is not None:
+        target_default_rate, min_approval_rate = constraints
+        x_max = max(float(all_df[x].max()) if not all_df.empty else 0.0, min_approval_rate, 1.0)
+        fig.add_shape(
+            type="rect",
+            x0=min_approval_rate,
+            x1=x_max,
+            y0=0,
+            y1=target_default_rate,
+            fillcolor=SUCCESS,
+            opacity=0.08,
+            line_width=0,
+            layer="below",
+        )
+        fig.add_vline(x=min_approval_rate, line={"color": TEXT_DIM, "dash": "dash"})
+        fig.add_hline(y=target_default_rate, line={"color": TEXT_DIM, "dash": "dash"})
+    if not all_df.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=all_df[x],
+                y=all_df[y],
+                mode="markers",
+                name="Combinações",
+                marker={"color": TEXT_DIM, "size": 6, "opacity": 0.5},
+            )
+        )
+    if not pareto_df.empty:
+        ordered = pareto_df.sort_values(x)
+        fig.add_trace(
+            go.Scatter(
+                x=ordered[x],
+                y=ordered[y],
+                mode="lines+markers",
+                name="Fronteira de Pareto",
+                line={"color": ACCENT},
+                marker={"color": ACCENT, "size": 9},
+            )
+        )
+    if best is not None:
+        fig.add_trace(
+            go.Scatter(
+                x=[best[0]],
+                y=[best[1]],
+                mode="markers",
+                name="Melhor combinação",
+                marker={"symbol": "star", "size": 16, "color": SUCCESS},
+            )
+        )
     return _apply_layout(fig, "Fronteira de Pareto")
 
 

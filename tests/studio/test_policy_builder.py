@@ -5,6 +5,7 @@ from pycreditools import CreditPolicy, col
 from pycreditools.studio.policy_builder import (
     V14_HARD_FILTERS,
     apply_cutoff_to_rows,
+    apply_cutoffs_to_rows,
     build_filter_expression,
     build_policy,
     clone_rows,
@@ -163,3 +164,12 @@ def test_apply_cutoff_to_rows_appends_a_new_row_when_score_absent():
     assert new_row["type"] == "cutoff"
     assert new_row["cutoffs"] == {"score_5": 650.0}
     assert new_row["direction"] == "gte"
+
+
+def test_apply_cutoffs_to_rows_updates_and_appends_one_row_per_score():
+    rows = [make_cutoff_row(name="Corte score_3", cutoffs={"score_3": 400})]
+    updated = apply_cutoffs_to_rows(rows, {"score_3": 450.0, "score_5": 700.0})
+    cutoff_rows = [r for r in updated if r["type"] == "cutoff"]
+    assert len(cutoff_rows) == 2
+    by_score = {score: row["cutoffs"][score] for row in cutoff_rows for score in row["cutoffs"]}
+    assert by_score == {"score_3": 450.0, "score_5": 700.0}

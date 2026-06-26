@@ -123,3 +123,34 @@ def test_frontier_empty_df_returns_empty_figure():
     fig = charts.frontier(pd.DataFrame())
     assert isinstance(fig, go.Figure)
     assert len(fig.data) == 0
+
+
+def test_pareto_draws_all_combinations_frontier_and_best_star():
+    all_df = pd.DataFrame(
+        {"overall_approval_rate": [0.2, 0.3, 0.5], "overall_default_rate": [0.02, 0.04, 0.08]}
+    )
+    pareto_df = all_df.iloc[[0, 2]]
+    fig = charts.pareto(all_df, pareto_df, (0.5, 0.08))
+    assert isinstance(fig, go.Figure)
+    names = [trace.name for trace in fig.data]
+    assert "Combinações" in names
+    assert "Fronteira de Pareto" in names
+    assert "Melhor combinação" in names
+    best_trace = next(t for t in fig.data if t.name == "Melhor combinação")
+    assert best_trace.marker.symbol == "star"
+
+
+def test_pareto_with_constraints_draws_guides_and_shaded_region():
+    all_df = pd.DataFrame({"overall_approval_rate": [0.3], "overall_default_rate": [0.04]})
+    fig = charts.pareto(
+        all_df, all_df, (0.3, 0.04), constraints=(0.05, 0.30)
+    )
+    assert len(fig.layout.shapes) == 3  # feasible-region rect + vline + hline
+    rect = next(s for s in fig.layout.shapes if s.type == "rect")
+    assert rect.fillcolor is not None
+
+
+def test_pareto_empty_inputs_return_empty_figure():
+    fig = charts.pareto(pd.DataFrame(), pd.DataFrame())
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 0
