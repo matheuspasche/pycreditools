@@ -24,6 +24,8 @@ from pycreditools.studio.analyses import (
     cutoff_range,
     decision_preview,
     delta_table,
+    deployment_cache_key,
+    deployment_mocked_columns,
     effective_n,
     evaluate_scores,
     existing_rating_columns,
@@ -35,10 +37,14 @@ from pycreditools.studio.analyses import (
     label_ratings_by_pd,
     optimization_grid_size,
     quadrant_table,
+    rating_distribution,
     recipe_breaks_table,
+    rejection_reasons,
     run_crash_test,
     run_optimization,
     run_tradeoff,
+    score_batch,
+    scoring_kpis,
     screen_segments,
     screening_boundaries_table,
     screening_candidate_columns,
@@ -757,3 +763,87 @@ def test_run_crash_test_sweeps_the_stress_factor_and_default_rate_rises(sample_d
 
     assert list(crash_df["aggravation_factor"]) == factors
     assert crash_df["default_rate"].is_monotonic_increasing
+
+
+@pytest.fixture(scope="module")
+def deployment_policy(sample_df, roles, rating_result):
+    rows = v14_quickfill_rows(sample_df.columns)
+    policy = build_policy(roles, rows, rating_recipe=rating_result.recipe)
+    return policy.export(rating_recipe=rating_result.recipe)
+
+
+def test_score_batch_simple_matches_deploymentpolicy_predict_directly(sample_df, deployment_policy):
+    subset = sample_df.head(50)
+    result = score_batch(subset, deployment_policy)
+    expected = deployment_policy.predict(subset, simple=True, method="analytical")
+    pd.testing.assert_frame_equal(result, expected)
+
+
+def test_score_batch_simple_false_matches_predict_directly(sample_df, deployment_policy):
+    subset = sample_df.head(20)
+    result = score_batch(subset, deployment_policy, simple=False)
+    expected = deployment_policy.predict(subset, simple=False, method="analytical")
+    pd.testing.assert_frame_equal(result, expected)
+
+
+def test_deployment_cache_key_is_stable_and_distinguishes_recipe(sample_df, roles, rating_result):
+    rows = v14_quickfill_rows(sample_df.columns)
+    policy = build_policy(roles, rows)
+    dep_no_recipe = policy.export(rating_recipe=None)
+    dep_with_recipe = policy.export(rating_recipe=rating_result.recipe)
+
+    assert deployment_cache_key(dep_no_recipe) == deployment_cache_key(
+        policy.export(rating_recipe=None)
+    )
+    assert deployment_cache_key(dep_no_recipe) != deployment_cache_key(dep_with_recipe)
+
+
+def test_deployment_mocked_columns_flags_missing_id_and_default(
+    sample_df, roles, deployment_policy
+):
+    full = sample_df.head(10)
+    assert deployment_mocked_columns(deployment_policy, full) == []
+
+    missing = full.drop(columns=[roles.applicant_id_col, roles.actual_default_col])
+    mocked = deployment_mocked_columns(deployment_policy, missing)
+    assert set(mocked) == {roles.applicant_id_col, roles.actual_default_col}
+
+
+def test_scoring_kpis_counts_total_and_approval_rate():
+    scored = pd.DataFrame({"decision": ["Approved", "Approved", "Rejected", "Rejected"]})
+    kpis = scoring_kpis(scored)
+    assert kpis["total"] == 4
+    assert kpis["approval_rate"] == pytest.approx(0.5)
+
+
+def test_scoring_kpis_empty_frame_returns_zero():
+    kpis = scoring_kpis(pd.DataFrame({"decision": []}))
+    assert kpis["total"] == 0
+    assert kpis["approval_rate"] == 0.0
+
+
+def test_rating_distribution_counts_per_tier():
+    scored = pd.DataFrame({"rating": ["A", "A", "B", None]})
+    dist = rating_distribution(scored)
+    assert dist.to_dict() == {"A": 2, "B": 1}
+
+
+def test_rating_distribution_missing_column_returns_empty_series():
+    dist = rating_distribution(pd.DataFrame({"x": [1, 2]}))
+    assert dist.empty
+
+
+def test_rejection_reasons_counts_and_sorts_by_volume():
+    scored = pd.DataFrame(
+        {"reason": ["Approved", "Approved", "1: CPF válido", "1: CPF válido", "1: CPF válido"]}
+    )
+    table = rejection_reasons(scored)
+    assert list(table.columns) == ["reason", "volume"]
+    assert table.iloc[0]["reason"] == "1: CPF válido"
+    assert table.iloc[0]["volume"] == 3
+
+
+def test_rejection_reasons_missing_column_returns_empty_with_expected_columns():
+    table = rejection_reasons(pd.DataFrame({"x": [1, 2]}))
+    assert table.empty
+    assert list(table.columns) == ["reason", "volume"]

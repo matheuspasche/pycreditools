@@ -8,6 +8,7 @@ import streamlit as st
 from pycreditools import (
     CreditPolicy,
     CreditSimResults,
+    DeploymentPolicy,
     OptimizationResult,
     RiskGroupResult,
     ScreeningResult,
@@ -224,6 +225,19 @@ def fit_pairwise_risk_groups(
         method=method,
         oot_date=oot_date,
     )
+
+
+@st.cache_data(show_spinner="Escorando arquivo...")
+def score_batch(
+    _df: pd.DataFrame,
+    file_hash: str,
+    _dep: DeploymentPolicy,
+    dep_key: str,
+    simple: bool = True,
+    method: str = "analytical",
+) -> pd.DataFrame:
+    """Cached batch scoring; `file_hash`/`dep_key` are cache-key-only."""
+    return analyses.score_batch(_df, _dep, simple=simple, method=method)
 
 
 @st.cache_data(show_spinner="Rodando screening de sub-segmentos...")

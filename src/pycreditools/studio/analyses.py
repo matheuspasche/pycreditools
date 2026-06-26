@@ -7,6 +7,7 @@ wraps these functions in the `gui/` skin, not here.
 from __future__ import annotations
 
 import dataclasses
+import json
 import string
 from typing import Any
 
@@ -17,6 +18,7 @@ from pycreditools import (
     CreditPolicy,
     CreditSimResults,
     CutoffStage,
+    DeploymentPolicy,
     ModelEvaluator,
     OptimizationResult,
     RiskGroupResult,
@@ -636,6 +638,52 @@ def screening_heatmap_table(
     if detail_table.empty:
         return pd.DataFrame()
     return detail_table.pivot(index=base_risk_col, columns="Subsegmento", values=value_col)
+
+
+def deployment_cache_key(dep: DeploymentPolicy) -> str:
+    """A stable, hashable cache key for a `DeploymentPolicy` (its serialized `to_dict()`)."""
+    return json.dumps(dep.to_dict(), sort_keys=True, default=str)
+
+
+def deployment_mocked_columns(dep: DeploymentPolicy, df: pd.DataFrame) -> list[str]:
+    """Columns `DeploymentPolicy.predict()` will auto-mock because `df` lacks them."""
+    policy = dep.policy
+    candidates = [policy.applicant_id_col, policy.current_approval_col, policy.actual_default_col]
+    return [c for c in candidates if c and c not in df.columns]
+
+
+def score_batch(
+    df: pd.DataFrame, dep: DeploymentPolicy, *, simple: bool = True, method: str = "analytical"
+) -> pd.DataFrame:
+    """Batch-score `df` through a deployment policy, via `DeploymentPolicy.predict()`."""
+    return dep.predict(df, simple=simple, method=method)
+
+
+def scoring_kpis(scored: pd.DataFrame, decision_col: str = "decision") -> dict[str, float]:
+    """Total scored rows and approval rate, from a `simple=True` scored frame."""
+    total = len(scored)
+    approval_rate = (
+        float((scored[decision_col] == "Approved").mean())
+        if total and decision_col in scored.columns
+        else 0.0
+    )
+    return {"total": total, "approval_rate": approval_rate}
+
+
+def rating_distribution(scored: pd.DataFrame, rating_col: str = "rating") -> pd.Series:
+    """Volume per rating tier from a scored frame, for `charts.bars(risk_colors=True)`."""
+    if rating_col not in scored.columns:
+        return pd.Series(dtype=float)
+    return scored[rating_col].value_counts(dropna=True)
+
+
+def rejection_reasons(scored: pd.DataFrame, reason_col: str = "reason") -> pd.DataFrame:
+    """`reason` value counts (rejection breakdown), sorted by volume descending."""
+    if reason_col not in scored.columns:
+        return pd.DataFrame(columns=[reason_col, "volume"])
+    counts = scored[reason_col].value_counts(dropna=False).reset_index()
+    counts.columns = [reason_col, "volume"]
+    return counts.sort_values("volume", ascending=False).reset_index(drop=True)
 
 
 def screening_boundaries_table(result: ScreeningResult, variable: str) -> pd.DataFrame:

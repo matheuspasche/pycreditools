@@ -113,3 +113,24 @@ def studio_state_with_rating(sample_df, roles, rating_result, rating_labels):
         last_sim=None,
         legacy_sim=None,
     )
+
+
+@pytest.fixture
+def studio_state_with_deployment(sample_df, roles, rating_result, rating_labels):
+    """`StudioState` with an active policy AND a fitted rating attached (PRD 11)."""
+    rows = v14_quickfill_rows(sample_df.columns)
+    policy = build_policy(roles, rows, rating_recipe=rating_result.recipe)
+    entry = PolicyEntry(name="v14", policy=policy, rows=rows)
+    return StudioState(
+        df_name="sample",
+        df=sample_df,
+        df_hash="sample-5000-42",
+        roles=roles,
+        policies={"v14": entry},
+        active_policy="v14",
+        rating_result=rating_result,
+        rating_labels=rating_labels,
+        screening_result=None,
+        last_sim=None,
+        legacy_sim=None,
+    )
