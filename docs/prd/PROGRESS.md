@@ -51,7 +51,7 @@ apply the fixes, re-run all 4 layers, re-issue the Gate Report.
 | 04 | [04-policy-studio.md](04-policy-studio.md) | 02 | DONE | 2026-06-25 |
 | 05 | [05-simulation-and-impact.md](05-simulation-and-impact.md) | 04 | DONE | 2026-06-26 |
 | 06 | [06-tradeoff-and-scenarios.md](06-tradeoff-and-scenarios.md) | 04 | DONE | 2026-06-26 |
-| 07 | [07-cutoff-optimization.md](07-cutoff-optimization.md) | 04 | TODO | |
+| 07 | [07-cutoff-optimization.md](07-cutoff-optimization.md) | 04 | IN PROGRESS | |
 | 08 | [08-risk-grouping-and-ratings.md](08-risk-grouping-and-ratings.md) | 02 | TODO | |
 | 09 | [09-risk-screening.md](09-risk-screening.md) | 08 | TODO | |
 | 10 | [10-crash-test.md](10-crash-test.md) | 04 | TODO | |
