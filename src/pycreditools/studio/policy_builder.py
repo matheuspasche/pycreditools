@@ -180,6 +180,27 @@ def legacy_cutoff_policy(
     return build_policy(roles, rows), rows
 
 
+def apply_cutoff_to_rows(
+    rows: list[dict[str, Any]], score_col: str, value: float, direction: str = "gte"
+) -> list[dict[str, Any]]:
+    """Update the existing `Cutoff` row on `score_col`, or append a new one if none exists.
+
+    Used by the Trade-off scenario picker to carry a chosen cutoff back to Policy Studio.
+    """
+    rows = copy.deepcopy(rows)
+    for row in rows:
+        if row["type"] == "cutoff" and score_col in row["cutoffs"]:
+            row["cutoffs"][score_col] = value
+            row["direction"] = direction
+            return rows
+    rows.append(
+        make_cutoff_row(
+            name=f"Cutoff {score_col} (Trade-off)", cutoffs={score_col: value}, direction=direction
+        )
+    )
+    return rows
+
+
 def clone_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Deep-copy `rows` with fresh row ids, so a duplicated policy edits independently."""
     cloned = []

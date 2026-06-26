@@ -87,3 +87,39 @@ def test_heatmap_empty_table_returns_empty_figure():
     fig = charts.heatmap(pd.DataFrame())
     assert isinstance(fig, go.Figure)
     assert len(fig.data) == 0
+
+
+def test_frontier_draws_one_line_per_hue_group():
+    df = pd.DataFrame(
+        {
+            "Score_Model": ["score_4", "score_4", "score_5", "score_5"],
+            "approval_rate": [0.3, 0.5, 0.2, 0.4],
+            "default_rate": [0.08, 0.04, 0.06, 0.03],
+        }
+    )
+    fig = charts.frontier(df, hue_col="Score_Model")
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 2
+    names = {trace.name for trace in fig.data}
+    assert names == {"score_4", "score_5"}
+
+
+def test_frontier_overlays_legacy_marker_and_scenario_points():
+    df = pd.DataFrame({"approval_rate": [0.2, 0.4], "default_rate": [0.06, 0.03]})
+    fig = charts.frontier(
+        df,
+        legacy=(0.3, 0.05),
+        scenarios={"Conservador": (0.2, 0.06), "Agressivo": (0.4, 0.03)},
+    )
+    # 1 frontier line + 1 legacy marker + 2 scenario markers
+    assert len(fig.data) == 4
+    names = [trace.name for trace in fig.data]
+    assert "Legado" in names
+    assert "Conservador" in names
+    assert "Agressivo" in names
+
+
+def test_frontier_empty_df_returns_empty_figure():
+    fig = charts.frontier(pd.DataFrame())
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 0

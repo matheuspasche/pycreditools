@@ -57,11 +57,56 @@ def _apply_layout(fig: go.Figure, title: str = "", height: int = 380) -> go.Figu
     return fig
 
 
-def frontier(df: pd.DataFrame, *, x: str = "approval_rate", y: str = "bad_rate") -> go.Figure:
-    """Efficient frontier: approval rate vs bad rate."""
+def frontier(
+    df: pd.DataFrame,
+    *,
+    x: str = "approval_rate",
+    y: str = "default_rate",
+    hue_col: str | None = None,
+    legacy: tuple[float, float] | None = None,
+    scenarios: dict[str, tuple[float, float]] | None = None,
+) -> go.Figure:
+    """Efficient frontier: approval rate vs default rate, one line per `hue_col` group.
+
+    `legacy` is an optional `(approval_rate, bad_rate)` reference point; `scenarios`
+    is an optional `{label: (approval_rate, default_rate)}` mapping highlighted on top.
+    """
     fig = go.Figure()
     if not df.empty:
-        fig.add_trace(go.Scatter(x=df[x], y=df[y], mode="lines+markers"))
+        if hue_col and hue_col in df.columns:
+            for name, group in df.groupby(hue_col):
+                ordered = group.sort_values(x)
+                fig.add_trace(
+                    go.Scatter(
+                        x=ordered[x], y=ordered[y], mode="lines+markers", name=str(name)
+                    )
+                )
+        else:
+            ordered = df.sort_values(x)
+            fig.add_trace(go.Scatter(x=ordered[x], y=ordered[y], mode="lines+markers"))
+    if legacy is not None:
+        fig.add_trace(
+            go.Scatter(
+                x=[legacy[0]],
+                y=[legacy[1]],
+                mode="markers",
+                name="Legado",
+                marker={"symbol": "x", "size": 14, "color": DANGER},
+            )
+        )
+    if scenarios:
+        for label, (sx, sy) in scenarios.items():
+            fig.add_trace(
+                go.Scatter(
+                    x=[sx],
+                    y=[sy],
+                    mode="markers+text",
+                    name=label,
+                    text=[label],
+                    textposition="top center",
+                    marker={"size": 12, "symbol": "star"},
+                )
+            )
     return _apply_layout(fig, "Fronteira eficiente")
 
 

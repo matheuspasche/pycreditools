@@ -2,23 +2,29 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pycreditools import ModelEvaluator, compare_policies, summarize_results
+from pycreditools import ModelEvaluator, TradeoffAnalyzer, compare_policies, summarize_results
 from pycreditools.studio.analyses import (
     attach_rating,
     compare_with_baseline,
+    cutoff_range,
     decision_preview,
     delta_table,
     effective_n,
     evaluate_scores,
     ks_table,
     quadrant_table,
+    run_tradeoff,
+    strip_cutoff,
     swap_in_by_rating,
     swap_in_by_segment,
+    tradeoff_scenarios,
 )
 from pycreditools.studio.data import population_filter
 from pycreditools.studio.policy_builder import (
     build_policy,
     legacy_cutoff_policy,
+    make_cutoff_row,
+    make_rate_row,
     v14_quickfill_rows,
 )
 
@@ -184,3 +190,117 @@ def test_decision_preview_matches_to_decision_dataframe_head(v14_sim):
     expected = v14_sim.to_decision_dataframe(None, None).head(20)
     pd.testing.assert_frame_equal(preview, expected)
     assert len(preview) == 20
+
+
+def test_cutoff_range_returns_increasing_ints_within_p5_p95(sample_df):
+    values = cutoff_range(sample_df, "score_5", steps=10)
+    assert len(values) == 10
+    assert values == sorted(values)
+    assert all(isinstance(v, int) for v in values)
+    assert values[0] == int(sample_df["score_5"].quantile(0.05))
+    assert values[-1] == int(sample_df["score_5"].quantile(0.95))
+
+
+def test_cutoff_range_low_variance_falls_back_to_a_single_median_point():
+    df = pd.DataFrame({"score": [500] * 100})
+    assert cutoff_range(df, "score", steps=10) == [500]
+
+
+def test_strip_cutoff_removes_only_the_matching_score_keeps_others(roles):
+    rows = [make_cutoff_row(name="Corte", cutoffs={"score_3": 400, "score_5": 600})]
+    policy = build_policy(roles, rows)
+    stripped = strip_cutoff(policy, "score_5")
+    assert len(stripped.stages) == 1
+    assert stripped.stages[0].cutoffs == {"score_3": 400}
+
+
+def test_strip_cutoff_drops_the_stage_entirely_when_no_columns_remain(roles):
+    rows = [make_cutoff_row(name="Corte", cutoffs={"score_5": 600})]
+    policy = build_policy(roles, rows)
+    stripped = strip_cutoff(policy, "score_5")
+    assert stripped.stages == ()
+
+
+def test_strip_cutoff_is_a_noop_when_the_score_has_no_cutoff_stage(roles):
+    rows = v14_quickfill_rows(["cpf_valido"])
+    policy = build_policy(roles, rows)
+    stripped = strip_cutoff(policy, "score_5")
+    assert [s.name for s in stripped.stages] == [s.name for s in policy.stages]
+
+
+def test_tradeoff_scenarios_matches_v14_cell12_selection_logic():
+    res = pd.DataFrame(
+        {
+            "Cutoff": [100, 200, 300, 400, 500],
+            "approval_rate": [0.9, 0.7, 0.5, 0.3, 0.1],
+            "default_rate": [0.01, 0.02, 0.05, 0.08, 0.12],
+        }
+    )
+    scenarios = tradeoff_scenarios(res, legacy_approval_rate=0.52, legacy_bad_rate=0.079)
+    assert scenarios["conservador"]["Cutoff"] == 300  # closest approval_rate (0.5) to 0.52
+    assert scenarios["agressivo"]["Cutoff"] == 400  # closest default_rate (0.08) to 0.079
+    assert scenarios["neutro"]["Cutoff"] == 300  # closest to midpoint (300+400)/2 = 350
+
+
+@pytest.fixture(scope="module")
+def small_df(sample_df):
+    return sample_df.head(800)
+
+
+@pytest.fixture(scope="module")
+def hf_policy(roles, small_df):
+    return build_policy(roles, v14_quickfill_rows(small_df.columns))
+
+
+def test_run_tradeoff_tags_score_model_and_a_unified_cutoff_column(hf_policy, small_df):
+    values = [400, 500, 600]
+    res = run_tradeoff(small_df, hf_policy, "score_5", values)
+    assert (res["Score_Model"] == "score_5").all()
+    assert list(res["Cutoff"]) == list(res["score_5_cutoff"])
+    assert len(res) == len(values)
+    assert {"approval_rate", "default_rate"}.issubset(res.columns)
+
+
+def test_run_tradeoff_strips_the_swept_scores_existing_cutoff(roles, small_df):
+    rows = v14_quickfill_rows(small_df.columns)
+    policy_without = build_policy(roles, rows)
+    policy_with = build_policy(
+        roles, [*rows, make_cutoff_row(name="Corte antigo", cutoffs={"score_5": 999})]
+    )
+
+    values = [400, 500, 600]
+    res_without = run_tradeoff(small_df, policy_without, "score_5", values)
+    res_with = run_tradeoff(small_df, policy_with, "score_5", values)
+    pd.testing.assert_frame_equal(
+        res_without[["approval_rate", "default_rate"]],
+        res_with[["approval_rate", "default_rate"]],
+    )
+
+
+def test_run_tradeoff_with_stress_values_builds_a_grid(hf_policy, small_df):
+    res = run_tradeoff(small_df, hf_policy, "score_5", [400, 500], stress_values=[1.0, 1.5, 2.0])
+    assert len(res) == 2 * 3
+    assert set(res["aggravation_factor"]) == {1.0, 1.5, 2.0}
+
+
+def test_run_tradeoff_with_rate_stage_builds_a_grid(roles, small_df):
+    rows = [*v14_quickfill_rows(small_df.columns), make_rate_row(name="Taxa base", base_rate=0.5)]
+    policy = build_policy(roles, rows)
+    res = run_tradeoff(
+        small_df, policy, "score_5", [400, 500], rate_stage=("Taxa base", [0.3, 0.7])
+    )
+    assert len(res) == 2 * 2
+
+
+def test_run_tradeoff_matches_a_direct_tradeoffanalyzer_call_on_the_stripped_policy(
+    hf_policy, small_df
+):
+    values = [400, 500, 600]
+    res = run_tradeoff(small_df, hf_policy, "score_5", values)
+    expected = TradeoffAnalyzer(strip_cutoff(hf_policy, "score_5")).vary_cutoff(
+        "score_5", values
+    ).run(small_df, parallel=False)
+    pd.testing.assert_frame_equal(
+        res[["score_5_cutoff", "approval_rate", "default_rate"]],
+        expected[["score_5_cutoff", "approval_rate", "default_rate"]],
+    )

@@ -4,6 +4,7 @@ import pytest
 from pycreditools import CreditPolicy, col
 from pycreditools.studio.policy_builder import (
     V14_HARD_FILTERS,
+    apply_cutoff_to_rows,
     build_filter_expression,
     build_policy,
     clone_rows,
@@ -143,3 +144,22 @@ def test_legacy_cutoff_policy_cuts_at_the_historical_quantile(sample_df, roles):
 def test_legacy_cutoff_policy_returns_none_when_score_missing(roles):
     df = pd.DataFrame({"applicant_id": [1, 2, 3]})
     assert legacy_cutoff_policy(roles, df, score_col="legacy_score") is None
+
+
+def test_apply_cutoff_to_rows_updates_existing_cutoff_row():
+    rows = [make_cutoff_row(name="Corte", cutoffs={"score_5": 500}, direction="gte")]
+    updated = apply_cutoff_to_rows(rows, "score_5", 650.0)
+    assert len(updated) == 1
+    assert updated[0]["cutoffs"] == {"score_5": 650.0}
+    assert updated[0]["id"] == rows[0]["id"]
+    assert rows[0]["cutoffs"] == {"score_5": 500}  # original untouched
+
+
+def test_apply_cutoff_to_rows_appends_a_new_row_when_score_absent():
+    rows = [make_cutoff_row(name="Corte", cutoffs={"score_3": 400})]
+    updated = apply_cutoff_to_rows(rows, "score_5", 650.0)
+    assert len(updated) == 2
+    new_row = updated[-1]
+    assert new_row["type"] == "cutoff"
+    assert new_row["cutoffs"] == {"score_5": 650.0}
+    assert new_row["direction"] == "gte"

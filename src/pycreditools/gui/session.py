@@ -88,3 +88,30 @@ def run_policy_sim(
 ) -> CreditSimResults:
     """Cached policy simulation; `df_hash`/`population`/`policy_key` are cache-key-only."""
     return analyses.run_policy_sim(_df, _policy, method=method)
+
+
+@st.cache_data(show_spinner="Calculando fronteira de trade-off...")
+def run_tradeoff(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    _policy: CreditPolicy,
+    policy_key: str,
+    score_col: str,
+    cutoff_values: tuple[float, ...],
+    stress_values: tuple[float, ...] | None = None,
+    rate_stage_name: str | None = None,
+    rate_values: tuple[float, ...] | None = None,
+    parallel: bool = False,
+) -> pd.DataFrame:
+    """Cached trade-off sweep; `df_hash`/`population`/`policy_key` are cache-key-only."""
+    rate_stage = (rate_stage_name, list(rate_values)) if rate_stage_name and rate_values else None
+    return analyses.run_tradeoff(
+        _df,
+        _policy,
+        score_col,
+        list(cutoff_values),
+        stress_values=list(stress_values) if stress_values else None,
+        rate_stage=rate_stage,
+        parallel=parallel,
+    )

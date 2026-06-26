@@ -6,6 +6,7 @@ wraps these functions in the `gui/` skin, not here.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 import numpy as np
@@ -14,7 +15,9 @@ import pandas as pd
 from pycreditools import (
     CreditPolicy,
     CreditSimResults,
+    CutoffStage,
     ModelEvaluator,
+    TradeoffAnalyzer,
     compare_policies,
     summarize_results,
 )
@@ -185,6 +188,80 @@ def delta_table(sim_new: CreditSimResults, sim_old: CreditSimResults) -> pd.Data
     table["Delta_Abs"] = table["New"] - table["Legacy"]
     table["Delta_Rel"] = (table["New"] / table["Legacy"].replace(0, np.nan)) - 1.0
     return table
+
+
+def cutoff_range(df: pd.DataFrame, score_col: str, steps: int = 35) -> list[int]:
+    """p5..p95 sweep of `score_col`, as the int cutoffs v14 Cell 10 uses.
+
+    Falls back to a single median point when the score has too little spread
+    for `steps` distinct integer cutoffs (the PRD's low-variance edge case).
+    """
+    p5 = float(df[score_col].quantile(0.05))
+    p95 = float(df[score_col].quantile(0.95))
+    if p95 <= p5:
+        return [int(df[score_col].median())]
+    return np.linspace(p5, p95, steps).astype(int).tolist()
+
+
+def strip_cutoff(policy: CreditPolicy, score_col: str) -> CreditPolicy:
+    """Drop `score_col` from any `CutoffStage`, so a swept trade-off cutoff isn't double-applied.
+
+    A stage cutting on multiple columns keeps its other columns; a stage left
+    with none is dropped entirely.
+    """
+    kept = []
+    for stage in policy.stages:
+        if isinstance(stage, CutoffStage) and score_col in stage.cutoffs:
+            remaining = {col: val for col, val in stage.cutoffs.items() if col != score_col}
+            if remaining:
+                kept.append(
+                    CutoffStage(name=stage.name, cutoffs=remaining, direction=stage.direction)
+                )
+            continue
+        kept.append(stage)
+    return dataclasses.replace(policy, stages=tuple(kept))
+
+
+def run_tradeoff(
+    df: pd.DataFrame,
+    base_policy: CreditPolicy,
+    score_col: str,
+    cutoff_values: list[float],
+    *,
+    stress_values: list[float] | None = None,
+    rate_stage: tuple[str, list[float]] | None = None,
+    parallel: bool = False,
+) -> pd.DataFrame:
+    """Sweep `score_col`'s cutoff (optionally x stress factor / a rate stage's base rate).
+
+    Reproduces v14 Cell 10: tags `Score_Model` and a unified `Cutoff` column from
+    the analyzer's `{score_col}_cutoff` output, via `TradeoffAnalyzer`.
+    """
+    stripped = strip_cutoff(base_policy, score_col)
+    analyzer = TradeoffAnalyzer(stripped).vary_cutoff(score_col, cutoff_values)
+    if stress_values:
+        analyzer = analyzer.vary_stress_aggravation(stress_values)
+    if rate_stage:
+        stage_name, rate_values = rate_stage
+        analyzer = analyzer.vary_base_rate(stage_name, rate_values)
+    result = analyzer.run(df, parallel=parallel).copy()
+    result["Score_Model"] = score_col
+    result["Cutoff"] = result[f"{score_col}_cutoff"]
+    return result
+
+
+def tradeoff_scenarios(
+    res_s: pd.DataFrame, legacy_approval_rate: float, legacy_bad_rate: float
+) -> dict[str, pd.Series]:
+    """The 3 executive scenarios from v14 Cell 12: conservador / agressivo / neutro.
+
+    `res_s` is one score model's trade-off rows (has `Cutoff`/`approval_rate`/`default_rate`).
+    """
+    conservative = res_s.loc[(res_s["approval_rate"] - legacy_approval_rate).abs().idxmin()]
+    aggressive = res_s.loc[(res_s["default_rate"] - legacy_bad_rate).abs().idxmin()]
+    mid_cutoff = (conservative["Cutoff"] + aggressive["Cutoff"]) / 2
+    neutral = res_s.loc[(res_s["Cutoff"] - mid_cutoff).abs().idxmin()]
+    return {"conservador": conservative, "agressivo": aggressive, "neutro": neutral}
 
 
 def decision_preview(
