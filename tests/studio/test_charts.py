@@ -154,3 +154,46 @@ def test_pareto_empty_inputs_return_empty_figure():
     fig = charts.pareto(pd.DataFrame(), pd.DataFrame())
     assert isinstance(fig, go.Figure)
     assert len(fig.data) == 0
+
+
+def test_bars_risk_colors_colors_each_bar_by_rating():
+    series = pd.Series({"C": 0.10, "A": 0.02, "B": 0.05})
+    fig = charts.bars(series, percent=True, risk_colors=True)
+    assert len(fig.data) == 1
+    bar = fig.data[0]
+    colors_by_label = dict(zip(bar.y, bar.marker.color))
+    assert colors_by_label["A"] == charts.RISK_COLORS["A"]
+    assert colors_by_label["B"] == charts.RISK_COLORS["B"]
+    assert colors_by_label["C"] == charts.RISK_COLORS["C"]
+
+
+def test_vintage_stability_draws_one_line_per_rating_and_oot_vline():
+    df = pd.DataFrame(
+        {
+            "safra": ["2024-01", "2024-02", "2024-01", "2024-02"],
+            "Rating": ["A", "A", "B", "B"],
+            "bad_rate": [0.01, 0.02, 0.05, 0.06],
+        }
+    )
+    fig = charts.vintage_stability(
+        df, time_col="safra", rating_col="Rating", rate_col="bad_rate", oot_date="2024-02"
+    )
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 2
+    names = {trace.name for trace in fig.data}
+    assert names == {"A", "B"}
+    assert len(fig.layout.shapes) == 1
+
+
+def test_vintage_stability_without_oot_date_draws_no_vline():
+    df = pd.DataFrame({"safra": ["2024-01"], "Rating": ["A"], "bad_rate": [0.01]})
+    fig = charts.vintage_stability(
+        df, time_col="safra", rating_col="Rating", rate_col="bad_rate"
+    )
+    assert len(fig.layout.shapes) == 0
+
+
+def test_vintage_stability_empty_df_returns_empty_figure():
+    fig = charts.vintage_stability(pd.DataFrame())
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 0

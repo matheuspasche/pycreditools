@@ -116,16 +116,27 @@ def funnel(df: pd.DataFrame, *, stage_col: str = "stage", count_col: str = "n") 
     return _apply_layout(fig, "Funil da política")
 
 
-def bars(series: pd.Series, *, percent: bool = True, highlight: str | None = None) -> go.Figure:
+def bars(
+    series: pd.Series,
+    *,
+    percent: bool = True,
+    highlight: str | None = None,
+    risk_colors: bool = False,
+) -> go.Figure:
     """Horizontal bar chart from a labeled `series`, sorted descending top-to-bottom.
 
     `highlight` (e.g. the legacy score's label) is rendered in a muted color.
+    `risk_colors=True` colors each bar by `RISK_COLORS[label]` instead (e.g. PD per
+    A..E rating tier).
     """
     fig = go.Figure()
     if not series.empty:
         ordered = series.sort_values(ascending=True)
         labels = [str(idx) for idx in ordered.index]
-        colors = [TEXT_DIM if label == highlight else ACCENT for label in labels]
+        if risk_colors:
+            colors = [RISK_COLORS.get(label, ACCENT) for label in labels]
+        else:
+            colors = [TEXT_DIM if label == highlight else ACCENT for label in labels]
         text = [f"{v * 100:.1f}%" if percent else f"{v:.2f}" for v in ordered.values]
         fig.add_trace(
             go.Bar(
@@ -184,20 +195,24 @@ def vintage_stability(
     time_col: str = "safra",
     rating_col: str = "rating",
     rate_col: str = "bad_rate",
+    oot_date: str | None = None,
 ) -> go.Figure:
-    """Bad rate per rating tier across vintages."""
+    """Bad rate per rating tier across vintages, with an optional DEV/OOT split vline."""
     fig = go.Figure()
     if not df.empty:
         for rating, sub in df.groupby(rating_col):
+            ordered = sub.sort_values(time_col)
             fig.add_trace(
                 go.Scatter(
-                    x=sub[time_col],
-                    y=sub[rate_col],
+                    x=ordered[time_col],
+                    y=ordered[rate_col],
                     mode="lines+markers",
                     name=str(rating),
                     line={"color": RISK_COLORS.get(str(rating))},
                 )
             )
+        if oot_date is not None:
+            fig.add_vline(x=oot_date, line={"color": DANGER, "dash": "dash"})
     return _apply_layout(fig, "Estabilidade por safra")
 
 

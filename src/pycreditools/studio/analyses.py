@@ -7,6 +7,7 @@ wraps these functions in the `gui/` skin, not here.
 from __future__ import annotations
 
 import dataclasses
+import string
 from typing import Any
 
 import numpy as np
@@ -18,11 +19,17 @@ from pycreditools import (
     CutoffStage,
     ModelEvaluator,
     OptimizationResult,
+    RiskGroupResult,
     TradeoffAnalyzer,
     compare_policies,
+    fit_pairwise_risk_groups,
+    fit_risk_groups,
     optimize_cutoffs,
     summarize_results,
 )
+
+# Absolute PD gap (in DEV vs OOT) above which a tier is flagged as unstable.
+RATING_STABILITY_THRESHOLD = 0.02
 
 
 def effective_n(df: pd.DataFrame, target_col: str) -> int:
@@ -317,3 +324,166 @@ def find_equivalent(
     return result.find_equivalent(
         target_metric=target_metric, target_value=target_value, tolerance=tolerance
     )
+
+
+def clamp_max_groups(max_groups: int, bins: int) -> int:
+    """Clamp `max_groups` so it never exceeds `bins` (`fit_risk_groups` otherwise raises)."""
+    return min(max_groups, bins)
+
+
+def fit_groups(
+    df: pd.DataFrame,
+    score_cols: list[str],
+    default_col: str,
+    *,
+    bins: int = 20,
+    max_groups: int | None = None,
+    min_vol_ratio: float = 0.05,
+    max_crossings: int = 1,
+    time_col: str | None = None,
+    method: str = "ward",
+    oot_date: Any | None = None,
+) -> RiskGroupResult:
+    """Cluster `score_cols` into stable risk groups, via `fit_risk_groups()`."""
+    if max_groups is not None:
+        max_groups = clamp_max_groups(max_groups, bins)
+    return fit_risk_groups(
+        df,
+        score_cols,
+        default_col,
+        bins=bins,
+        max_groups=max_groups,
+        min_vol_ratio=min_vol_ratio,
+        max_crossings=max_crossings,
+        time_col=time_col,
+        method=method,
+        oot_date=oot_date,
+    )
+
+
+def fit_pairwise_groups(
+    df: pd.DataFrame,
+    primary_score: str,
+    challenger_scores: list[str],
+    default_col: str,
+    *,
+    bins: int = 20,
+    max_groups: int | None = None,
+    min_vol_ratio: float = 0.05,
+    max_crossings: int = 1,
+    time_col: str | None = None,
+    method: str = "ward",
+    oot_date: Any | None = None,
+) -> dict[str, RiskGroupResult]:
+    """Primary vs each challenger score, via `fit_pairwise_risk_groups()`."""
+    if max_groups is not None:
+        max_groups = clamp_max_groups(max_groups, bins)
+    return fit_pairwise_risk_groups(
+        df,
+        primary_score,
+        challenger_scores,
+        default_col,
+        time_col=time_col,
+        bins=bins,
+        max_groups=max_groups,
+        min_vol_ratio=min_vol_ratio,
+        max_crossings=max_crossings,
+        method=method,
+        oot_date=oot_date,
+    )
+
+
+def label_ratings_by_pd(result: RiskGroupResult, default_col: str) -> dict[int, str]:
+    """Map each numeric `risk_rating` cluster id to a letter (A = lowest mean PD)."""
+    cluster_pd = result.data.groupby("risk_rating")[default_col].mean().sort_values()
+    letters = string.ascii_uppercase
+    return {
+        int(cluster_id): letters[i] if i < len(letters) else str(i)
+        for i, cluster_id in enumerate(cluster_pd.index)
+    }
+
+
+def groups_table(result: RiskGroupResult, labels: dict[int, str] | None) -> pd.DataFrame:
+    """`result.groups` with `risk_rating` relabeled to `Rating` (A..E), sorted ascending."""
+    table = result.groups.copy()
+    table["Rating"] = (
+        table["risk_rating"].map(labels) if labels else table["risk_rating"].astype(str)
+    )
+    return table.drop(columns="risk_rating").sort_values("Rating").reset_index(drop=True)[
+        ["Rating", "volume", "pd"]
+    ]
+
+
+def stability_table(result: RiskGroupResult, labels: dict[int, str] | None) -> pd.DataFrame:
+    """DEV vs OOT volume/PD per tier (from `result.report`), flagging tiers that diverge.
+
+    Empty when `result.report` has no OOT split (no `time_col`/`oot_date` was given).
+    """
+    report = result.report
+    if report is None or report.empty:
+        return pd.DataFrame()
+    df = report.copy()
+    df["Rating"] = df["risk_rating"].map(labels) if labels else df["risk_rating"].astype(str)
+
+    volume = df.pivot_table(index="Rating", columns="period", values="volume", aggfunc="sum")
+    volume.columns = [f"Volume_{c}" for c in volume.columns]
+    pd_rate = df.pivot_table(index="Rating", columns="period", values="pd", aggfunc="mean")
+    pd_rate.columns = [f"PD_{c}" for c in pd_rate.columns]
+    out = volume.join(pd_rate).reset_index()
+
+    if "PD_Train" in out.columns and "PD_OOT" in out.columns:
+        out["PD_Delta"] = out["PD_OOT"] - out["PD_Train"]
+        out["Diverge"] = out["PD_Delta"].abs() > RATING_STABILITY_THRESHOLD
+    return out.sort_values("Rating").reset_index(drop=True)
+
+
+def vintage_stability_table(
+    result: RiskGroupResult,
+    time_col: str,
+    default_col: str,
+    labels: dict[int, str] | None,
+) -> pd.DataFrame:
+    """Mean `default_col` per `(time_col, Rating)` from `result.data` — the vintage chart's data."""
+    df = result.data
+    if time_col not in df.columns:
+        return pd.DataFrame()
+    work = df.copy()
+    work["Rating"] = work["risk_rating"].map(labels) if labels else work["risk_rating"].astype(str)
+    grouped = (
+        work.groupby([time_col, "Rating"])[default_col]
+        .mean()
+        .reset_index()
+        .rename(columns={default_col: "bad_rate"})
+    )
+    return grouped.sort_values([time_col, "Rating"]).reset_index(drop=True)
+
+
+def recipe_breaks_table(result: RiskGroupResult, labels: dict[int, str] | None) -> pd.DataFrame:
+    """Score range(s) mapped to each tier, decoded from `result.recipe`'s quantile breaks.
+
+    One row per tier with `{score}_min`/`{score}_max` columns (one pair per score in
+    `recipe.score_cols`; multivariate grouping combines bins from every score).
+    """
+    recipe = result.recipe
+    if not recipe.quantile_breaks or not recipe.cluster_mapping:
+        return pd.DataFrame()
+
+    rows = []
+    for combo_key, cluster_id in recipe.cluster_mapping.items():
+        row: dict[str, Any] = {"risk_rating": cluster_id}
+        for score_col, bin_idx in zip(recipe.score_cols, combo_key.split("-")):
+            breaks = recipe.quantile_breaks[score_col]
+            bin_idx = int(bin_idx)
+            row[f"{score_col}_min"] = breaks[bin_idx]
+            row[f"{score_col}_max"] = breaks[bin_idx + 1]
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    agg = {
+        col: (col, "min" if col.endswith("_min") else "max")
+        for col in df.columns
+        if col != "risk_rating"
+    }
+    out = df.groupby("risk_rating").agg(**agg).reset_index()
+    out["Rating"] = out["risk_rating"].map(labels) if labels else out["risk_rating"].astype(str)
+    return out.drop(columns="risk_rating").sort_values("Rating").reset_index(drop=True)

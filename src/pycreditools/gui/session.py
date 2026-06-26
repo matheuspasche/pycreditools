@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from pycreditools import CreditPolicy, CreditSimResults, OptimizationResult
+from pycreditools import CreditPolicy, CreditSimResults, OptimizationResult, RiskGroupResult
 from pycreditools.studio import analyses
 from pycreditools.studio.models import PolicyEntry, StudioState
 
@@ -141,4 +141,66 @@ def run_optimization(
         method=method,
         parallel=parallel,
         percentiles=percentiles,
+    )
+
+
+@st.cache_data(show_spinner="Agrupando em ratings...")
+def fit_risk_groups(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    score_cols: tuple[str, ...],
+    default_col: str,
+    bins: int = 20,
+    max_groups: int | None = None,
+    min_vol_ratio: float = 0.05,
+    max_crossings: int = 1,
+    time_col: str | None = None,
+    method: str = "ward",
+    oot_date: str | None = None,
+) -> RiskGroupResult:
+    """Cached risk grouping; `df_hash`/`population` are cache-key-only."""
+    return analyses.fit_groups(
+        _df,
+        list(score_cols),
+        default_col,
+        bins=bins,
+        max_groups=max_groups,
+        min_vol_ratio=min_vol_ratio,
+        max_crossings=max_crossings,
+        time_col=time_col,
+        method=method,
+        oot_date=oot_date,
+    )
+
+
+@st.cache_data(show_spinner="Agrupando em pares (primary vs challengers)...")
+def fit_pairwise_risk_groups(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    primary: str,
+    challengers: tuple[str, ...],
+    default_col: str,
+    bins: int = 20,
+    max_groups: int | None = None,
+    min_vol_ratio: float = 0.05,
+    max_crossings: int = 1,
+    time_col: str | None = None,
+    method: str = "ward",
+    oot_date: str | None = None,
+) -> dict[str, RiskGroupResult]:
+    """Cached pairwise risk grouping; `df_hash`/`population` are cache-key-only."""
+    return analyses.fit_pairwise_groups(
+        _df,
+        primary,
+        list(challengers),
+        default_col,
+        bins=bins,
+        max_groups=max_groups,
+        min_vol_ratio=min_vol_ratio,
+        max_crossings=max_crossings,
+        time_col=time_col,
+        method=method,
+        oot_date=oot_date,
     )

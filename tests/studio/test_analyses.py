@@ -8,12 +8,15 @@ from pycreditools import (
     ModelEvaluator,
     TradeoffAnalyzer,
     compare_policies,
+    fit_pairwise_risk_groups,
+    fit_risk_groups,
     optimize_cutoffs,
     summarize_results,
 )
 from pycreditools.optimization import find_pareto_frontier
 from pycreditools.studio.analyses import (
     attach_rating,
+    clamp_max_groups,
     compare_with_baseline,
     cutoff_range,
     decision_preview,
@@ -21,15 +24,22 @@ from pycreditools.studio.analyses import (
     effective_n,
     evaluate_scores,
     find_equivalent,
+    fit_groups,
+    fit_pairwise_groups,
+    groups_table,
     ks_table,
+    label_ratings_by_pd,
     optimization_grid_size,
     quadrant_table,
+    recipe_breaks_table,
     run_optimization,
     run_tradeoff,
+    stability_table,
     strip_cutoff,
     swap_in_by_rating,
     swap_in_by_segment,
     tradeoff_scenarios,
+    vintage_stability_table,
 )
 from pycreditools.studio.data import population_filter
 from pycreditools.studio.policy_builder import (
@@ -373,3 +383,158 @@ def test_find_equivalent_matches_the_optimizationresult_method_directly(
         target_metric="approval_rate", target_value=0.3, tolerance=0.5
     )
     pd.testing.assert_frame_equal(matches, expected)
+
+
+# --- PRD 08: Risk Grouping & Ratings ---------------------------------------
+
+
+@pytest.fixture(scope="module")
+def grouping_population(sample_df, roles):
+    return population_filter(sample_df, roles, "Aprovados").dropna(
+        subset=[roles.actual_default_col]
+    )
+
+
+def test_clamp_max_groups_caps_at_bins():
+    assert clamp_max_groups(10, 5) == 5
+    assert clamp_max_groups(3, 5) == 3
+
+
+def test_fit_groups_matches_a_direct_fit_risk_groups_call(grouping_population, roles):
+    result = fit_groups(
+        grouping_population,
+        ["score_5"],
+        roles.actual_default_col,
+        bins=30,
+        max_groups=5,
+        min_vol_ratio=0.01,
+    )
+    expected = fit_risk_groups(
+        grouping_population,
+        ["score_5"],
+        roles.actual_default_col,
+        bins=30,
+        max_groups=5,
+        min_vol_ratio=0.01,
+    )
+    assert result.n_groups == expected.n_groups
+    pd.testing.assert_frame_equal(result.groups, expected.groups)
+
+
+def test_fit_groups_clamps_an_oversized_max_groups(grouping_population, roles):
+    result = fit_groups(
+        grouping_population, ["score_5"], roles.actual_default_col, bins=10, max_groups=50
+    )
+    assert result.n_groups <= 10
+
+
+def test_fit_pairwise_groups_matches_a_direct_call(grouping_population, roles):
+    result = fit_pairwise_groups(
+        grouping_population,
+        "score_5",
+        ["score_4"],
+        roles.actual_default_col,
+        bins=20,
+        max_groups=5,
+        min_vol_ratio=0.01,
+    )
+    expected = fit_pairwise_risk_groups(
+        grouping_population,
+        "score_5",
+        ["score_4"],
+        roles.actual_default_col,
+        bins=20,
+        max_groups=5,
+        min_vol_ratio=0.01,
+    )
+    assert result.keys() == expected.keys()
+    for key in expected:
+        assert result[key].n_groups == expected[key].n_groups
+
+
+@pytest.fixture(scope="module")
+def fitted_result(grouping_population, roles):
+    return fit_groups(
+        grouping_population,
+        ["score_5"],
+        roles.actual_default_col,
+        bins=30,
+        max_groups=5,
+        min_vol_ratio=0.01,
+    )
+
+
+@pytest.fixture(scope="module")
+def fitted_result_with_oot(grouping_population, roles):
+    return fit_groups(
+        grouping_population,
+        ["score_5"],
+        roles.actual_default_col,
+        bins=30,
+        max_groups=5,
+        min_vol_ratio=0.01,
+        time_col=roles.time_col,
+        oot_date=roles.oot_date,
+    )
+
+
+def test_label_ratings_by_pd_sorts_ascending_pd_to_a_through_e(fitted_result, roles):
+    labels = label_ratings_by_pd(fitted_result, roles.actual_default_col)
+    cluster_pd = fitted_result.data.groupby("risk_rating")[roles.actual_default_col].mean()
+    ordered_clusters = cluster_pd.sort_values().index.tolist()
+    expected = {int(cid): letter for cid, letter in zip(ordered_clusters, "ABCDE")}
+    assert labels == expected
+
+    # PD must increase monotonically when read in label order A -> E.
+    pd_by_label = {labels[int(cid)]: pd_value for cid, pd_value in cluster_pd.items()}
+    ordered_pd = [pd_by_label[letter] for letter in sorted(pd_by_label)]
+    assert ordered_pd == sorted(ordered_pd)
+
+
+def test_groups_table_pd_matches_a_direct_groupby_on_result_data(fitted_result, roles):
+    labels = label_ratings_by_pd(fitted_result, roles.actual_default_col)
+    table = groups_table(fitted_result, labels)
+
+    direct = fitted_result.data.groupby("risk_rating")[roles.actual_default_col].mean()
+    for cluster_id, label in labels.items():
+        expected_pd = direct.loc[cluster_id]
+        actual_pd = table.loc[table["Rating"] == label, "pd"].iloc[0]
+        assert np.isclose(actual_pd, expected_pd)
+
+    assert list(table["Rating"]) == sorted(table["Rating"])
+
+
+def test_stability_table_empty_without_an_oot_split(fitted_result, roles):
+    labels = label_ratings_by_pd(fitted_result, roles.actual_default_col)
+    # fitted_result has no time_col/oot_date -> report has only the "Train" period.
+    table = stability_table(fitted_result, labels)
+    assert "PD_OOT" not in table.columns
+
+
+def test_stability_table_has_dev_oot_columns_and_diverge_flag(fitted_result_with_oot, roles):
+    labels = label_ratings_by_pd(fitted_result_with_oot, roles.actual_default_col)
+    table = stability_table(fitted_result_with_oot, labels)
+    assert {"PD_Train", "PD_OOT", "PD_Delta", "Diverge"}.issubset(table.columns)
+    assert (table["PD_Delta"] == (table["PD_OOT"] - table["PD_Train"])).all()
+
+
+def test_vintage_stability_table_matches_a_direct_groupby(fitted_result, roles):
+    labels = label_ratings_by_pd(fitted_result, roles.actual_default_col)
+    table = vintage_stability_table(
+        fitted_result, roles.time_col, roles.actual_default_col, labels
+    )
+    assert list(table.columns) == [roles.time_col, "Rating", "bad_rate"]
+
+    work = fitted_result.data.copy()
+    work["Rating"] = work["risk_rating"].map(labels)
+    expected = (
+        work.groupby([roles.time_col, "Rating"])[roles.actual_default_col].mean().reset_index()
+    )
+    assert np.isclose(table["bad_rate"].sum(), expected[roles.actual_default_col].sum())
+
+
+def test_recipe_breaks_table_score_ranges_are_monotonic_with_rating(fitted_result, roles):
+    labels = label_ratings_by_pd(fitted_result, roles.actual_default_col)
+    table = recipe_breaks_table(fitted_result, labels)
+    assert list(table["Rating"]) == sorted(table["Rating"])
+    assert {"score_5_min", "score_5_max"}.issubset(table.columns)
