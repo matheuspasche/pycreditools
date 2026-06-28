@@ -87,6 +87,8 @@ next_issue() {
     nums=$(gh issue list --repo "$REPO" --label "$TODO_LABEL" --state open \
              --json number --jq 'sort_by(.number)|.[].number' 2>/dev/null)
     for n in $nums; do
+        # Never treat the umbrella PRD issue as an implementable slice.
+        [ "$n" = "$PARENT_ISSUE" ] && continue
         if blockers_all_closed "$n"; then
             echo "$n"
             return 0
