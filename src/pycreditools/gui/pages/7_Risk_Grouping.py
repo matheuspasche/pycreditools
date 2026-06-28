@@ -10,9 +10,15 @@ from pycreditools.gui.components.population import render_population_selector
 from pycreditools.gui.session import get_state, guard_roles
 from pycreditools.studio import charts
 from pycreditools.studio.analyses import (
+    apply_manual_grouping,
+    cell_groups_to_grid,
+    default_cell_groups,
+    grid_to_cell_groups,
     groups_table,
     label_ratings_by_pd,
+    open_matrix_pivot,
     recipe_breaks_table,
+    recipe_to_cell_groups,
     stability_table,
     vintage_stability_table,
 )
@@ -25,7 +31,7 @@ state = get_state()
 roles = state.roles
 df = state.df
 
-tab_single, tab_pairwise = st.tabs(["Único", "Pairwise"])
+tab_single, tab_pairwise, tab_matrix = st.tabs(["Único", "Pairwise", "Matriz"])
 
 with tab_single:
     with st.container(border=True):
@@ -262,3 +268,133 @@ with tab_pairwise:
                                 c for c in pair_stability.columns if c.startswith("PD_")
                             )
                             tables.dataframe(pair_stability, percent_cols=percent_cols)
+
+with tab_matrix:
+    st.caption(
+        "Matriz aberta score x score (matriciação): selecione células e agrupe-as à "
+        "mão, ou rode o algoritmo como ponto de partida. O recipe resultante "
+        "alimenta os cortes da Bancada."
+    )
+    candidate_scores_matrix = list(roles.score_cols)
+    if len(candidate_scores_matrix) < 2:
+        st.info("São necessários ao menos 2 scores configurados para a matriz.")
+    else:
+        with st.container(border=True):
+            col_score1, col_score2 = st.columns(2)
+            with col_score1:
+                default_score1_idx = (
+                    candidate_scores_matrix.index(roles.primary_score_col)
+                    if roles.primary_score_col in candidate_scores_matrix
+                    else 0
+                )
+                score1 = st.selectbox(
+                    "Score 1 (linhas)",
+                    candidate_scores_matrix,
+                    index=default_score1_idx,
+                    key="rg_matrix_score1",
+                )
+            with col_score2:
+                score2_options = [s for s in candidate_scores_matrix if s != score1]
+                score2 = st.selectbox("Score 2 (colunas)", score2_options, key="rg_matrix_score2")
+            population_matrix, subset_matrix = render_population_selector(
+                df, roles, key="rg_matrix_population", default="Aprovados"
+            )
+            bins_matrix = st.slider(
+                "Bins por score (grade quadrada)", 3, 10, value=5, key="rg_matrix_bins"
+            )
+
+        target_col_matrix = roles.actual_default_col
+        effective_matrix = subset_matrix.dropna(subset=[target_col_matrix])
+        if effective_matrix.empty:
+            st.warning("Nenhuma linha com o alvo observado na população selecionada.")
+        else:
+            try:
+                matrix = session.build_open_matrix(
+                    effective_matrix,
+                    state.df_hash,
+                    population_matrix,
+                    score1,
+                    score2,
+                    target_col_matrix,
+                    bins_matrix,
+                )
+            except ValueError as exc:
+                st.error(f"Não foi possível construir a matriz: {exc}")
+                st.stop()
+
+            matrix_tag = (score1, score2, bins_matrix, population_matrix)
+            if st.session_state.get("rg_matrix_tag") != matrix_tag:
+                st.session_state["rg_matrix_tag"] = matrix_tag
+                st.session_state["rg_matrix_seed"] = default_cell_groups(matrix)
+                st.session_state["rg_matrix_version"] = (
+                    st.session_state.get("rg_matrix_version", 0) + 1
+                )
+
+            col_vol, col_pd = st.columns(2)
+            with col_vol:
+                st.plotly_chart(
+                    charts.heatmap(open_matrix_pivot(matrix, "volume"), title="Volume"),
+                    use_container_width=True,
+                    config={"displayModeBar": False},
+                )
+            with col_pd:
+                st.plotly_chart(
+                    charts.heatmap(open_matrix_pivot(matrix, "pd"), title="Inadimplência"),
+                    use_container_width=True,
+                    config={"displayModeBar": False},
+                )
+
+            if st.button("Rodar algoritmo (ponto de partida)", key="rg_matrix_algo"):
+                try:
+                    pairwise_seed = session.fit_pairwise_risk_groups(
+                        effective_matrix,
+                        state.df_hash,
+                        population_matrix,
+                        score1,
+                        (score2,),
+                        target_col_matrix,
+                        bins_matrix,
+                        bins_matrix,
+                        0.01,
+                        1,
+                        None,
+                        "ward",
+                        None,
+                    )
+                    algo_result = pairwise_seed[f"{score1}_vs_{score2}"]
+                except ValueError as exc:
+                    st.error(f"Não foi possível rodar o algoritmo: {exc}")
+                else:
+                    st.session_state["rg_matrix_seed"] = recipe_to_cell_groups(algo_result.recipe)
+                    st.session_state["rg_matrix_version"] += 1
+
+            bins1 = len(matrix.breaks1) - 1
+            bins2 = len(matrix.breaks2) - 1
+            seed_grid = cell_groups_to_grid(st.session_state["rg_matrix_seed"], bins1, bins2)
+
+            st.caption("Edite os grupos célula a célula (estilo Excel): mesmo número agrupa.")
+            edited_grid = st.data_editor(
+                seed_grid, key=f"rg_matrix_editor_{st.session_state['rg_matrix_version']}"
+            )
+
+            if st.button("Aplicar agrupamento manual", key="rg_matrix_apply"):
+                cell_groups = grid_to_cell_groups(edited_grid)
+                try:
+                    manual_result = apply_manual_grouping(
+                        matrix, effective_matrix, target_col_matrix, cell_groups
+                    )
+                except ValueError as exc:
+                    st.error(f"Não foi possível aplicar o agrupamento manual: {exc}")
+                else:
+                    manual_labels = label_ratings_by_pd(manual_result, target_col_matrix)
+                    state.rating_result = manual_result
+                    state.rating_labels = manual_labels
+                    st.toast(
+                        f"Matriz manual aplicada: {manual_result.n_groups} grupos "
+                        "prontos para a Bancada."
+                    )
+                    tables.dataframe(
+                        groups_table(manual_result, manual_labels),
+                        percent_cols=("pd",),
+                        int_cols=("volume",),
+                    )

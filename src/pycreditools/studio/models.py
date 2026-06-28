@@ -32,6 +32,21 @@ class ColumnRoles:
 
 
 @dataclass
+class OpenMatrix:
+    """Open (unclustered) score x score quantile grid — critique 2.5 / ADR 0004.
+
+    `cells` has one row per `(bin1, bin2)` combination of the full `bins1 x bins2`
+    grid (even cells with zero volume), with columns `bin1`, `bin2`, `volume`, `pd`.
+    """
+
+    score1: str
+    score2: str
+    breaks1: list[float]
+    breaks2: list[float]
+    cells: pd.DataFrame
+
+
+@dataclass
 class TierDetection:
     """The auto-detected comparison tier (ADR 0002) plus its pt-BR rationale."""
 

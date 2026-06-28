@@ -13,7 +13,7 @@ from pycreditools import (
     RiskGroupResult,
 )
 from pycreditools.studio import analyses
-from pycreditools.studio.models import PolicyEntry, StudioState
+from pycreditools.studio.models import OpenMatrix, PolicyEntry, StudioState
 
 _KEY = "studio"
 
@@ -237,6 +237,20 @@ def fit_pairwise_risk_groups(
         method=method,
         oot_date=oot_date,
     )
+
+
+@st.cache_data(show_spinner="Construindo matriz aberta...")
+def build_open_matrix(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    score1: str,
+    score2: str,
+    default_col: str,
+    bins: int = 5,
+) -> OpenMatrix:
+    """Cached open score x score matrix; `df_hash`/`population` are cache-key-only."""
+    return analyses.build_open_matrix(_df, score1, score2, default_col, bins=bins)
 
 
 @st.cache_data(show_spinner="Escorando arquivo...")

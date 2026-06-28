@@ -19,6 +19,7 @@ from pycreditools import (
     CreditSimResults,
     CutoffStage,
     DeploymentPolicy,
+    GroupingRecipe,
     ModelEvaluator,
     OptimizationResult,
     RiskGroupResult,
@@ -30,7 +31,7 @@ from pycreditools import (
     summarize_results,
 )
 
-from .models import ColumnRoles, StudioState
+from .models import ColumnRoles, OpenMatrix, StudioState
 
 # Absolute PD gap (in DEV vs OOT) above which a tier is flagged as unstable.
 RATING_STABILITY_THRESHOLD = 0.02
@@ -564,6 +565,147 @@ def fit_pairwise_groups(
         max_crossings=max_crossings,
         method=method,
         oot_date=oot_date,
+    )
+
+
+def _quantile_breaks(series: pd.Series, bins: int) -> list[float]:
+    quantiles = np.linspace(0, 1, bins + 1)
+    breaks = np.unique(np.quantile(series.dropna(), quantiles))
+    if len(breaks) < 2:
+        raise ValueError("Not enough variance to bin this score into quantiles.")
+    return breaks.tolist()
+
+
+def build_open_matrix(
+    data: pd.DataFrame,
+    score1: str,
+    score2: str,
+    default_col: str,
+    bins: int = 5,
+) -> OpenMatrix:
+    """The open score x score quantile grid (critique 2.5 / ADR 0004).
+
+    Every `bins x bins` cell is present, even ones with zero volume, each carrying
+    its volume and default rate — the matriciation construction surface, shown
+    open rather than only clustered.
+    """
+    breaks1 = _quantile_breaks(data[score1], bins)
+    breaks2 = _quantile_breaks(data[score2], bins)
+    bin1 = np.digitize(data[score1], breaks1[1:-1])
+    bin2 = np.digitize(data[score2], breaks2[1:-1])
+
+    work = pd.DataFrame({"bin1": bin1, "bin2": bin2, "_target": data[default_col].to_numpy()})
+    observed = (
+        work.groupby(["bin1", "bin2"])
+        .agg(volume=("_target", "count"), pd=("_target", "mean"))
+        .reset_index()
+    )
+
+    full_grid = pd.MultiIndex.from_product(
+        [range(len(breaks1) - 1), range(len(breaks2) - 1)], names=["bin1", "bin2"]
+    ).to_frame(index=False)
+    cells = full_grid.merge(observed, on=["bin1", "bin2"], how="left")
+    cells["volume"] = cells["volume"].fillna(0).astype(int)
+
+    return OpenMatrix(score1=score1, score2=score2, breaks1=breaks1, breaks2=breaks2, cells=cells)
+
+
+def default_cell_groups(matrix: OpenMatrix) -> dict[tuple[int, int], int]:
+    """Starting-point grouping before any manual edit: each cell is its own group."""
+    return {
+        (int(row.bin1), int(row.bin2)): i + 1
+        for i, row in enumerate(matrix.cells.itertuples())
+    }
+
+
+def recipe_to_cell_groups(recipe: GroupingRecipe) -> dict[tuple[int, int], int]:
+    """Decode a 2-score recipe's `cluster_mapping` into the matrix's cell-group grid.
+
+    The "run the algorithm as a starting point to refine" path (ADR 0004): seeds the
+    editable grid with `fit_pairwise_risk_groups`'s clustering before manual edits.
+    """
+    cell_groups: dict[tuple[int, int], int] = {}
+    for combo_key, group_id in (recipe.cluster_mapping or {}).items():
+        bin1_str, bin2_str = combo_key.split("-")
+        cell_groups[(int(bin1_str), int(bin2_str))] = int(group_id)
+    return cell_groups
+
+
+def cell_groups_to_grid(
+    cell_groups: dict[tuple[int, int], int], bins1: int, bins2: int
+) -> pd.DataFrame:
+    """`cell_groups` as a `bins1 x bins2` grid, for an Excel-like editable table."""
+    grid = pd.DataFrame(index=range(bins1), columns=range(bins2), dtype="Int64")
+    for (bin1, bin2), group_id in cell_groups.items():
+        grid.loc[bin1, bin2] = group_id
+    return grid
+
+
+def grid_to_cell_groups(grid: pd.DataFrame) -> dict[tuple[int, int], int]:
+    """Inverse of `cell_groups_to_grid`: reads the hand-edited grid back into a mapping."""
+    cell_groups: dict[tuple[int, int], int] = {}
+    for bin1 in grid.index:
+        for bin2 in grid.columns:
+            value = grid.loc[bin1, bin2]
+            if pd.notna(value):
+                cell_groups[(int(bin1), int(bin2))] = int(value)
+    return cell_groups
+
+
+def open_matrix_pivot(matrix: OpenMatrix, value: str = "pd") -> pd.DataFrame:
+    """`matrix.cells[value]` pivoted to `bin1 x bin2`, for a heatmap of volume or PD."""
+    return matrix.cells.pivot_table(index="bin1", columns="bin2", values=value)
+
+
+def apply_manual_grouping(
+    matrix: OpenMatrix,
+    data: pd.DataFrame,
+    default_col: str,
+    cell_groups: dict[tuple[int, int], int],
+) -> RiskGroupResult:
+    """Turn a hand-edited `cell_groups` mapping over `matrix` into a `RiskGroupResult`.
+
+    The studio-side counterpart to the engine's algorithmic clustering (ADR 0004 /
+    critique 2.5): every cell of `matrix`'s grid must be assigned a group for the
+    resulting recipe to be valid (`GroupingRecipe.predict()` would otherwise leave
+    unmapped cells as NaN). The result drops into `StudioState.rating_result` like
+    any `fit_risk_groups()` output, feeding the Bancada cutoffs the same way.
+    """
+    grid_cells = {(int(row.bin1), int(row.bin2)) for row in matrix.cells.itertuples()}
+    missing = grid_cells - cell_groups.keys()
+    if missing:
+        raise ValueError(f"Faltam grupos para as células: {sorted(missing)}")
+
+    cluster_mapping = {
+        f"{bin1}-{bin2}": int(group_id) for (bin1, bin2), group_id in cell_groups.items()
+    }
+
+    full_df = data.copy()
+    bin1 = np.digitize(full_df[matrix.score1], matrix.breaks1[1:-1])
+    bin2 = np.digitize(full_df[matrix.score2], matrix.breaks2[1:-1])
+    combo_key = pd.Series(bin1, index=full_df.index).astype(str) + "-" + pd.Series(
+        bin2, index=full_df.index
+    ).astype(str)
+    full_df["risk_rating"] = combo_key.map(cluster_mapping)
+
+    groups_summary = (
+        full_df.groupby("risk_rating")
+        .agg(volume=(default_col, "count"), pd=(default_col, "mean"))
+        .reset_index()
+    )
+
+    recipe = GroupingRecipe(
+        score_cols=[matrix.score1, matrix.score2],
+        quantile_breaks={matrix.score1: matrix.breaks1, matrix.score2: matrix.breaks2},
+        cluster_mapping=cluster_mapping,
+    )
+
+    return RiskGroupResult(
+        data=full_df,
+        groups=groups_summary,
+        recipe=recipe,
+        n_groups=len(set(cell_groups.values())),
+        params={"bins1": len(matrix.breaks1) - 1, "bins2": len(matrix.breaks2) - 1, "manual": True},
     )
 
 
