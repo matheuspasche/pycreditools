@@ -1,7 +1,13 @@
 # PROGRESS — which PRD to implement (single source of truth)
 
-> This file is the **work queue**. A fresh agent reads it to know which PRD to do.
-> Each agent updates its row's **Status** as it goes. Do not track progress
+> **⚠️ This file drove the v1 PRDs (01–11), which are all DONE.** The v2 redesign
+> (PRD 12) is **issue-driven**: the ralph loop now reads GitHub issues
+> (`status:todo`, parent #16), not this table. See `docs/ORIENTATION.md` and
+> `docker/ralph_loop.sh`. This file is kept as the v1 record / source of truth for
+> 01–11; do not add v2 slices here.
+
+> This file is the **work queue** (v1). A fresh agent reads it to know which PRD to
+> do. Each agent updates its row's **Status** as it goes. Do not track progress
 > anywhere else.
 
 ## 👉 Which PRD do I implement now?
