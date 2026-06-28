@@ -30,6 +30,7 @@ from pycreditools.studio.analyses import (
     find_equivalent,
     fit_groups,
     fit_pairwise_groups,
+    get_scores_em_jogo,
     groups_table,
     ks_table,
     label_ratings_by_pd,
@@ -43,6 +44,7 @@ from pycreditools.studio.analyses import (
     run_tradeoff,
     score_batch,
     scoring_kpis,
+    select_scores_em_jogo,
     stability_table,
     strip_cutoff,
     swap_in_by_rating,
@@ -51,6 +53,7 @@ from pycreditools.studio.analyses import (
     vintage_stability_table,
 )
 from pycreditools.studio.data import population_filter
+from pycreditools.studio.models import StudioState
 from pycreditools.studio.policy_builder import (
     build_policy,
     legacy_cutoff_policy,
@@ -126,6 +129,36 @@ def test_ks_table_bad_rate_trends_up_with_risk(hired_df, roles):
     table = ks_table(hired_df, "score_5", roles.actual_default_col, bins=10).sort_values("Bucket")
     assert table["Bad_Rate"].corr(table["Bucket"]) > 0.8
     assert table["Bad_Rate"].iloc[0] < table["Bad_Rate"].iloc[-1]
+
+
+def test_select_scores_em_jogo_caps_at_three_and_warns():
+    selection, warning = select_scores_em_jogo(
+        ["score_1", "score_2", "score_3", "score_4"],
+        available=["score_1", "score_2", "score_3", "score_4"],
+    )
+    assert selection == ["score_1", "score_2", "score_3"]
+    assert warning is not None
+
+
+def test_select_scores_em_jogo_within_cap_has_no_warning():
+    selection, warning = select_scores_em_jogo(
+        ["score_1", "score_2"], available=["score_1", "score_2", "score_3"]
+    )
+    assert selection == ["score_1", "score_2"]
+    assert warning is None
+
+
+def test_select_scores_em_jogo_dedupes_and_drops_unknown_scores():
+    selection, warning = select_scores_em_jogo(
+        ["score_1", "score_1", "not_a_candidate"], available=["score_1", "score_2"]
+    )
+    assert selection == ["score_1"]
+    assert warning is None
+
+
+def test_get_scores_em_jogo_filters_to_scores_still_in_roles(roles):
+    state = StudioState(roles=roles, scores_em_jogo=[roles.score_cols[0], "stale_removed_score"])
+    assert get_scores_em_jogo(state) == [roles.score_cols[0]]
 
 
 def test_quadrant_table_matches_summarize_results_directly(v14_sim):

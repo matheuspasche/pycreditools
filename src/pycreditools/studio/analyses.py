@@ -30,6 +30,8 @@ from pycreditools import (
     summarize_results,
 )
 
+from .models import StudioState
+
 # Absolute PD gap (in DEV vs OOT) above which a tier is flagged as unstable.
 RATING_STABILITY_THRESHOLD = 0.02
 
@@ -74,6 +76,39 @@ def evaluate_scores(df: pd.DataFrame, score_cols: list[str], target_col: str) ->
 def ks_table(df: pd.DataFrame, score_col: str, target_col: str, bins: int = 10) -> pd.DataFrame:
     """Per-bucket KS/bad-rate table for one score, via `ModelEvaluator.compute_ks_table()`."""
     return ModelEvaluator(df, [score_col], target_col).compute_ks_table(score_col, bins)
+
+
+# Owner rule (ADR 0005): after KS, only 2-3 of the candidate scores are worth the
+# downstream compute (Bancada suggestions, complementarity); the rest stay out.
+MAX_SCORES_EM_JOGO = 3
+
+
+def select_scores_em_jogo(
+    candidates: list[str], available: list[str], max_count: int = MAX_SCORES_EM_JOGO
+) -> tuple[list[str], str | None]:
+    """Apply the "scores em jogo" short-list rule (ADR 0005) to a raw selection.
+
+    Dedupes, drops names not in `available` (e.g. stale from a previous dataset), and
+    caps at `max_count`, keeping the first `max_count` valid candidates in order.
+    Returns the resulting selection plus a pt-BR warning when the cap was applied.
+    """
+    valid = [c for c in dict.fromkeys(candidates) if c in available]
+    if len(valid) > max_count:
+        kept = valid[:max_count]
+        warning = (
+            f"Selecione no máximo {max_count} scores em jogo; mantidos os primeiros "
+            f"{max_count}: {', '.join(kept)}."
+        )
+        return kept, warning
+    return valid, None
+
+
+def get_scores_em_jogo(state: StudioState) -> list[str]:
+    """The persisted "scores em jogo" short-list (ADR 0005), filtered to scores still
+    present in the current roles — the set downstream slices (Bancada, suggestions,
+    complementarity) should read.
+    """
+    return [s for s in state.scores_em_jogo if s in state.roles.score_cols]
 
 
 def quadrant_table(sim: CreditSimResults) -> pd.DataFrame:

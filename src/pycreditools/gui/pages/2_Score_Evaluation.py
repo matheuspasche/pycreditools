@@ -10,7 +10,7 @@ from pycreditools.gui.components import kpi, tables
 from pycreditools.gui.components.population import render_population_selector
 from pycreditools.gui.session import get_state, guard_roles
 from pycreditools.studio import charts
-from pycreditools.studio.analyses import effective_n
+from pycreditools.studio.analyses import MAX_SCORES_EM_JOGO, effective_n, select_scores_em_jogo
 
 st.title("Avaliação de Score")
 st.caption("Ranking KS dos scores candidatos e tabela de decis.")
@@ -107,6 +107,28 @@ st.plotly_chart(
     config={"displayModeBar": False},
 )
 
+with st.container(border=True):
+    st.caption(
+        f"Marque os 2-3 scores em jogo: somente eles seguem para a Bancada "
+        f"(máx. {MAX_SCORES_EM_JOGO})."
+    )
+    em_jogo_default = [s for s in state.scores_em_jogo if s in selected_scores]
+    em_jogo_input = st.multiselect(
+        "Scores em jogo",
+        selected_scores,
+        default=em_jogo_default,
+        max_selections=MAX_SCORES_EM_JOGO,
+        key="score_eval_em_jogo",
+    )
+    scores_em_jogo, em_jogo_warning = select_scores_em_jogo(em_jogo_input, selected_scores)
+    state.scores_em_jogo = scores_em_jogo
+    if em_jogo_warning:
+        st.warning(em_jogo_warning)
+    elif scores_em_jogo:
+        st.caption(f"Scores em jogo: {', '.join(scores_em_jogo)}.")
+    else:
+        st.caption("Nenhum score em jogo marcado ainda.")
+
 try:
     table_df = session.compute_ks_table(
         subset, state.df_hash, population, table_score, target_col, bins
@@ -115,12 +137,13 @@ except Exception as exc:  # noqa: BLE001 - surfaced as a friendly error
     st.error(f"Não foi possível calcular a tabela de decis: {exc}")
     st.stop()
 
-tab_chart, tab_table = st.tabs(["Curva KS", "Tabela de decis"])
+tab_chart, tab_table = st.tabs(["Curva KS", "Tabela de decis por bucket"])
 with tab_chart:
     st.plotly_chart(
         charts.ks_curve(table_df), use_container_width=True, config={"displayModeBar": False}
     )
 with tab_table:
+    st.caption(f"Tabela de decis por bucket — {table_score}")
     tables.dataframe(table_df, percent_cols=("Bad_Rate", "Cum_Bads", "Cum_Goods", "KS"))
 
 with st.expander("Comparação de KS entre todos os scores"):

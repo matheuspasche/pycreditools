@@ -78,3 +78,4 @@ class StudioState:
     rating_labels: dict[int, str] | None = None
     last_sim: CreditSimResults | None = None
     legacy_sim: CreditSimResults | None = None
+    scores_em_jogo: list[str] = field(default_factory=list)
