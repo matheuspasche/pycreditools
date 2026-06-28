@@ -1,0 +1,14 @@
+# Line-ending policy.
+#
+# Files that run INSIDE the Linux container (the ralph-loop harness) must always
+# be checked out with LF, regardless of the host OS or core.autocrlf. On Windows
+# (autocrlf=true) a fresh checkout would otherwise rewrite them to CRLF, and a
+# CRLF shebang breaks the container with "bad interpreter: /usr/bin/env bash^M".
+# This is the #1 cross-platform footgun for the dockerized loop — pin it here.
+*.sh        text eol=lf
+*.bash      text eol=lf
+Dockerfile  text eol=lf
+
+# Let Git auto-detect text vs binary for everything else, normalizing to LF in
+# the repo while leaving the working-tree EOL to the platform.
+* text=auto
