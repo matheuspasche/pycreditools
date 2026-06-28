@@ -83,6 +83,19 @@ def compute_ks_table(
     return analyses.ks_table(_df, score_col, target_col, bins)
 
 
+@st.cache_data(show_spinner="Calculando complementaridade...")
+def compute_complementarity_table(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    candidate_scores: tuple[str, ...],
+    reference_score: str,
+    target_col: str,
+) -> pd.DataFrame:
+    """Cached complementarity table (ADR 0004); `df_hash`/`population` are cache-key-only."""
+    return analyses.complementarity_table(_df, list(candidate_scores), reference_score, target_col)
+
+
 @st.cache_data(show_spinner="Simulando política...")
 def run_policy_sim(
     _df: pd.DataFrame,

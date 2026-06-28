@@ -10,7 +10,12 @@ from pycreditools.gui.components import kpi, tables
 from pycreditools.gui.components.population import render_population_selector
 from pycreditools.gui.session import get_state, guard_roles
 from pycreditools.studio import charts
-from pycreditools.studio.analyses import MAX_SCORES_EM_JOGO, effective_n, select_scores_em_jogo
+from pycreditools.studio.analyses import (
+    MAX_SCORES_EM_JOGO,
+    effective_n,
+    resolve_reference_score,
+    select_scores_em_jogo,
+)
 
 st.title("Avaliação de Score")
 st.caption("Ranking KS dos scores candidatos e tabela de decis.")
@@ -128,6 +133,41 @@ with st.container(border=True):
         st.caption(f"Scores em jogo: {', '.join(scores_em_jogo)}.")
     else:
         st.caption("Nenhum score em jogo marcado ainda.")
+
+with st.container(border=True):
+    st.subheader("Complementaridade vs. score vigente/em uso")
+    reference_score = resolve_reference_score(roles, ks_series)
+    candidates = [s for s in scores_em_jogo if s != reference_score] if reference_score else []
+    if reference_score is None:
+        st.info("Calcule o KS de ao menos um score para ver a complementaridade.")
+    elif not candidates:
+        st.info(
+            "Marque acima ao menos um score em jogo diferente da referência "
+            f"({reference_score}) para ver a complementaridade."
+        )
+    else:
+        try:
+            complementarity_df = session.compute_complementarity_table(
+                subset, state.df_hash, population, tuple(candidates), reference_score, target_col
+            )
+        except Exception as exc:  # noqa: BLE001 - surfaced as a friendly error
+            st.error(f"Não foi possível calcular a complementaridade: {exc}")
+        else:
+            ref_kind = "score vigente" if roles.vigente_score == reference_score else "score em uso"
+            st.caption(f"Referência: {reference_score} ({ref_kind}).")
+            tables.dataframe(
+                complementarity_df,
+                percent_cols=(
+                    "correlation",
+                    "ks_candidate",
+                    "ks_reference",
+                    "ks_combined",
+                    "marginal_lift",
+                ),
+            )
+            st.caption(
+                "Veredito: repechar (filtro secundário) / matriciar (grade) / substituir."
+            )
 
 try:
     table_df = session.compute_ks_table(

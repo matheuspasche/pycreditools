@@ -72,3 +72,51 @@ def test_per_bucket_ks_table_tab_names_the_selected_score(studio_state_with_role
     tabs = [t for t in at.tabs if "decis" in t.label.lower()]
     assert tabs, "expected the per-bucket KS table tab"
     assert "undefined" not in tabs[0].label.lower()
+
+
+def test_complementarity_panel_shows_an_info_message_with_no_scores_em_jogo(
+    studio_state_with_roles,
+):
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_roles
+    at.run()
+    assert not at.exception
+    assert any("Complementaridade" in str(item.value) for item in at.subheader)
+    assert len(at.info) >= 1
+
+
+def test_marking_scores_em_jogo_renders_the_complementarity_table_vs_the_champion(
+    studio_state_with_roles,
+):
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_roles
+    at.run()
+    assert not at.exception
+
+    multiselects = [m for m in at.multiselect if m.key == "score_eval_em_jogo"]
+    multiselects[0].set_value(["score_4", "score_5"])
+    at.run()
+    assert not at.exception
+
+    assert any("score em uso" in str(item.value) for item in at.caption)
+    dataframes = [d for d in at.dataframe if "candidate_score" in d.value.columns]
+    assert dataframes, "expected the complementarity table"
+    assert list(dataframes[0].value["candidate_score"]) == ["score_4"]
+
+
+def test_complementarity_uses_vigente_score_as_reference_when_set(studio_state_with_roles):
+    studio_state_with_roles.roles.vigente_score = "legacy_score"
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_roles
+    at.run()
+    assert not at.exception
+
+    multiselects = [m for m in at.multiselect if m.key == "score_eval_em_jogo"]
+    multiselects[0].set_value(["score_4", "legacy_score"])
+    at.run()
+    assert not at.exception
+
+    assert any("score vigente" in str(item.value) for item in at.caption)
+    dataframes = [d for d in at.dataframe if "candidate_score" in d.value.columns]
+    assert dataframes, "expected the complementarity table"
+    assert list(dataframes[0].value["reference_score"]) == ["legacy_score"]

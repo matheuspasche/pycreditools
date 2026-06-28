@@ -30,7 +30,7 @@ from pycreditools import (
     summarize_results,
 )
 
-from .models import StudioState
+from .models import ColumnRoles, StudioState
 
 # Absolute PD gap (in DEV vs OOT) above which a tier is flagged as unstable.
 RATING_STABILITY_THRESHOLD = 0.02
@@ -109,6 +109,105 @@ def get_scores_em_jogo(state: StudioState) -> list[str]:
     complementarity) should read.
     """
     return [s for s in state.scores_em_jogo if s in state.roles.score_cols]
+
+
+# ADR 0004: a new score usually enters matriciated with the vigente score, so the
+# owner must judge complementarity, not isolated KS. Verdict thresholds:
+# - a marginal lift at or above LIFT_SIGNIFICANT means the candidate adds real
+#   discriminatory power on top of the reference, worth matriciating;
+# - below that, a highly correlated (>= CORRELATION_HIGH) and clearly stronger
+#   candidate means the reference adds nothing the candidate doesn't already
+#   capture, so replacing it is simpler than keeping both;
+# - otherwise the candidate is only a marginal, partially-redundant complement,
+#   best used as a secondary repechage filter rather than a full swap or matrix.
+COMPLEMENTARITY_CORRELATION_HIGH = 0.7
+COMPLEMENTARITY_LIFT_SIGNIFICANT = 0.02
+
+
+def combined_ks(
+    df: pd.DataFrame, candidate_score: str, reference_score: str, target_col: str
+) -> float:
+    """KS of the rank-average ensemble of `candidate_score` + `reference_score`.
+
+    A model-free combination (average percentile rank, not fit against
+    `target_col`) so the result reflects genuine joint discriminatory power rather
+    than a value inflated by fitting risk-grouping cells to the very labels being
+    scored. The KS itself is computed by `ModelEvaluator.compute_ks()`.
+    """
+    ensemble = df[[candidate_score, reference_score]].rank(pct=True).sum(axis=1)
+    working = df[[target_col]].copy()
+    working["_ensemble"] = ensemble
+    return ModelEvaluator(working, ["_ensemble"], target_col).compute_ks()["_ensemble"]
+
+
+def complementarity_verdict(
+    correlation: float, marginal_lift: float, ks_candidate: float, ks_reference: float
+) -> str:
+    """The ADR 0004 verdict hint (repechar / matriciar / substituir); see thresholds above."""
+    if marginal_lift >= COMPLEMENTARITY_LIFT_SIGNIFICANT:
+        return "matriciar"
+    if correlation >= COMPLEMENTARITY_CORRELATION_HIGH and ks_candidate > ks_reference:
+        return "substituir"
+    return "repechar"
+
+
+def compute_complementarity(
+    df: pd.DataFrame, candidate_score: str, reference_score: str, target_col: str
+) -> dict[str, float | str]:
+    """Correlation, isolated vs combined KS, marginal lift, and a verdict hint (ADR 0004)
+    for `candidate_score` vs `reference_score` (the vigente/in-use score)."""
+    ks_values = evaluate_scores(df, [candidate_score, reference_score], target_col)
+    correlation = float(df[[candidate_score, reference_score]].corr().iloc[0, 1])
+    ks_pair = combined_ks(df, candidate_score, reference_score, target_col)
+    marginal_lift = ks_pair - ks_values[reference_score]
+    verdict = complementarity_verdict(
+        correlation, marginal_lift, ks_values[candidate_score], ks_values[reference_score]
+    )
+    return {
+        "candidate_score": candidate_score,
+        "reference_score": reference_score,
+        "correlation": correlation,
+        "ks_candidate": ks_values[candidate_score],
+        "ks_reference": ks_values[reference_score],
+        "ks_combined": ks_pair,
+        "marginal_lift": marginal_lift,
+        "verdict": verdict,
+    }
+
+
+def complementarity_table(
+    df: pd.DataFrame, candidate_scores: list[str], reference_score: str, target_col: str
+) -> pd.DataFrame:
+    """One row per `candidate_scores` (excluding `reference_score`) vs `reference_score`."""
+    columns = [
+        "candidate_score",
+        "reference_score",
+        "correlation",
+        "ks_candidate",
+        "ks_reference",
+        "ks_combined",
+        "marginal_lift",
+        "verdict",
+    ]
+    rows = [
+        compute_complementarity(df, candidate, reference_score, target_col)
+        for candidate in candidate_scores
+        if candidate != reference_score
+    ]
+    return pd.DataFrame(rows, columns=columns)
+
+
+def resolve_reference_score(
+    roles: ColumnRoles, ks_ranking: dict[str, float] | pd.Series
+) -> str | None:
+    """The complementarity reference (ADR 0004): `vigente_score` when set and still
+    ranked, else the current KS champion (the contextual in-use score)."""
+    ranking = ks_ranking.to_dict() if isinstance(ks_ranking, pd.Series) else dict(ks_ranking)
+    if roles.vigente_score and roles.vigente_score in ranking:
+        return roles.vigente_score
+    if not ranking:
+        return None
+    return max(ranking, key=ranking.get)
 
 
 def quadrant_table(sim: CreditSimResults) -> pd.DataFrame:
