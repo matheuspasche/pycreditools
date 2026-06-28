@@ -73,8 +73,12 @@ blockers_all_closed() {
     body=$(gh issue view "$num" --repo "$REPO" --json body -q .body 2>/dev/null) || return 1
     # Only the "## Blocked by" section carries dependencies — parsing the whole body
     # would wrongly treat the parent "#16" reference as a blocker.
+    # Take only the LEADING "#N" of each "- #N — ..." list item. Parsing every
+    # "#N" on the line would also catch issue numbers embedded in a blocker's
+    # TITLE (e.g. "Bancada tracer #1"), creating a phantom blocker that never
+    # closes and deadlocks the queue.
     blockers=$(printf '%s\n' "$body" | awk 'f; /^## Blocked by/{f=1}' \
-                 | grep -oE '#[0-9]+' | tr -d '#' | sort -u)
+                 | grep -oE '^- #[0-9]+' | grep -oE '[0-9]+' | sort -u)
     for b in $blockers; do
         state=$(gh issue view "$b" --repo "$REPO" --json state -q .state 2>/dev/null)
         [ "$state" = "CLOSED" ] || return 1
