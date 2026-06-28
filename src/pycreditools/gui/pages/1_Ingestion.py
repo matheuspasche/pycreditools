@@ -10,6 +10,7 @@ from pycreditools import CreditPolicy
 from pycreditools.gui import data_access
 from pycreditools.gui.components import kpi, tables
 from pycreditools.gui.components.column_roles import render_column_roles
+from pycreditools.gui.components.tier_badge import render_tier_badge
 from pycreditools.gui.session import get_state
 from pycreditools.studio import projects as studio_projects
 from pycreditools.studio.detection import detect_roles
@@ -19,6 +20,9 @@ st.title("Ingestão")
 st.caption("Carregue uma base (CSV/Parquet) ou gere dados de amostra.")
 
 state = get_state()
+
+if state.df is not None:
+    render_tier_badge(state.roles, state.df)
 
 _SOURCE_KEY = "studio_dataset_source"
 _ROLE_WIDGET_KEYS = (
@@ -32,6 +36,7 @@ _ROLE_WIDGET_KEYS = (
     "role_segment",
     "role_estimated",
     "role_oot",
+    "role_vigente_score",
 )
 
 

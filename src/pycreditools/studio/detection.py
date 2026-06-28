@@ -9,7 +9,7 @@ import re
 
 import pandas as pd
 
-from .models import ColumnRoles
+from .models import ColumnRoles, TierDetection
 
 _ID_NAMES = {"id", "applicant_id", "cpf", "customer_id"}
 _APPROVAL_NAMES = {"approved", "approval", "aprovado"}
@@ -159,3 +159,122 @@ def _pick_oot_date(df: pd.DataFrame, time_col: str | None) -> str | None:
         return "2025-01"
     idx = max(0, int(len(values) * 0.8))
     return str(values[min(idx, len(values) - 1)])
+
+
+# Comparison-tier detection (ADR 0002) -----------------------------------------
+
+ROLE_HINTS: dict[str, str] = {
+    "applicant_id_col": (
+        "Identificador único do solicitante; usado para juntar resultados entre simulações."
+    ),
+    "score_cols": (
+        "Colunas numéricas com o(s) score(s) candidatos; precisam ter alta cardinalidade "
+        "(não são categorias)."
+    ),
+    "primary_score_col": (
+        "Score usado como eixo de corte/calibração principal; sempre amarrado ao mesmo "
+        "score usado no cálculo de PD (ADR 0003)."
+    ),
+    "current_approval_col": (
+        "0/1: indica se o cliente foi aprovado pela política vigente; usada para o swap "
+        "in/out/keep e para detectar o tier de comparação (Tier B)."
+    ),
+    "vigente_score": (
+        "Opcional — o score em que a política vigente roda hoje; usado só como referência "
+        "de comparação, não como fonte de PD do candidato. Mapeá-lo junto da aprovação "
+        "atual habilita o Tier A."
+    ),
+    "actual_default_col": (
+        "0/1: NaN para não-contratados; usada para calcular a inadimplência real."
+    ),
+    "current_hired_col": (
+        "0/1: indica se o cliente efetivamente contratou (após aprovação)."
+    ),
+    "time_col": (
+        "Safra/vintage (ex.: 2025-01); usada para separar populações Dev/OOT e ver "
+        "comportamento no tempo."
+    ),
+    "segment_col": (
+        "Opcional — coluna categórica de segmento (ex.: canal, loja, UF) para comparações "
+        "quebradas por segmento."
+    ),
+    "estimated_default_col": (
+        "0 a 1: PD estimada por modelo; é a fonte de PD apenas no Tier C (sem base de "
+        "comparação vigente)."
+    ),
+    "oot_date": (
+        "Valor de safra a partir do qual a população é considerada OOT (fora do período de "
+        "desenvolvimento)."
+    ),
+}
+
+
+def detect_tier(roles: ColumnRoles, df: pd.DataFrame) -> TierDetection:
+    """Classify the comparison tier (A/B/C) from the roles actually present in `df`.
+
+    Stale role mappings pointing at columns missing from `df` (e.g. a reloaded
+    project applied to a different dataset) are ignored.
+    """
+    has_vigente_score = bool(roles.vigente_score) and roles.vigente_score in df.columns
+    has_approval = bool(roles.current_approval_col) and roles.current_approval_col in df.columns
+
+    if has_vigente_score and has_approval:
+        return TierDetection(
+            tier="A",
+            rationale=(
+                "Score vigente e aprovação atual mapeados: as regras da política vigente "
+                "podem ser reconstruídas e o swap completo fica disponível."
+            ),
+        )
+    if has_approval:
+        return TierDetection(
+            tier="B",
+            rationale=(
+                "Apenas a aprovação atual está mapeada (sem score vigente): o swap "
+                "in/out/keep funciona, mas as regras da política vigente não podem ser "
+                "reconstruídas."
+            ),
+        )
+    return TierDetection(
+        tier="C",
+        rationale=(
+            "Nenhuma referência à política vigente foi mapeada: a base roda em modo "
+            "autônomo / inferência de mercado, sem comparação de swap. A PD vem da "
+            "coluna de PD estimada."
+        ),
+    )
+
+
+def _looks_binary(values: pd.Series) -> bool:
+    if values.empty:
+        return True
+    if not pd.api.types.is_numeric_dtype(values):
+        return False
+    return set(values.unique().tolist()).issubset({0, 1, 0.0, 1.0})
+
+
+def _sample(values: pd.Series, n: int = 3) -> str:
+    return ", ".join(str(v) for v in values.unique()[:n])
+
+
+def validate_role_format(role_key: str, series: pd.Series) -> str | None:
+    """Friendly pt-BR warning if `series` doesn't look like the format `role_key`
+    expects; `None` if it looks fine. No auto-conversion, no inference."""
+    values = series.dropna()
+    if role_key in {"current_approval_col", "current_hired_col", "actual_default_col"}:
+        if not _looks_binary(values):
+            return (
+                "Essa coluna deveria conter apenas 0/1; foram encontrados valores como "
+                f"{_sample(values)}."
+            )
+    elif role_key in {"vigente_score", "estimated_default_col"}:
+        if not pd.api.types.is_numeric_dtype(series):
+            return "Essa coluna deveria ser numérica; foram encontrados valores não numéricos."
+        if role_key == "estimated_default_col" and len(values) and (
+            values.min() < 0 or values.max() > 1
+        ):
+            return (
+                "A PD estimada deveria estar entre 0 e 1; foram encontrados valores fora "
+                "desse intervalo."
+            )
+    return None

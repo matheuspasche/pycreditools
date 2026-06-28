@@ -28,6 +28,15 @@ class ColumnRoles:
     segment_col: str | None = None
     estimated_default_col: str | None = None
     oot_date: str | None = None
+    vigente_score: str | None = None
+
+
+@dataclass
+class TierDetection:
+    """The auto-detected comparison tier (ADR 0002) plus its pt-BR rationale."""
+
+    tier: str
+    rationale: str
 
 
 @dataclass
