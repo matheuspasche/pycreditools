@@ -138,6 +138,10 @@ Do this end-to-end in this single turn:
 1. Read issue #${n} in full: \`gh issue view ${n} --repo ${REPO}\`. Then read the
    context it points to: the parent PRD #${PARENT_ISSUE}, the ADRs it names under
    docs/adr/, and docs/redesign/studio-redesign.md (per-critique map + glossary).
+1b. Dependency sanity check: confirm every issue under this issue's "Blocked by" is
+   actually CLOSED. If, while reading, you realize you genuinely need something from
+   an issue that is NOT yet done/closed (an UNDECLARED dependency), STOP with
+   \`STATUS: BLOCKED\` naming it — do NOT stub around or fake an unbuilt foundation.
 2. Implement the slice TEST-FIRST (TDD), red->green->refactor:
    - write the failing core test in tests/studio/parity/ first (pure: data in ->
      plain data out), watch it fail, then implement in src/pycreditools/studio/;
@@ -196,6 +200,27 @@ run_claude_turn() {
 }
 
 # ---------------------------------------------------------------------------
+# Independent verification gate. The agent reports STATUS: DONE, but we never trust
+# it blind — re-run the suite ourselves before pushing or closing. A broken or sham
+# "done" thus can't pollute the branch or close an issue. Returns 0 only if green.
+# ---------------------------------------------------------------------------
+verify_turn() {
+    local py="python3" rf=0 pt=0
+    [ -x ".venv-linux/bin/python" ] && py=".venv-linux/bin/python"
+    echo "[ralph_loop] verifying #$ISSUE (pytest + ruff) before accepting DONE..."
+    "$py" -m pytest tests/studio -q > "$LOG_DIR/verify_${ISSUE}.log" 2>&1 || pt=$?
+    if [ -x ".venv-linux/bin/ruff" ]; then
+        .venv-linux/bin/ruff check src tests >> "$LOG_DIR/verify_${ISSUE}.log" 2>&1 || rf=$?
+    fi
+    if [ "$pt" -ne 0 ] || [ "$rf" -ne 0 ]; then
+        echo "[ralph_loop] verify FAILED for #$ISSUE (pytest=$pt ruff=$rf) — see $LOG_DIR/verify_${ISSUE}.log"
+        return 1
+    fi
+    echo "[ralph_loop] verify OK for #$ISSUE"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 echo "[ralph_loop] starting — model=$MODEL repo=$REPO"
@@ -237,6 +262,13 @@ while true; do
 
     case "$LAST_STATUS" in
         DONE|DONE_AND_PUSHED)
+            # Trust-but-verify: never accept the agent's DONE blind.
+            if ! verify_turn; then
+                gh issue edit "$ISSUE" --repo "$REPO" --add-label "$TODO_LABEL" --remove-label "$PROGRESS_LABEL" >/dev/null 2>&1 || true
+                notify.sh "PRD 12 — verificação falhou" "Agente reportou DONE na #$ISSUE mas pytest/ruff falharam. O commit local NÃO foi enviado. Parando. Veja $LOG_DIR/verify_${ISSUE}.log" "urgent"
+                echo "[ralph_loop] verification failed for #$ISSUE — not pushing/closing. Stopping for a human."
+                break
+            fi
             # The loop owns the outward/stateful steps so the agent can't half-do them.
             if git push -u origin "$WORK_BRANCH" 2>&1 | tail -2; then
                 ensure_pr
