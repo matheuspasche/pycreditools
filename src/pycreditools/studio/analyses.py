@@ -22,17 +22,13 @@ from pycreditools import (
     ModelEvaluator,
     OptimizationResult,
     RiskGroupResult,
-    ScreeningResult,
     TradeoffAnalyzer,
     compare_policies,
     fit_pairwise_risk_groups,
     fit_risk_groups,
-    fit_risk_segments,
     optimize_cutoffs,
     summarize_results,
 )
-
-from .models import ColumnRoles
 
 # Absolute PD gap (in DEV vs OOT) above which a tier is flagged as unstable.
 RATING_STABILITY_THRESHOLD = 0.02
@@ -533,113 +529,6 @@ def recipe_breaks_table(result: RiskGroupResult, labels: dict[int, str] | None) 
     return out.drop(columns="risk_rating").sort_values("Rating").reset_index(drop=True)
 
 
-def screening_candidate_columns(df: pd.DataFrame, roles: ColumnRoles) -> list[str]:
-    """Numeric columns eligible for screening: excludes ids, scores, and role/target columns."""
-    excluded = {
-        roles.applicant_id_col,
-        roles.actual_default_col,
-        roles.current_approval_col,
-        roles.current_hired_col,
-        roles.time_col,
-        roles.estimated_default_col,
-        *roles.score_cols,
-    }
-    return [
-        c
-        for c in df.columns
-        if c not in excluded
-        and pd.api.types.is_numeric_dtype(df[c])
-        and df[c].nunique(dropna=True) > 1
-    ]
-
-
-def existing_rating_columns(df: pd.DataFrame, max_unique: int = 12) -> list[str]:
-    """Low-cardinality columns usable as an already-existing base rating (`base_risk_col`)."""
-    out = []
-    for c in df.columns:
-        if pd.api.types.is_float_dtype(df[c]):
-            continue
-        nunique = df[c].nunique(dropna=True)
-        if 1 < nunique <= max_unique:
-            out.append(c)
-    return out
-
-
-def screen_segments(
-    df: pd.DataFrame,
-    base_risk_col: str,
-    candidate_cols: list[str],
-    default_col: str,
-    *,
-    n_bins: int = 10,
-    method: str = "quantiles",
-    parallel: bool = False,
-) -> ScreeningResult:
-    """Screen candidates for sub-segments inside `base_risk_col`, via `fit_risk_segments()`."""
-    return fit_risk_segments(
-        df,
-        base_risk_col,
-        candidate_cols,
-        default_col,
-        n_bins=n_bins,
-        method=method,
-        parallel=parallel,
-    )
-
-
-def screening_iv_table(result: ScreeningResult) -> pd.DataFrame:
-    """Total IV (summed across base tiers) per candidate variable, sorted descending."""
-    if result.metrics.empty:
-        return pd.DataFrame(columns=["variable", "iv", "volume"])
-    return (
-        result.metrics.groupby("variable")
-        .agg(iv=("iv", "sum"), volume=("tier_vol", "sum"))
-        .reset_index()
-        .sort_values("iv", ascending=False)
-        .reset_index(drop=True)
-    )
-
-
-def screening_low_coverage_variables(
-    result: ScreeningResult, candidate_cols: list[str]
-) -> list[str]:
-    """Candidates with no tier boundaries at all — too few unique values / rows in every tier."""
-    return [
-        c for c in candidate_cols if not result.recipes.get(c) or not result.recipes[c].boundaries
-    ]
-
-
-def screening_detail_table(
-    result: ScreeningResult,
-    df: pd.DataFrame,
-    variable: str,
-    base_risk_col: str,
-    default_col: str,
-) -> pd.DataFrame:
-    """Bad rate + volume per (base tier x sub-segment) for `variable`, via `.predict()`."""
-    sub_col = f"{variable}_sub"
-    predicted = result.predict(df, variable, base_risk_col)
-    grouped = (
-        predicted.dropna(subset=[default_col, sub_col])
-        .groupby([base_risk_col, sub_col])[default_col]
-        .agg(bad_rate="mean", volume="count")
-        .reset_index()
-        .rename(columns={sub_col: "Subsegmento"})
-        .sort_values([base_risk_col, "Subsegmento"])
-        .reset_index(drop=True)
-    )
-    return grouped
-
-
-def screening_heatmap_table(
-    detail_table: pd.DataFrame, base_risk_col: str, *, value_col: str = "bad_rate"
-) -> pd.DataFrame:
-    """Pivot `screening_detail_table` into a `base_risk_col x Subsegmento` matrix for charts."""
-    if detail_table.empty:
-        return pd.DataFrame()
-    return detail_table.pivot(index=base_risk_col, columns="Subsegmento", values=value_col)
-
-
 def deployment_cache_key(dep: DeploymentPolicy) -> str:
     """A stable, hashable cache key for a `DeploymentPolicy` (its serialized `to_dict()`)."""
     return json.dumps(dep.to_dict(), sort_keys=True, default=str)
@@ -686,25 +575,3 @@ def rejection_reasons(scored: pd.DataFrame, reason_col: str = "reason") -> pd.Da
     return counts.sort_values("volume", ascending=False).reset_index(drop=True)
 
 
-def screening_boundaries_table(result: ScreeningResult, variable: str) -> pd.DataFrame:
-    """Sub-segment value ranges per base tier, decoded from the variable's `ScreeningRecipe`."""
-    if variable not in result.recipes:
-        return pd.DataFrame(columns=["Tier", "Subsegmento", "Min", "Max"])
-    recipe = result.recipes[variable]
-    rows = []
-    for tier, breaks in recipe.boundaries.items():
-        sub_bins: dict[int, list[int]] = {}
-        for bin_idx, sub_id in recipe.sub_mappings.get(tier, {}).items():
-            sub_bins.setdefault(sub_id, []).append(bin_idx)
-        for sub_id, bin_idxs in sub_bins.items():
-            rows.append(
-                {
-                    "Tier": tier,
-                    "Subsegmento": sub_id,
-                    "Min": breaks[min(bin_idxs)],
-                    "Max": breaks[max(bin_idxs) + 1],
-                }
-            )
-    if not rows:
-        return pd.DataFrame(columns=["Tier", "Subsegmento", "Min", "Max"])
-    return pd.DataFrame(rows).sort_values(["Tier", "Subsegmento"]).reset_index(drop=True)

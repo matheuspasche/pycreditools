@@ -17,7 +17,6 @@ pages = [
     st.Page("pages/5_Tradeoff.py", title="Trade-off", icon="⚖️"),
     st.Page("pages/6_Optimization.py", title="Otimização", icon="🎯"),
     st.Page("pages/7_Risk_Grouping.py", title="Risk Grouping", icon="🗂️"),
-    st.Page("pages/8_Risk_Screening.py", title="Screening", icon="🔬"),
     st.Page("pages/9_Crash_Test.py", title="Crash Test", icon="💥"),
     st.Page("pages/10_Deployment.py", title="Deploy & Scoring", icon="🚀"),
 ]

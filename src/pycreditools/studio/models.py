@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import pandas as pd
 
-    from pycreditools import CreditPolicy, CreditSimResults, RiskGroupResult, ScreeningResult
+    from pycreditools import CreditPolicy, CreditSimResults, RiskGroupResult
 
 
 @dataclass
@@ -67,6 +67,5 @@ class StudioState:
     active_policy: str | None = None
     rating_result: RiskGroupResult | None = None
     rating_labels: dict[int, str] | None = None
-    screening_result: ScreeningResult | None = None
     last_sim: CreditSimResults | None = None
     legacy_sim: CreditSimResults | None = None

@@ -31,7 +31,6 @@ def studio_state(sample_df):
         active_policy=None,
         rating_result=None,
         rating_labels=None,
-        screening_result=None,
         last_sim=None,
         legacy_sim=None,
     )
@@ -49,7 +48,6 @@ def studio_state_with_roles(sample_df, roles):
         active_policy=None,
         rating_result=None,
         rating_labels=None,
-        screening_result=None,
         last_sim=None,
         legacy_sim=None,
     )
@@ -70,7 +68,6 @@ def studio_state_with_policy(sample_df, roles):
         active_policy="v14",
         rating_result=None,
         rating_labels=None,
-        screening_result=None,
         last_sim=None,
         legacy_sim=None,
     )
@@ -109,7 +106,6 @@ def studio_state_with_rating(sample_df, roles, rating_result, rating_labels):
         active_policy=None,
         rating_result=rating_result,
         rating_labels=rating_labels,
-        screening_result=None,
         last_sim=None,
         legacy_sim=None,
     )
@@ -130,7 +126,6 @@ def studio_state_with_deployment(sample_df, roles, rating_result, rating_labels)
         active_policy="v14",
         rating_result=rating_result,
         rating_labels=rating_labels,
-        screening_result=None,
         last_sim=None,
         legacy_sim=None,
     )

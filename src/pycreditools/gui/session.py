@@ -11,7 +11,6 @@ from pycreditools import (
     DeploymentPolicy,
     OptimizationResult,
     RiskGroupResult,
-    ScreeningResult,
 )
 from pycreditools.studio import analyses
 from pycreditools.studio.models import PolicyEntry, StudioState
@@ -238,27 +237,3 @@ def score_batch(
 ) -> pd.DataFrame:
     """Cached batch scoring; `file_hash`/`dep_key` are cache-key-only."""
     return analyses.score_batch(_df, _dep, simple=simple, method=method)
-
-
-@st.cache_data(show_spinner="Rodando screening de sub-segmentos...")
-def screen_segments(
-    _df: pd.DataFrame,
-    df_hash: str,
-    population: str,
-    base_risk_col: str,
-    candidate_cols: tuple[str, ...],
-    default_col: str,
-    n_bins: int = 10,
-    method: str = "quantiles",
-    parallel: bool = False,
-) -> ScreeningResult:
-    """Cached risk screening; `df_hash`/`population` are cache-key-only."""
-    return analyses.screen_segments(
-        _df,
-        base_risk_col,
-        list(candidate_cols),
-        default_col,
-        n_bins=n_bins,
-        method=method,
-        parallel=parallel,
-    )
