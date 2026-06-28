@@ -141,7 +141,10 @@ Do this end-to-end in this single turn:
    \`import streamlit\`; only gui/ imports streamlit; the
    test_core_has_no_streamlit_import boundary test must stay green. UI copy pt-BR,
    identifiers English.
-4. Run \`pytest tests/studio\` and \`ruff check src tests\` — everything green.
+4. Use the project's Linux virtualenv before running tools — activate it if present:
+   \`source .venv-linux/bin/activate\` (or call \`.venv-linux/bin/pytest\` /
+   \`.venv-linux/bin/ruff\` directly). Then run \`pytest tests/studio\` and
+   \`ruff check src tests\` — everything green.
 5. COMMIT your work with a clear message that references #${n} (e.g.
    "feat(studio): <slice> (#${n})"). Do NOT push — the loop pushes and manages the
    issue state and the pull request.
