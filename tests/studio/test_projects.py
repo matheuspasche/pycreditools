@@ -70,6 +70,35 @@ def test_rating_labels_round_trip(tmp_path, sample_df, roles):
     assert loaded.rating_labels == {0: "A", 1: "B"}
 
 
+def test_scores_em_jogo_round_trip(tmp_path, sample_df, roles):
+    state = _state_with_policy(sample_df, roles)
+    state.scores_em_jogo = ["score_2", "score_5"]
+    bundle = studio_projects.bundle_from_state(state, "delta")
+    studio_projects.save_project(bundle, tmp_path)
+    loaded = studio_projects.load_project("delta", tmp_path)
+    assert loaded.scores_em_jogo == ["score_2", "score_5"]
+
+
+def test_full_session_bundle_round_trips_every_field(tmp_path, sample_df, roles):
+    """Core round-trip (#37): roles, policies, ratings and scores em jogo all restore."""
+    state = _state_with_policy(sample_df, roles)
+    state.rating_labels = {0: "A", 1: "B"}
+    state.scores_em_jogo = ["score_2", "score_5"]
+    bundle = studio_projects.bundle_from_state(state, "epsilon")
+
+    studio_projects.save_project(bundle, tmp_path)
+    loaded = studio_projects.load_project("epsilon", tmp_path)
+
+    assert loaded.roles == bundle.roles
+    assert loaded.active_policy == "v14"
+    assert loaded.rating_labels == {0: "A", 1: "B"}
+    assert loaded.scores_em_jogo == ["score_2", "score_5"]
+
+    restored_policies = studio_projects.restore_policies(loaded)
+    assert restored_policies["v14"].flat_stress_factor == 1.2
+    assert restored_policies["v14"].policy.to_dict() == state.policies["v14"].policy.to_dict()
+
+
 def test_bundle_with_empty_roles_round_trips(tmp_path):
     bundle = ProjectBundle(project_name="empty", roles=ColumnRoles())
     studio_projects.save_project(bundle, tmp_path)

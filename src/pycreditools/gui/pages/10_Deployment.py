@@ -18,10 +18,14 @@ st.caption("Exporte a política final e pontue uma base nova.")
 entry = require_policy()
 state = get_state()
 
-tab_export, tab_score = st.tabs(["Exportar política", "Escorar arquivo"])
+tab_export, tab_score = st.tabs(["Exportar política de produção", "Escorar arquivo"])
 
 with tab_export:
     st.subheader(f"Política ativa: `{state.active_policy}`")
+    st.caption(
+        "Esta é a única ação que gera o artefato de produção — salvar a sessão "
+        "(barra lateral) nunca publica uma política."
+    )
     st.text(entry.policy.describe())
 
     has_fitted_rating = state.rating_result is not None

@@ -2,6 +2,7 @@
 
 import streamlit as st
 
+from pycreditools.gui.components.session_actions import render_session_actions
 from pycreditools.gui.session import get_state, init_state
 from pycreditools.gui.theme import apply_theme
 
@@ -32,6 +33,7 @@ def render_sidebar_context() -> None:
         n_rows = f"{len(state.df):,}" if state.df is not None else "0"
         st.caption(f"Base: `{state.df_name or '—'}` · {n_rows} linhas")
         st.caption(f"Política ativa: `{state.active_policy or '—'}`")
+        render_session_actions()
 
 
 render_sidebar_context()

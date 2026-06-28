@@ -10,7 +10,7 @@ def test_ingestion_page_shows_uploader_with_empty_state():
     at = AppTest.from_file(PAGE)
     at.run()
     assert not at.exception
-    assert len(at.tabs) == 3
+    assert len(at.tabs) == 2
 
 
 def test_ingestion_page_with_injected_dataset_shows_kpis_and_preview(studio_state_with_roles):

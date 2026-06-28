@@ -16,6 +16,7 @@ from pycreditools.studio import analyses
 from pycreditools.studio.models import OpenMatrix, PolicyEntry, StudioState
 
 _KEY = "studio"
+DATASET_SOURCE_KEY = "studio_dataset_source"
 
 
 def init_state() -> None:

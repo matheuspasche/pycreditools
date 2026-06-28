@@ -75,6 +75,7 @@ class ProjectBundle:
     active_policy: str | None = None
     rating_recipe: dict[str, Any] | None = None
     rating_labels: dict[int, str] | None = None
+    scores_em_jogo: list[str] = field(default_factory=list)
     created_at: str | None = None
     dataset: dict[str, Any] | None = None
 
