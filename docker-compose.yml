@@ -1,0 +1,13 @@
+services:
+  ralph_loop:
+    build:
+      context: ./docker
+    env_file:
+      - .env
+    volumes:
+      - .:/workspace
+      - claude_home:/home/ralph/.claude
+    restart: unless-stopped
+
+volumes:
+  claude_home:
