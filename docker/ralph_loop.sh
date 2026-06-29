@@ -154,7 +154,8 @@ Do this end-to-end in this single turn:
 4. Use the project's Linux virtualenv before running tools — activate it if present:
    \`source .venv-linux/bin/activate\` (or call \`.venv-linux/bin/pytest\` /
    \`.venv-linux/bin/ruff\` directly). Then run \`pytest tests/studio\` and
-   \`ruff check src tests\` — everything green.
+   \`ruff check src/pycreditools/studio src/pycreditools/gui tests/studio\` (the
+   studio surface only — do not lint the whole repo) — everything green.
 5. COMMIT your work with a clear message that references #${n} (e.g.
    "feat(studio): <slice> (#${n})"). Do NOT push — the loop pushes and manages the
    issue state and the pull request.
@@ -210,7 +211,10 @@ verify_turn() {
     echo "[ralph_loop] verifying #$ISSUE (pytest + ruff) before accepting DONE..."
     "$py" -m pytest tests/studio -q > "$LOG_DIR/verify_${ISSUE}.log" 2>&1 || pt=$?
     if [ -x ".venv-linux/bin/ruff" ]; then
-        .venv-linux/bin/ruff check src tests >> "$LOG_DIR/verify_${ISSUE}.log" 2>&1 || rf=$?
+        # Scope to the studio surface only — linting the whole repo would fail on
+        # pre-existing v1 lint debt (engine + old tests) that the studio work never
+        # touches, blocking every issue with a false positive.
+        .venv-linux/bin/ruff check src/pycreditools/studio src/pycreditools/gui tests/studio >> "$LOG_DIR/verify_${ISSUE}.log" 2>&1 || rf=$?
     fi
     if [ "$pt" -ne 0 ] || [ "$rf" -ne 0 ]; then
         echo "[ralph_loop] verify FAILED for #$ISSUE (pytest=$pt ruff=$rf) — see $LOG_DIR/verify_${ISSUE}.log"
