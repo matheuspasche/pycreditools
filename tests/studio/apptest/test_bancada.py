@@ -299,6 +299,35 @@ def test_picking_a_suggested_scenario_applies_its_cutoffs_to_the_live_policy(
     assert {"score_4", "score_5"} <= cut_scores
 
 
+def test_depth_section_shows_a_friendly_note_without_an_active_rating(studio_state_with_policy):
+    """No rating fitted yet (#32): a friendly pt-BR note, not a crash (#33 acceptance:
+    gated cleanly when prerequisites are missing)."""
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_policy
+    at.run(timeout=15)
+    assert not at.exception
+
+    assert any(
+        "Profundidade: risco, tempo e exposição" in str(item.value) for item in at.subheader
+    )
+    assert any("Sem matriz de rating ativa" in str(item.value) for item in at.caption)
+
+
+def test_depth_section_renders_risk_tier_distribution_with_an_active_rating(
+    studio_state_with_deployment,
+):
+    """A fitted rating (Risk Grouping, #32) feeds the swap-group risk-tier table (#33)."""
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_deployment
+    at.run(timeout=30)
+    assert not at.exception
+
+    assert any(
+        "Profundidade: risco, tempo e exposição" in str(item.value) for item in at.subheader
+    )
+    assert not any("Sem matriz de rating ativa" in str(item.value) for item in at.caption)
+
+
 def test_aggravation_game_skips_breakeven_with_a_note_in_tier_c(studio_state_with_policy):
     """Tier C (no base) — standalone curve, no breakeven (#28)."""
     tier_c_roles = dataclasses.replace(studio_state_with_policy.roles, current_approval_col=None)

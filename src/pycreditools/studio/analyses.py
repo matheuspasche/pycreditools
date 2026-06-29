@@ -60,24 +60,29 @@ def survivor_population(sim: CreditSimResults) -> pd.DataFrame:
     return sim.data[sim.data["reason"] == "Approved"]
 
 
-def policy_kpis(sim: CreditSimResults) -> dict[str, float | None]:
-    """Final approval rate, approved/hired volume, and (if observed) the simulated bad rate."""
-    data = sim.data
+def _candidate_outcome(data: pd.DataFrame) -> dict[str, float | None]:
+    """Candidate approval rate + (if observed) simulated bad rate over `data`'s rows."""
     approved_volume = float(data["new_approval"].sum())
     approval_rate = float(data["new_approval"].mean()) if len(data) else 0.0
     bad_rate = None
     if "simulated_default" in data.columns and data["simulated_default"].notna().any():
         weighted = (data["simulated_default"] * data["new_approval"]).sum()
         bad_rate = float(weighted / approved_volume) if approved_volume > 0 else None
-    pre_rate_volume = (
-        float(data["approved_pre_rate"].sum()) if "approved_pre_rate" in data.columns else None
-    )
     return {
         "approval_rate": approval_rate,
         "approved_volume": approved_volume,
         "bad_rate": bad_rate,
-        "pre_rate_volume": pre_rate_volume,
     }
+
+
+def policy_kpis(sim: CreditSimResults) -> dict[str, float | None]:
+    """Final approval rate, approved/hired volume, and (if observed) the simulated bad rate."""
+    data = sim.data
+    outcome = _candidate_outcome(data)
+    pre_rate_volume = (
+        float(data["approved_pre_rate"].sum()) if "approved_pre_rate" in data.columns else None
+    )
+    return {**outcome, "pre_rate_volume": pre_rate_volume}
 
 
 def evaluate_scores(df: pd.DataFrame, score_cols: list[str], target_col: str) -> dict[str, float]:
@@ -290,22 +295,29 @@ def swap_in_by_segment(
     )
 
 
+def _base_outcome(data: pd.DataFrame, roles: ColumnRoles) -> dict[str, float | None] | None:
+    """Vigente (historical) approval rate + observed bad rate over `data`'s rows.
+    `None` when no base is mapped (Tier C) or the mapped column is absent from `data`.
+    """
+    if not roles.current_approval_col or roles.current_approval_col not in data.columns:
+        return None
+    approval_col = data[roles.current_approval_col].fillna(0)
+    approval_rate = float(approval_col.mean())
+    bad_rate = None
+    if roles.actual_default_col and roles.actual_default_col in data.columns:
+        observed = data.loc[approval_col == 1, roles.actual_default_col]
+        if observed.notna().any():
+            bad_rate = float(observed.mean())
+    return {"approval_rate": approval_rate, "bad_rate": bad_rate}
+
+
 def base_outcome(sim: CreditSimResults, roles: ColumnRoles) -> dict[str, float | None] | None:
     """Vigente (historical) approval rate + observed bad rate, read straight off
     `sim.data`'s approval flag and actual default (ADR 0002 Tier A/B) — no rule
     reconstruction, no second simulation. `None` when no base is mapped (Tier C),
     signalling the caller to hide the comparison-vs-base readout entirely.
     """
-    if not roles.current_approval_col or roles.current_approval_col not in sim.data.columns:
-        return None
-    approval_col = sim.data[roles.current_approval_col].fillna(0)
-    approval_rate = float(approval_col.mean())
-    bad_rate = None
-    if roles.actual_default_col and roles.actual_default_col in sim.data.columns:
-        observed = sim.data.loc[approval_col == 1, roles.actual_default_col]
-        if observed.notna().any():
-            bad_rate = float(observed.mean())
-    return {"approval_rate": approval_rate, "bad_rate": bad_rate}
+    return _base_outcome(sim.data, roles)
 
 
 def compare_vs_base(
@@ -348,6 +360,106 @@ def compare_vs_base(
         "delta": delta,
         "quadrants": quadrant_table(sim),
     }
+
+
+def risk_tier_distribution(
+    sim: CreditSimResults,
+    rating_result: RiskGroupResult | None,
+    rating_labels: dict[int, str] | None,
+    rating_col: str = "Rating",
+) -> pd.DataFrame:
+    """Volume + bad-rate per rating tier x swap group (issue #33 depth): swap-in/out
+    and keep-in, using the rating recipe from Risk Grouping (ADR 0004) over the
+    engine's own swap classification (`summarize_results`, grouped by `rating_col`)
+    — no swap/bad-rate math is reimplemented here.
+
+    Empty (with the expected columns) when no rating result is fitted yet, or the
+    simulation has no base mapped (Tier C, no swap scenarios to break down) — the
+    caller shows a friendly pt-BR note in either case instead of crashing.
+    """
+    columns = [rating_col, "scenario", "Applicants", "Approved", "Hired", "Bad_Rate"]
+    if rating_result is None or sim.metadata["policy"].get("current_approval_col") is None:
+        return pd.DataFrame(columns=columns)
+
+    attached = attach_rating(sim.data, rating_result, rating_labels, rating_col=rating_col)
+    sim_with_rating = dataclasses.replace(sim, data=attached)
+    table = summarize_results(sim_with_rating, by=rating_col)
+    relevant = table[table["scenario"].isin(("swap_in", "swap_out", "keep_in"))]
+    return relevant.sort_values([rating_col, "scenario"]).reset_index(drop=True)
+
+
+def policy_vintage_comparison(sim: CreditSimResults, roles: ColumnRoles) -> pd.DataFrame:
+    """Candidate vs. base approval/default evolution by vintage (issue #33 depth):
+    the same `(time_col, mean)` grouping the engine's vintage-stability primitive
+    (`plot_vintage_stability`) uses for ratings, applied instead to the candidate's
+    outcome and, when a base is mapped (Tier A/B), the vigente outcome — so the
+    Bancada can chart how the two decisions diverge over time.
+
+    Empty when `roles.time_col` is unset or absent from `sim.data`.
+    """
+    time_col = roles.time_col
+    data = sim.data
+    columns = [time_col or "period", "series", "approval_rate", "bad_rate"]
+    if not time_col or time_col not in data.columns:
+        return pd.DataFrame(columns=columns)
+
+    rows = []
+    for period, group in data.groupby(time_col):
+        candidate = _candidate_outcome(group)
+        rows.append(
+            {
+                time_col: period,
+                "series": "candidate",
+                "approval_rate": candidate["approval_rate"],
+                "bad_rate": candidate["bad_rate"],
+            }
+        )
+        base = _base_outcome(group, roles)
+        if base is not None:
+            rows.append(
+                {
+                    time_col: period,
+                    "series": "base",
+                    "approval_rate": base["approval_rate"],
+                    "bad_rate": base["bad_rate"],
+                }
+            )
+    return pd.DataFrame(rows, columns=columns).sort_values([time_col, "series"]).reset_index(
+        drop=True
+    )
+
+
+def exposure_kpis(
+    sim: CreditSimResults, roles: ColumnRoles, tier: str
+) -> dict[str, float | None]:
+    """Risk-exposure KPI (issue #33 depth): the candidate's expected bad volume
+    (`bad_rate x approved_volume`, already computed by `policy_kpis` — no new math),
+    plus the base's for Tier A/B so the delta reads as one clear exposure number
+    instead of two separate rates. `base_bad_volume`/`delta` stay `None` in Tier C.
+    """
+    candidate = policy_kpis(sim)
+    candidate_bad_volume = (
+        candidate["bad_rate"] * candidate["approved_volume"]
+        if candidate["bad_rate"] is not None
+        else None
+    )
+    result: dict[str, float | None] = {
+        "candidate_bad_volume": candidate_bad_volume,
+        "base_bad_volume": None,
+        "delta": None,
+    }
+    if tier == "C":
+        return result
+
+    base = base_outcome(sim, roles)
+    if base is None or base["bad_rate"] is None or not roles.current_approval_col:
+        return result
+    base_volume = float(sim.data[roles.current_approval_col].fillna(0).sum())
+    base_bad_volume = base["bad_rate"] * base_volume
+    result["base_bad_volume"] = base_bad_volume
+    if candidate_bad_volume is not None:
+        result["delta"] = candidate_bad_volume - base_bad_volume
+    return result
 
 
 def compare_with_baseline(sim_new: CreditSimResults, sim_old: CreditSimResults) -> dict[str, Any]:

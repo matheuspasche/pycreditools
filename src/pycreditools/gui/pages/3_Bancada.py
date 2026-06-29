@@ -13,8 +13,11 @@ from pycreditools.gui.session import get_state, guard_roles
 from pycreditools.studio import charts
 from pycreditools.studio.analyses import (
     compare_vs_base,
+    exposure_kpis,
     get_scores_em_jogo,
     policy_kpis,
+    policy_vintage_comparison,
+    risk_tier_distribution,
     survivor_population,
 )
 from pycreditools.studio.data import population_filter
@@ -278,6 +281,69 @@ def _render_aggravation_game(
     )
 
 
+def _render_depth_section(sim, tier: str) -> None:
+    """Risk/time/exposure depth (ADR 0001, 0004; issue #33): risk-tier distribution of
+    the swap groups, candidate-vs-base behaviour over vintages, and a risk-exposure
+    KPI — each gated with a friendly pt-BR note when its prerequisite is missing
+    (no rating recipe, no vintage column, no base), never a crash."""
+    st.divider()
+    st.subheader("Profundidade: risco, tempo e exposição")
+
+    st.markdown("**Distribuição de risco dos grupos de swap**")
+    if state.rating_result is None:
+        st.caption(
+            "Sem matriz de rating ativa (Risk Grouping) — agrupe os scores em risco "
+            "para ver os grupos de swap por nível de risco."
+        )
+    else:
+        tiers = risk_tier_distribution(sim, state.rating_result, state.rating_labels)
+        if tiers.empty:
+            st.caption("Sem grupos de swap para detalhar por rating nesta comparação.")
+        else:
+            tables.dataframe(tiers, percent_cols=("Bad_Rate",))
+
+    st.markdown("**Candidata x base por safra**")
+    vintage = policy_vintage_comparison(sim, roles)
+    if vintage.empty:
+        st.caption("Sem coluna de safra mapeada — não é possível ver a evolução por vintage.")
+    else:
+        st.plotly_chart(
+            charts.vintage_stability(
+                vintage,
+                time_col=roles.time_col,
+                rating_col="series",
+                rate_col="bad_rate",
+                oot_date=roles.oot_date,
+            ),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
+
+    exposure = exposure_kpis(sim, roles, tier)
+    kpi_items = []
+    if exposure["candidate_bad_volume"] is not None:
+        item = {
+            "label": "Volume mau esperado (candidata)",
+            "value": tables.thousands(exposure["candidate_bad_volume"]),
+        }
+        if exposure["delta"] is not None:
+            delta = exposure["delta"]
+            item["delta"] = f"{'+' if delta >= 0 else ''}{tables.thousands(delta)} vs. base"
+            item["delta_good"] = delta <= 0
+        kpi_items.append(item)
+    if exposure["base_bad_volume"] is not None:
+        kpi_items.append(
+            {
+                "label": "Volume mau esperado (base)",
+                "value": tables.thousands(exposure["base_bad_volume"]),
+            }
+        )
+    if kpi_items:
+        kpi.kpi_row(kpi_items)
+    else:
+        st.caption("Sem inadimplência observável para estimar a exposição.")
+
+
 def _render_comparison_vs_base(sim, subset: pd.DataFrame, population: str) -> None:
     """Comparison-vs-base readout (ADR 0001 bullets 5-7, ADR 0002): tier-adapted
     delta + swap quadrants, folding the old Simulation page into the Bancada."""
@@ -293,6 +359,7 @@ def _render_comparison_vs_base(sim, subset: pd.DataFrame, population: str) -> No
             "nesta base): os quadrantes de swap não estão disponíveis. O resultado "
             "acima é standalone, com a PD vindo da coluna de PD estimada."
         )
+        _render_depth_section(sim, tier)
         _render_aggravation_game(subset, population, None)
         return
 
@@ -329,6 +396,7 @@ def _render_comparison_vs_base(sim, subset: pd.DataFrame, population: str) -> No
     with st.expander("Tabela de quadrantes"):
         tables.dataframe(quad, percent_cols=("Bad_Rate",))
 
+    _render_depth_section(sim, tier)
     _render_aggravation_game(subset, population, base["bad_rate"])
 
 

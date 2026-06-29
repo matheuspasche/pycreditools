@@ -1,6 +1,7 @@
 """Bancada tracer #1 — política viva + funil (ADR 0001, issue #26).
 
-Also covers the comparison-vs-base core (ADR 0001, 0002; issue #27).
+Also covers the comparison-vs-base core (ADR 0001, 0002; issue #27) and the
+risk/time/exposure depth readouts (ADR 0001, 0004; issue #33).
 """
 
 import dataclasses
@@ -8,9 +9,17 @@ import dataclasses
 import pandas as pd
 import pytest
 
-from pycreditools import col, run_simulation
+from pycreditools import col, run_simulation, summarize_results
 from pycreditools.gui import session
-from pycreditools.studio.analyses import compare_vs_base, survivor_population
+from pycreditools.studio.analyses import (
+    attach_rating,
+    compare_vs_base,
+    exposure_kpis,
+    policy_kpis,
+    policy_vintage_comparison,
+    risk_tier_distribution,
+    survivor_population,
+)
 from pycreditools.studio.data import population_filter
 from pycreditools.studio.detection import detect_tier
 from pycreditools.studio.policy_builder import (
@@ -203,3 +212,123 @@ def test_compare_vs_base_is_standalone_with_no_swap_in_tier_c(sample_df, roles):
     assert result["candidate"]["approval_rate"] == pytest.approx(
         float(sim.data["new_approval"].mean())
     )
+
+
+# ── Bancada — depth: risco/tempo/exposição (ADR 0001, 0004; issue #33) ─────────
+
+
+def test_risk_tier_distribution_without_a_rating_returns_empty_with_expected_columns(
+    sample_df, roles
+):
+    subset = population_filter(sample_df, roles, "Todos")
+    sim = _build_sim(subset, roles)
+
+    table = risk_tier_distribution(sim, None, None)
+
+    assert table.empty
+    assert list(table.columns) == [
+        "Rating",
+        "scenario",
+        "Applicants",
+        "Approved",
+        "Hired",
+        "Bad_Rate",
+    ]
+
+
+def test_risk_tier_distribution_is_empty_in_tier_c(sample_df, roles, rating_result, rating_labels):
+    """No base mapped -> no swap scenarios to break down by rating (gated, not crashed)."""
+    tier_c_roles = dataclasses.replace(roles, current_approval_col=None)
+    subset = population_filter(sample_df, tier_c_roles, "Todos")
+    sim = _build_sim(subset, tier_c_roles)
+
+    table = risk_tier_distribution(sim, rating_result, rating_labels)
+
+    assert table.empty
+
+
+def test_risk_tier_distribution_matches_summarize_results_grouped_by_rating(
+    sample_df, roles, rating_result, rating_labels
+):
+    """Reuses the engine's own swap classification (`summarize_results`) with an extra
+    `by=Rating` groupby — no reimplemented swap/bad-rate math."""
+    subset = population_filter(sample_df, roles, "Todos")
+    sim = _build_sim(subset, roles)
+
+    table = risk_tier_distribution(sim, rating_result, rating_labels)
+
+    attached = attach_rating(sim.data, rating_result, rating_labels)
+    sim_with_rating = dataclasses.replace(sim, data=attached)
+    expected = summarize_results(sim_with_rating, by="Rating")
+    expected = expected[expected["scenario"].isin(("swap_in", "swap_out", "keep_in"))]
+
+    assert set(table["scenario"]) <= {"swap_in", "swap_out", "keep_in"}
+    assert table["Hired"].sum() == pytest.approx(expected["Hired"].sum())
+    assert len(table) == len(expected)
+
+
+def test_policy_vintage_comparison_without_time_col_returns_empty(sample_df, roles):
+    no_time_roles = dataclasses.replace(roles, time_col=None)
+    subset = population_filter(sample_df, no_time_roles, "Todos")
+    sim = _build_sim(subset, no_time_roles)
+
+    table = policy_vintage_comparison(sim, no_time_roles)
+
+    assert table.empty
+
+
+def test_policy_vintage_comparison_tracks_candidate_and_base_per_vintage(sample_df, roles):
+    subset = population_filter(sample_df, roles, "Todos")
+    sim = _build_sim(subset, roles)
+
+    table = policy_vintage_comparison(sim, roles)
+
+    assert set(table["series"]) == {"candidate", "base"}
+    assert set(table[roles.time_col]) == set(sim.data[roles.time_col].dropna().unique())
+
+    for period, group in sim.data.groupby(roles.time_col):
+        candidate_row = table[(table[roles.time_col] == period) & (table["series"] == "candidate")]
+        expected_approval = float(group["new_approval"].mean())
+        assert candidate_row["approval_rate"].iloc[0] == pytest.approx(expected_approval)
+
+        base_row = table[(table[roles.time_col] == period) & (table["series"] == "base")]
+        expected_base_approval = float(group[roles.current_approval_col].fillna(0).mean())
+        assert base_row["approval_rate"].iloc[0] == pytest.approx(expected_base_approval)
+
+
+def test_exposure_kpis_is_candidate_only_in_tier_c(sample_df, roles):
+    tier_c_roles = dataclasses.replace(roles, current_approval_col=None)
+    subset = population_filter(sample_df, tier_c_roles, "Todos")
+    tier = detect_tier(tier_c_roles, subset).tier
+    sim = _build_sim(subset, tier_c_roles)
+
+    result = exposure_kpis(sim, tier_c_roles, tier)
+
+    candidate = policy_kpis(sim)
+    assert result["candidate_bad_volume"] == pytest.approx(
+        candidate["bad_rate"] * candidate["approved_volume"]
+    )
+    assert result["base_bad_volume"] is None
+    assert result["delta"] is None
+
+
+def test_exposure_kpis_computes_delta_vs_base_in_tier_b(sample_df, roles):
+    tier_b_roles = dataclasses.replace(roles, vigente_score=None)
+    subset = population_filter(sample_df, tier_b_roles, "Todos")
+    tier = detect_tier(tier_b_roles, subset).tier
+    assert tier == "B"
+    sim = _build_sim(subset, tier_b_roles)
+
+    result = exposure_kpis(sim, tier_b_roles, tier)
+
+    candidate = policy_kpis(sim)
+    expected_candidate_volume = candidate["bad_rate"] * candidate["approved_volume"]
+    approval_col = sim.data[tier_b_roles.current_approval_col].fillna(0)
+    expected_base_bad_rate = float(
+        sim.data.loc[approval_col == 1, tier_b_roles.actual_default_col].mean()
+    )
+    expected_base_volume = expected_base_bad_rate * float(approval_col.sum())
+
+    assert result["candidate_bad_volume"] == pytest.approx(expected_candidate_volume)
+    assert result["base_bad_volume"] == pytest.approx(expected_base_volume)
+    assert result["delta"] == pytest.approx(expected_candidate_volume - expected_base_volume)
