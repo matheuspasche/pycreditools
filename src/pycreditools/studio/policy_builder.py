@@ -223,6 +223,23 @@ def apply_cutoffs_to_rows(
     return rows
 
 
+def segment_cutoff_rows(
+    rows: list[dict[str, Any]],
+    score_col: str,
+    segment_cutoffs: dict[str, float],
+    direction: str = "gte",
+) -> dict[str, list[dict[str, Any]]]:
+    """Per-segment row variants (ADR 0006, issue #34): one `rows` copy per segment
+    value, each with only `score_col`'s `Cutoff` value overridden to that segment's
+    figure. Everything else (filters, rates, other cutoffs) is shared — "policy stays
+    a single object with per-segment cutoff overrides, not a set of policies".
+    """
+    return {
+        segment_value: apply_cutoff_to_rows(rows, score_col, value, direction)
+        for segment_value, value in segment_cutoffs.items()
+    }
+
+
 def clone_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Deep-copy `rows` with fresh row ids, so a duplicated policy edits independently."""
     cloned = []

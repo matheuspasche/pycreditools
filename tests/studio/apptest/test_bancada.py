@@ -299,6 +299,58 @@ def test_picking_a_suggested_scenario_applies_its_cutoffs_to_the_live_policy(
     assert {"score_4", "score_5"} <= cut_scores
 
 
+def test_without_a_segment_role_the_segmentation_section_shows_a_friendly_note(
+    studio_state_with_policy,
+):
+    """No `segment_col` mapped (ADR 0006, #34) -> a friendly pt-BR note, not a crash."""
+    state = studio_state_with_policy
+    no_segment_roles = dataclasses.replace(state.roles, segment_col=None)
+    no_segment_state = dataclasses.replace(state, roles=no_segment_roles)
+
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = no_segment_state
+    at.run(timeout=15)
+    assert not at.exception
+
+    assert any("Segmentação" in str(item.value) for item in at.subheader)
+    assert any("Mapeie uma coluna de segmento" in str(item.value) for item in at.caption)
+
+
+def test_with_the_segment_toggle_off_behaviour_matches_the_non_segmented_funnel(
+    studio_state_with_cutoff,
+):
+    """Toggle off (default) -> identical to the non-segmented Bancada (#34 acceptance)."""
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_cutoff
+    at.run(timeout=15)
+    assert not at.exception
+
+    toggles = [t for t in at.toggle if t.key == "bancada_segment_toggle"]
+    assert toggles, "expected the segmentation toggle"
+    assert toggles[0].value is False
+    assert not any("Segmentar por" in str(b.label) for b in at.number_input)
+
+
+def test_turning_on_the_segment_toggle_renders_the_aggregate_and_per_segment_breakout(
+    studio_state_with_cutoff,
+):
+    """Toggle on (ADR 0006, #34): per-segment cutoff inputs + aggregate funnel +
+    per-segment breakout table render without exception."""
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_cutoff
+    at.run(timeout=15)
+    assert not at.exception
+
+    toggles = [t for t in at.toggle if t.key == "bancada_segment_toggle"]
+    assert toggles, "expected the segmentation toggle"
+    toggles[0].set_value(True).run(timeout=30)
+    assert not at.exception
+
+    number_inputs = [n for n in at.number_input if n.key and n.key.startswith("segment_cutoff_")]
+    assert len(number_inputs) >= 2, "expected one cutoff input per segment value"
+    assert any("Detalhamento por segmento" in str(t.label) for t in at.tabs)
+
+
 def test_depth_section_shows_a_friendly_note_without_an_active_rating(studio_state_with_policy):
     """No rating fitted yet (#32): a friendly pt-BR note, not a crash (#33 acceptance:
     gated cleanly when prerequisites are missing)."""

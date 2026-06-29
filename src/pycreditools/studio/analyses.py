@@ -32,6 +32,7 @@ from pycreditools import (
 )
 
 from .models import ColumnRoles, OpenMatrix, PolicyScenario, StudioState
+from .policy_builder import build_policy, segment_cutoff_rows
 
 # Absolute PD gap (in DEV vs OOT) above which a tier is flagged as unstable.
 RATING_STABILITY_THRESHOLD = 0.02
@@ -81,6 +82,87 @@ def policy_kpis(sim: CreditSimResults) -> dict[str, float | None]:
     outcome = _candidate_outcome(data)
     pre_rate_volume = (
         float(data["approved_pre_rate"].sum()) if "approved_pre_rate" in data.columns else None
+    )
+    return {**outcome, "pre_rate_volume": pre_rate_volume}
+
+
+# ── Light business segmentation — cutoffs per segment (ADR 0006, issue #34) ────
+
+
+def run_segmented_sim(
+    df: pd.DataFrame,
+    roles: ColumnRoles,
+    rows: list[dict[str, Any]],
+    score_col: str,
+    segment_cutoffs: dict[str, float],
+    *,
+    direction: str = "gte",
+    method: str = "analytical",
+) -> dict[str, CreditSimResults]:
+    """Simulate each segment value's own cutoff variant on its own slice of `df`
+    (ADR 0006). `roles.segment_col` selects the slice; `segment_cutoff_rows` swaps in
+    each segment's `score_col` cutoff value while every other rule row stays shared.
+    """
+    if not roles.segment_col:
+        raise ValueError("roles.segment_col não está mapeado.")
+    variants = segment_cutoff_rows(rows, score_col, segment_cutoffs, direction)
+    return {
+        segment_value: build_policy(roles, segment_rows).simulate(
+            df[df[roles.segment_col] == segment_value], method=method
+        )
+        for segment_value, segment_rows in variants.items()
+    }
+
+
+def aggregate_funnel(funnels: list[pd.DataFrame]) -> pd.DataFrame:
+    """Sum per-stage `Candidates`/`Passed`/`Rejections` across segment funnels and
+    recompute the rate columns from those sums (ADR 0006) — the Bancada's "aggregate
+    total" alongside the per-segment breakout. Stage order/names follow the first
+    funnel (every segment shares the same rule rows, so stages line up 1:1).
+    """
+    columns = [
+        "Stage", "Candidates", "Passed", "Stage_Pass_Rate", "Cum_Pass_Rate",
+        "Rejections", "Stage_Rej_Rate",
+    ]
+    if not funnels:
+        return pd.DataFrame(columns=columns)
+
+    stage_order = funnels[0]["Stage"].tolist()
+    combined = pd.concat(funnels, ignore_index=True)
+    summed = (
+        combined.groupby("Stage", sort=False)[["Candidates", "Passed", "Rejections"]]
+        .sum()
+        .reindex(stage_order)
+        .reset_index()
+    )
+    n_total = float(summed.loc[summed["Stage"] == "Total", "Candidates"].iloc[0])
+    summed["Stage_Pass_Rate"] = summed["Passed"] / summed["Candidates"]
+    summed["Stage_Rej_Rate"] = summed["Rejections"] / summed["Candidates"]
+    no_stage_rate = summed["Stage"].isin(["Total", "Approved"])
+    summed.loc[no_stage_rate, ["Stage_Pass_Rate", "Stage_Rej_Rate"]] = np.nan
+    summed["Cum_Pass_Rate"] = summed["Passed"] / n_total if n_total > 0 else 0.0
+    return summed[columns]
+
+
+def segment_kpi_table(sims: dict[str, CreditSimResults]) -> pd.DataFrame:
+    """Per-segment approval/bad-rate breakout (ADR 0006): one row per segment value,
+    each segment's own `policy_kpis` over its own cutoff variant and data slice.
+    """
+    rows = [{"segment": segment, **policy_kpis(sim)} for segment, sim in sims.items()]
+    columns = ["segment", "approval_rate", "approved_volume", "bad_rate", "pre_rate_volume"]
+    return pd.DataFrame(rows, columns=columns)
+
+
+def aggregate_segment_kpis(sims: dict[str, CreditSimResults]) -> dict[str, float | None]:
+    """Approval/bad-rate KPIs over every segment's combined data (ADR 0006) — the
+    Bancada's "aggregate total" companion to `segment_kpi_table`'s breakout.
+    """
+    combined = pd.concat([sim.data for sim in sims.values()], ignore_index=True)
+    outcome = _candidate_outcome(combined)
+    pre_rate_volume = (
+        float(combined["approved_pre_rate"].sum())
+        if "approved_pre_rate" in combined.columns
+        else None
     )
     return {**outcome, "pre_rate_volume": pre_rate_volume}
 

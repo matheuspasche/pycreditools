@@ -12,12 +12,17 @@ from pycreditools.gui.components.population import render_population_selector
 from pycreditools.gui.session import get_state, guard_roles
 from pycreditools.studio import charts
 from pycreditools.studio.analyses import (
+    aggregate_funnel,
+    aggregate_segment_kpis,
     compare_vs_base,
+    current_cutoff_value,
     exposure_kpis,
     get_scores_em_jogo,
     policy_kpis,
     policy_vintage_comparison,
     risk_tier_distribution,
+    run_segmented_sim,
+    segment_kpi_table,
     survivor_population,
 )
 from pycreditools.studio.data import population_filter
@@ -170,8 +175,96 @@ def _render_live_funnel() -> None:
             percent_cols=("Stage_Pass_Rate", "Cum_Pass_Rate", "Stage_Rej_Rate"),
         )
 
+    _render_segmentation(subset)
     _render_dragcutoff_tradeoff(subset, population)
     _render_comparison_vs_base(sim, subset, population)
+
+
+def _render_segmentation(subset: pd.DataFrame) -> None:
+    """Light business segmentation (ADR 0006, issue #34): an optional toggle sets
+    cutoffs per segment value (e.g. channel, store), and the funnel shows the
+    aggregate total + a per-segment breakout. Off by default — with the toggle off
+    the Bancada behaves exactly like the non-segmented funnel above. Policy stays a
+    single object: only the score-in-use's cutoff varies per segment, never a full
+    per-segment filter/rate/aggravation structure (deferred)."""
+    st.divider()
+    st.subheader("Segmentação")
+    segment_col = roles.segment_col
+    if not segment_col or segment_col not in subset.columns:
+        st.caption(
+            "Mapeie uma coluna de segmento (ex.: canal, loja) na Ingestion para "
+            "habilitar cortes por segmento."
+        )
+        return
+
+    segment_on = st.toggle(f"Segmentar por '{segment_col}'", key="bancada_segment_toggle")
+    if not segment_on:
+        return
+
+    score_in_use = entry.policy.calibration_score_col
+    if score_in_use is None:
+        st.info("Adicione um corte a um score para segmentar por ele.")
+        return
+
+    segment_values = sorted(subset[segment_col].dropna().unique().tolist())
+    if not segment_values:
+        st.caption(f"Sem valores observados em '{segment_col}' nesta população.")
+        return
+
+    default_value = current_cutoff_value(entry.policy, score_in_use)
+    if default_value is None:
+        default_value = float(subset[score_in_use].median())
+
+    st.caption(
+        f"Corte de **{score_in_use}** por valor de **{segment_col}** — o restante da "
+        "política (filtros, taxas) permanece compartilhado entre os segmentos."
+    )
+    cutoff_cols = st.columns(len(segment_values))
+    segment_cutoffs: dict[str, float] = {}
+    for col, value in zip(cutoff_cols, segment_values, strict=False):
+        with col:
+            segment_cutoffs[value] = st.number_input(
+                str(value), value=float(default_value), key=f"segment_cutoff_{value}"
+            )
+
+    try:
+        sims = run_segmented_sim(subset, roles, rows, score_in_use, segment_cutoffs)
+    except Exception as exc:  # noqa: BLE001 - surfaced as a friendly error
+        st.error(f"Não foi possível simular a segmentação: {exc}")
+        return
+
+    aggregate = aggregate_funnel([s.to_funnel_dataframe() for s in sims.values()])
+    aggregate_kpis = aggregate_segment_kpis(sims)
+    kpi_items = [
+        {
+            "label": "Taxa de aprovação (agregada)",
+            "value": tables.pct(aggregate_kpis["approval_rate"]),
+        },
+        {
+            "label": "Volume aprovado (agregado)",
+            "value": tables.thousands(aggregate_kpis["approved_volume"]),
+        },
+    ]
+    if aggregate_kpis["bad_rate"] is not None:
+        kpi_items.append(
+            {
+                "label": "Inadimplência simulada (agregada)",
+                "value": tables.pct(aggregate_kpis["bad_rate"]),
+            }
+        )
+    kpi.kpi_row(kpi_items)
+
+    tab_chart, tab_table = st.tabs(["Funil agregado", "Detalhamento por segmento"])
+    with tab_chart:
+        st.plotly_chart(
+            charts.funnel(aggregate, stage_col="Stage", count_col="Passed"),
+            use_container_width=True,
+            config={"displayModeBar": False},
+            key="segmentation_funnel_chart",
+        )
+    with tab_table:
+        breakout = segment_kpi_table(sims)
+        tables.dataframe(breakout, percent_cols=("approval_rate", "bad_rate"))
 
 
 def _render_dragcutoff_tradeoff(subset: pd.DataFrame, population: str) -> None:
