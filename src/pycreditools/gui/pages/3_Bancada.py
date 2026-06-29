@@ -8,7 +8,7 @@ import streamlit as st
 from pycreditools.gui import session
 from pycreditools.gui.components import kpi, tables
 from pycreditools.gui.components.policy_builder import render_policy_manager, render_rule_builder
-from pycreditools.gui.components.population import render_population_selector
+from pycreditools.gui.components.population import render_population_selector_v2
 from pycreditools.gui.session import get_state, guard_roles
 from pycreditools.studio import charts
 from pycreditools.studio.analyses import (
@@ -130,9 +130,10 @@ with builder_col:
 @st.fragment
 def _render_live_funnel() -> None:
     with st.container(border=True):
-        population, subset = render_population_selector(
-            state.df, roles, key="bancada_population", default="DEV"
+        periodo, quem, subset = render_population_selector_v2(
+            state.df, roles, key="bancada_population", default_periodo="Dev"
         )
+        population = f"{periodo}/{quem}"
 
     try:
         sim = session.run_policy_sim(

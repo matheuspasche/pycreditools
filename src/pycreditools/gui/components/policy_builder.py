@@ -14,12 +14,12 @@ from pycreditools.studio.policy_builder import (
     angled_rate_variable,
     build_policy,
     clone_rows,
+    filter_pass_drop_stats,
     make_cutoff_row,
     make_filter_row,
     make_rate_row,
     make_stress_row,
     suggested_take_up_rate,
-    v14_quickfill_rows,
 )
 
 _TYPE_LABELS = {"filter": "Filtro", "cutoff": "Cutoff", "rate": "Taxa", "stress": "Stress"}
@@ -120,6 +120,22 @@ def _render_value_input(df: pd.DataFrame, column: str, current: Any, *, key: str
     return st.selectbox("Valor", options, index=index, key=key)
 
 
+def _render_filter_histogram(df: pd.DataFrame, clause: dict[str, Any]) -> None:
+    """Show pass/drop stats for the current clause value (critique 1.9)."""
+    col = clause.get("column")
+    op = clause.get("operator")
+    val = clause.get("value")
+    if col is None or col not in df.columns or op is None or val is None:
+        return
+    stats = filter_pass_drop_stats(df, col, op, val)
+    if stats["total"] == 0:
+        return
+    st.caption(
+        f"**Passa:** {stats['pass_count']:,} ({stats['pass_frac']:.1%}) · "
+        f"**Cai:** {stats['drop_count']:,} ({stats['drop_frac']:.1%})"
+    )
+
+
 def _render_filter_row(df: pd.DataFrame, row: dict[str, Any]) -> None:
     row["name"] = st.text_input("Nome do filtro", value=row["name"], key=f"filter_name_{row['id']}")
     columns = list(df.columns)
@@ -150,6 +166,7 @@ def _render_filter_row(df: pd.DataFrame, row: dict[str, Any]) -> None:
             ) > 1:
                 row["clauses"].pop(ci)
                 st.rerun()
+        _render_filter_histogram(df, clause)
     if st.button("E + condição", key=f"filter_add_clause_{row['id']}"):
         row["clauses"].append({"column": columns[0], "operator": ">=", "value": 0})
         st.rerun()
@@ -164,6 +181,14 @@ def _render_cutoff_row(df: pd.DataFrame, roles: ColumnRoles, row: dict[str, Any]
     selected_scores = st.multiselect(
         "Scores", score_choices, default=default_scores, key=f"cutoff_scores_{row['id']}"
     )
+    direction_index = DIRECTIONS.index(row.get("direction", "gte"))
+    direction = st.selectbox(
+        "Direção",
+        DIRECTIONS,
+        index=direction_index,
+        format_func=lambda d: "≥ (gte)" if d == "gte" else "≤ (lte)",
+        key=f"cutoff_dir_{row['id']}",
+    )
     new_cutoffs: dict[str, float] = {}
     for score in selected_scores:
         if score not in df.columns:
@@ -174,22 +199,23 @@ def _render_cutoff_row(df: pd.DataFrame, roles: ColumnRoles, row: dict[str, Any]
             lo, hi = float(df[score].min()), float(df[score].max())
         default_val = row["cutoffs"].get(score, (lo + hi) / 2)
         default_val = min(max(float(default_val), lo), hi)
-        new_cutoffs[score] = st.slider(
+        cut_val = st.slider(
             f"Corte {score}",
             min_value=lo,
             max_value=hi,
             value=default_val,
             key=f"cutoff_val_{row['id']}_{score}",
         )
+        new_cutoffs[score] = cut_val
+        op = ">=" if direction == "gte" else "<="
+        stats = filter_pass_drop_stats(df, score, op, cut_val)
+        if stats["total"] > 0:
+            st.caption(
+                f"**Passa:** {stats['pass_count']:,} ({stats['pass_frac']:.1%}) · "
+                f"**Cai:** {stats['drop_count']:,} ({stats['drop_frac']:.1%})"
+            )
     row["cutoffs"] = new_cutoffs
-    direction_index = DIRECTIONS.index(row.get("direction", "gte"))
-    row["direction"] = st.selectbox(
-        "Direção",
-        DIRECTIONS,
-        index=direction_index,
-        format_func=lambda d: "≥ (gte)" if d == "gte" else "≤ (lte)",
-        key=f"cutoff_dir_{row['id']}",
-    )
+    row["direction"] = direction
 
 
 def _render_rate_row(
@@ -319,13 +345,50 @@ def _render_stress_row(row: dict[str, Any]) -> None:
     )
 
 
+def _row_summary(row: dict[str, Any], df: pd.DataFrame) -> str:
+    """One-line summary for the compact rule row header (critique 1.9.2)."""
+    rtype = row["type"]
+    name = row.get("name", "")
+    if rtype == "filter":
+        clauses = row.get("clauses", [])
+        if clauses:
+            c = clauses[0]
+            col_name = c.get("column", "?")
+            op = c.get("operator", "?")
+            val = c.get("value", "?")
+            stats = filter_pass_drop_stats(df, col_name, op, val) if col_name in df.columns else {}
+            cut_pct = f" · corta {stats['drop_frac']:.0%}" if stats.get("total", 0) > 0 else ""
+            extras = f" (e {len(clauses) - 1} mais)" if len(clauses) > 1 else ""
+            return f"{name} · {col_name} {op} {val}{extras}{cut_pct}"
+        return f"{name} (sem condições)"
+    if rtype == "cutoff":
+        cutoffs = row.get("cutoffs", {})
+        direction = row.get("direction", "gte")
+        dir_sym = "≥" if direction == "gte" else "≤"
+        op = ">=" if direction == "gte" else "<="
+        parts = []
+        for score, val in cutoffs.items():
+            stats = filter_pass_drop_stats(df, score, op, val) if score in df.columns else {}
+            cut_pct = f" · corta {stats['drop_frac']:.0%}" if stats.get("total", 0) > 0 else ""
+            parts.append(f"{score} {dir_sym} {val:.1f}{cut_pct}")
+        return f"{name} · " + "; ".join(parts) if parts else name
+    if rtype == "rate":
+        base = row.get("base_rate", 0.0)
+        return f"{name} · {base:.0%} de aceite"
+    if rtype == "stress":
+        factor = row.get("factor", 1.2)
+        return f"Agravamento ×{factor:.2f}"
+    return name
+
+
 def _render_row(
     df: pd.DataFrame, roles: ColumnRoles, row: dict[str, Any], index: int, total: int, rows: list
 ) -> None:
+    summary = _row_summary(row, df)
     with st.container(border=True):
-        label_col, up_col, down_col, del_col = st.columns([5, 1, 1, 1])
-        with label_col:
-            st.caption(f"{index + 1}. {_TYPE_LABELS.get(row['type'], row['type'])}")
+        ctrl_col, up_col, down_col, del_col = st.columns([5, 1, 1, 1])
+        with ctrl_col:
+            st.caption(f"{index + 1}. {summary}")
         with up_col:
             if st.button("↑", key=f"up_{row['id']}", disabled=index == 0, use_container_width=True):
                 rows[index - 1], rows[index] = rows[index], rows[index - 1]
@@ -342,14 +405,15 @@ def _render_row(
                 st.rerun()
                 return
 
-        if row["type"] == "filter":
-            _render_filter_row(df, row)
-        elif row["type"] == "cutoff":
-            _render_cutoff_row(df, roles, row)
-        elif row["type"] == "rate":
-            _render_rate_row(df, roles, row)
-        elif row["type"] == "stress":
-            _render_stress_row(row)
+        with st.expander("Editar", expanded=False):
+            if row["type"] == "filter":
+                _render_filter_row(df, row)
+            elif row["type"] == "cutoff":
+                _render_cutoff_row(df, roles, row)
+            elif row["type"] == "rate":
+                _render_rate_row(df, roles, row)
+            elif row["type"] == "stress":
+                _render_stress_row(row)
 
 
 def render_rule_builder(df: pd.DataFrame, roles: ColumnRoles, entry: PolicyEntry) -> list[dict]:
@@ -381,22 +445,10 @@ def render_rule_builder(df: pd.DataFrame, roles: ColumnRoles, entry: PolicyEntry
             st.rerun()
 
     has_stress = any(r["type"] == "stress" for r in rows)
-    stress_col, quickfill_col = st.columns(2)
-    with stress_col:
-        add_stress_clicked = st.button(
-            "➕ Stress (flat)", key="add_stress", use_container_width=True
-        )
-        if not has_stress and add_stress_clicked:
+    if not has_stress:
+        if st.button("➕ Stress (flat)", key="add_stress"):
             rows.append(make_stress_row(factor=1.2))
             st.rerun()
-    with quickfill_col:
-        if st.button("⚡ Carregar filtros do v14", key="quickfill_v14", use_container_width=True):
-            quickfill = v14_quickfill_rows(df.columns)
-            if quickfill:
-                rows.extend(quickfill)
-                st.rerun()
-            else:
-                st.warning("Nenhuma das colunas dos filtros v14 está presente nesta base.")
 
     if not rows:
         st.info("Adicione uma regra para começar a construir a política.")

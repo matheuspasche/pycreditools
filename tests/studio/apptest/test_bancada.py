@@ -58,19 +58,28 @@ def test_page_with_existing_policy_renders_its_rule_rows(studio_state_with_polic
     assert len(name_inputs) == 4
 
 
-def test_quickfill_v14_button_adds_four_filter_rows(studio_state_with_roles):
+def test_v14_quickfill_button_is_removed_from_ui(studio_state_with_roles):
+    """Critique 1.8: the dev-only quick-fill button must not appear in the UI."""
     at = AppTest.from_file(PAGE)
     at.session_state["studio"] = studio_state_with_roles
     at.run(timeout=15)
     assert not at.exception
 
     buttons = [b for b in at.button if b.key == "quickfill_v14"]
-    assert buttons, "expected the v14 quick-fill button"
-    buttons[0].click().run(timeout=15)
+    assert not buttons, "v14 quick-fill button should have been removed from the UI"
+
+
+def test_bancada_population_selector_has_two_axes(studio_state_with_roles):
+    """Critiques 1.7 + 2.0: population selector splits into Período and Quem axes."""
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_roles
+    at.run(timeout=15)
     assert not at.exception
 
-    name_inputs = [t for t in at.text_input if t.key and t.key.startswith("filter_name_")]
-    assert len(name_inputs) == 4
+    periodo_sel = [s for s in at.selectbox if s.key == "bancada_population_periodo"]
+    quem_sel = [s for s in at.selectbox if s.key == "bancada_population_quem"]
+    assert periodo_sel, "expected a Período selectbox"
+    assert quem_sel, "expected a Quem selectbox"
 
 
 def test_adding_a_cutoff_row_does_not_raise(studio_state_with_roles):
@@ -120,9 +129,9 @@ def test_changing_population_rerenders_without_exception(studio_state_with_polic
     at.run(timeout=15)
     assert not at.exception
 
-    selects = [s for s in at.selectbox if s.key == "bancada_population"]
-    assert selects, "expected the population selectbox"
-    selects[0].set_value("Todos").run(timeout=15)
+    quem_selects = [s for s in at.selectbox if s.key == "bancada_population_quem"]
+    assert quem_selects, "expected the Quem selectbox"
+    quem_selects[0].set_value("Todos").run(timeout=15)
     assert not at.exception
 
 

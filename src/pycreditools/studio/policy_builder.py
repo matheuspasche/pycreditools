@@ -260,6 +260,44 @@ def roles_cache_key(roles: ColumnRoles) -> str:
     return json.dumps(dataclasses.asdict(roles), sort_keys=True, default=str)
 
 
+def filter_pass_drop_stats(
+    df: pd.DataFrame,
+    column: str,
+    operator: str,
+    value: object,
+) -> dict[str, object]:
+    """Count and fraction of rows that pass or drop for a single filter clause.
+
+    Returns a dict with keys: total, pass_count, drop_count, pass_frac, drop_frac.
+    Used by the live histogram to show "corta X%" as the cutoff value moves.
+    """
+    series = df[column] if column in df.columns else pd.Series([], dtype=float)
+    total = len(df)
+    if operator == ">=":
+        mask = series >= value
+    elif operator == ">":
+        mask = series > value
+    elif operator == "<=":
+        mask = series <= value
+    elif operator == "<":
+        mask = series < value
+    elif operator == "==":
+        mask = series == value
+    elif operator == "!=":
+        mask = series != value
+    else:
+        raise ValueError(f"Operador desconhecido: {operator}")
+    pass_count = int(mask.sum())
+    drop_count = total - pass_count
+    return {
+        "total": total,
+        "pass_count": pass_count,
+        "drop_count": drop_count,
+        "pass_frac": pass_count / total if total > 0 else 0.0,
+        "drop_frac": drop_count / total if total > 0 else 0.0,
+    }
+
+
 def suggested_take_up_rate(df: pd.DataFrame, roles: ColumnRoles) -> float | None:
     """Suggested take-up rate: fraction of approved applicants who were actually hired.
 

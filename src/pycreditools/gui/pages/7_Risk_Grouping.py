@@ -6,7 +6,10 @@ import streamlit as st
 
 from pycreditools.gui import session
 from pycreditools.gui.components import kpi, tables
-from pycreditools.gui.components.population import render_population_selector
+from pycreditools.gui.components.population import (
+    render_effective_n_caption,
+    render_population_selector_v2,
+)
 from pycreditools.gui.session import get_state, guard_roles
 from pycreditools.studio import charts
 from pycreditools.studio.analyses import (
@@ -45,9 +48,10 @@ with tab_single:
                 key="rg_score_cols",
             )
         with col_population:
-            population, subset = render_population_selector(
-                df, roles, key="rg_population", default="Aprovados"
+            periodo_rg, quem_rg, subset = render_population_selector_v2(
+                df, roles, key="rg_population", default_quem="Aprovados"
             )
+            population = f"{periodo_rg}/{quem_rg}"
 
         col_bins, col_max, col_minvol, col_crossings, col_method = st.columns(5)
         with col_bins:
@@ -87,10 +91,7 @@ with tab_single:
         st.warning("Nenhuma linha com o alvo observado na população selecionada.")
         st.stop()
 
-    st.caption(
-        f"N efetivo (alvo observado): {tables.thousands(len(effective_population))} "
-        f"de {tables.thousands(len(subset))} na população '{population}'."
-    )
+    render_effective_n_caption(effective_population, roles)
 
     time_col = roles.time_col if use_time else None
     oot_date = roles.oot_date if use_time else None
@@ -196,9 +197,10 @@ with tab_pairwise:
                     [s for s in candidate_scores if s != primary],
                     key="rg_pw_challengers",
                 )
-            population_pw, subset_pw = render_population_selector(
-                df, roles, key="rg_pw_population", default="Aprovados"
+            periodo_pw, quem_pw, subset_pw = render_population_selector_v2(
+                df, roles, key="rg_pw_population", default_quem="Aprovados"
             )
+            population_pw = f"{periodo_pw}/{quem_pw}"
 
             col_bins_pw, col_max_pw, col_method_pw = st.columns(3)
             with col_bins_pw:
@@ -286,9 +288,10 @@ with tab_matrix:
             with col_score2:
                 score2_options = [s for s in candidate_scores_matrix if s != score1]
                 score2 = st.selectbox("Score 2 (colunas)", score2_options, key="rg_matrix_score2")
-            population_matrix, subset_matrix = render_population_selector(
-                df, roles, key="rg_matrix_population", default="Aprovados"
+            periodo_mat, quem_mat, subset_matrix = render_population_selector_v2(
+                df, roles, key="rg_matrix_population", default_quem="Aprovados"
             )
+            population_matrix = f"{periodo_mat}/{quem_mat}"
             bins_matrix = st.slider(
                 "Bins por score (grade quadrada)", 3, 10, value=5, key="rg_matrix_bins"
             )

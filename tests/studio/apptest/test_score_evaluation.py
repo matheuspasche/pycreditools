@@ -42,9 +42,9 @@ def test_changing_population_rerenders_without_exception(studio_state_with_roles
     at.run()
     assert not at.exception
 
-    selects = [s for s in at.selectbox if s.key == "score_eval_population"]
-    assert selects, "expected the population selectbox"
-    selects[0].set_value("Aprovados")
+    quem_selects = [s for s in at.selectbox if s.key == "score_eval_population_quem"]
+    assert quem_selects, "expected the Quem selectbox"
+    quem_selects[0].set_value("Aprovados")
     at.run()
     assert not at.exception
 

@@ -7,7 +7,10 @@ import streamlit as st
 
 from pycreditools.gui import session
 from pycreditools.gui.components import kpi, tables
-from pycreditools.gui.components.population import render_population_selector
+from pycreditools.gui.components.population import (
+    render_effective_n_caption,
+    render_population_selector_v2,
+)
 from pycreditools.gui.session import get_state, guard_roles
 from pycreditools.studio import charts
 from pycreditools.studio.analyses import (
@@ -26,11 +29,12 @@ roles = state.roles
 target_col = roles.actual_default_col
 
 with st.container(border=True):
-    population, subset = render_population_selector(
-        state.df, roles, key="score_eval_population", default="Contratados"
+    periodo, quem, subset = render_population_selector_v2(
+        state.df, roles, key="score_eval_population", default_quem="Contratados"
     )
+    population = f"{periodo}/{quem}"
     n_effective = effective_n(subset, target_col)
-    st.caption(f"N efetivo (com `{target_col}` observado): {tables.thousands(n_effective)}")
+    render_effective_n_caption(subset, roles, target_col)
 
 if n_effective == 0:
     st.warning(

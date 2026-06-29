@@ -17,6 +17,9 @@ from .models import ColumnRoles
 
 POPULATION_CHOICES = ("Todos", "Aprovados", "Contratados", "DEV", "OOT", "Custom")
 
+PERIODO_CHOICES = ("Tudo", "Dev", "OOT")
+QUEM_CHOICES = ("Todos", "Aprovados", "Contratados")
+
 
 def hash_bytes(content: bytes) -> str:
     """Short, stable hash of raw file bytes (used as `df_hash` for uploads)."""
@@ -74,3 +77,40 @@ def population_filter(
             raise ValueError("Forneça uma máscara para o filtro customizado.")
         return df[custom_mask]
     raise ValueError(f"Opção de população desconhecida: {choice}")
+
+
+def population_filter_two_axes(
+    df: pd.DataFrame,
+    roles: ColumnRoles,
+    periodo: str,
+    quem: str,
+) -> pd.DataFrame:
+    """Subset `df` by combining two independent axes (critiques 1.7 + 2.0).
+
+    `periodo` is one of PERIODO_CHOICES; `quem` is one of QUEM_CHOICES.
+    The two filters are AND-ed: temporal slice first, then funnel-stage slice.
+    """
+    if periodo == "Tudo":
+        subset = df
+    elif periodo == "Dev":
+        if not roles.time_col or not roles.oot_date:
+            raise ValueError("Defina a safra e a data OOT para filtrar Dev.")
+        subset = df[df[roles.time_col] < roles.oot_date]
+    elif periodo == "OOT":
+        if not roles.time_col or not roles.oot_date:
+            raise ValueError("Defina a safra e a data OOT para filtrar OOT.")
+        subset = df[df[roles.time_col] >= roles.oot_date]
+    else:
+        raise ValueError(f"Período desconhecido: {periodo}")
+
+    if quem == "Todos":
+        return subset
+    if quem == "Aprovados":
+        if not roles.current_approval_col:
+            raise ValueError("Defina a coluna de aprovação para filtrar Aprovados.")
+        return subset[subset[roles.current_approval_col] == 1]
+    if quem == "Contratados":
+        if not roles.current_hired_col:
+            raise ValueError("Defina a coluna de contratação para filtrar Contratados.")
+        return subset[subset[roles.current_hired_col] == 1]
+    raise ValueError(f"Quem desconhecido: {quem}")
