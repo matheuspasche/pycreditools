@@ -43,13 +43,13 @@ def test_changing_a_role_updates_session_state(studio_state_with_roles):
     assert not at.exception
 
     tab_roles = at.tabs[1]
-    selects = [s for s in tab_roles.selectbox if s.key == "role_primary_score"]
-    assert selects, "expected the primary-score selectbox in the 'Mapear colunas' tab"
+    selects = [s for s in tab_roles.selectbox if s.key == "role_vigente_score"]
+    assert selects, "expected the vigente-score selectbox in the 'Mapear colunas' tab"
     selects[0].set_value("score_2")
     at.run()
     assert not at.exception
     state = at.session_state["studio"]
-    assert state.roles.primary_score_col == "score_2"
+    assert state.roles.vigente_score == "score_2"
 
 
 def test_ingestion_page_shows_tier_badge_when_dataset_loaded(studio_state_with_roles):

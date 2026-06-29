@@ -134,7 +134,13 @@ def build_policy(
     rows: list[dict[str, Any]],
     rating_recipe: Any | None = None,
 ) -> CreditPolicy:
-    """Assemble an immutable `CreditPolicy` by chaining builder methods in row order."""
+    """Assemble an immutable `CreditPolicy` by chaining builder methods in row order.
+
+    The score-in-use is whichever score the most recent `Cutoff` row cuts on; the
+    builder binds the PD calibration column to that same score so the two can never
+    diverge (ADR 0003) — there is no parameter to set `calibration_score_col` on its
+    own.
+    """
     policy = CreditPolicy(
         applicant_id_col=roles.applicant_id_col,
         score_cols=tuple(roles.score_cols),
@@ -144,12 +150,15 @@ def build_policy(
         current_hired_col=roles.current_hired_col,
         estimated_default_col=roles.estimated_default_col,
     )
+    score_in_use: str | None = None
     for row in rows:
         row_type = row["type"]
         if row_type == "filter":
             policy = policy.filter(row["name"], build_filter_expression(row["clauses"]))
         elif row_type == "cutoff":
             policy = policy.cutoff(row["name"], dict(row["cutoffs"]), row.get("direction", "gte"))
+            if row["cutoffs"]:
+                score_in_use = list(row["cutoffs"])[-1]
         elif row_type == "rate":
             policy = policy.rate(
                 row["name"], row["base_rate"], row.get("variable"), row.get("calibrate", False)
@@ -160,6 +169,8 @@ def build_policy(
             raise ValueError(f"Tipo de regra desconhecido: {row_type}")
     if rating_recipe is not None:
         policy = policy.with_rating(rating_recipe)
+    if score_in_use is not None:
+        policy = policy.with_calibration(score_col=score_in_use)
     return policy
 
 

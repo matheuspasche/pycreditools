@@ -37,13 +37,11 @@ def detect_roles(df: pd.DataFrame) -> ColumnRoles:
     time_col = _find_time_col(df, cols)
     segment_col = _find_segment_col(df, cols)
     estimated_default_col = _find_estimated_default_col(df, cols)
-    primary_score_col = _pick_primary_score(df, score_cols, actual_default_col)
     oot_date = _pick_oot_date(df, time_col)
 
     return ColumnRoles(
         applicant_id_col=applicant_id_col,
         score_cols=score_cols,
-        primary_score_col=primary_score_col,
         current_approval_col=current_approval_col,
         actual_default_col=actual_default_col,
         current_hired_col=current_hired_col,
@@ -129,26 +127,6 @@ def _find_estimated_default_col(df: pd.DataFrame, cols: list[str]) -> str | None
     return None
 
 
-def _pick_primary_score(
-    df: pd.DataFrame, score_cols: list[str], actual_default_col: str | None
-) -> str | None:
-    if not score_cols:
-        return None
-    if not actual_default_col:
-        return score_cols[-1]
-    mask = df[actual_default_col].notna()
-    if mask.sum() < 10:
-        return score_cols[-1]
-    try:
-        from pycreditools import ModelEvaluator
-
-        evaluator = ModelEvaluator(df.loc[mask], score_cols, actual_default_col)
-        ks = evaluator.compute_ks()
-        return max(ks, key=ks.get)
-    except Exception:
-        return score_cols[-1]
-
-
 def _pick_oot_date(df: pd.DataFrame, time_col: str | None) -> str | None:
     if not time_col:
         return None
@@ -170,10 +148,6 @@ ROLE_HINTS: dict[str, str] = {
     "score_cols": (
         "Colunas numéricas com o(s) score(s) candidatos; precisam ter alta cardinalidade "
         "(não são categorias)."
-    ),
-    "primary_score_col": (
-        "Score usado como eixo de corte/calibração principal; sempre amarrado ao mesmo "
-        "score usado no cálculo de PD (ADR 0003)."
     ),
     "current_approval_col": (
         "0/1: indica se o cliente foi aprovado pela política vigente; usada para o swap "

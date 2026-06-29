@@ -52,11 +52,7 @@ with st.container(border=True):
             "Nº de buckets (decis)", min_value=4, max_value=20, value=10, key="score_eval_bins"
         )
     with col_table_score:
-        table_default = (
-            roles.primary_score_col
-            if roles.primary_score_col in selected_scores
-            else (selected_scores[0] if selected_scores else None)
-        )
+        table_default = selected_scores[-1] if selected_scores else None
         table_score = (
             st.selectbox(
                 "Score para a tabela de decis",

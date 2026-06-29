@@ -40,7 +40,7 @@ with tab_single:
             score_cols = st.multiselect(
                 "Score(s)",
                 roles.score_cols,
-                default=[roles.primary_score_col] if roles.primary_score_col else [],
+                default=roles.score_cols[-1:],
                 max_selections=2,
                 key="rg_score_cols",
             )
@@ -184,15 +184,10 @@ with tab_pairwise:
         with st.container(border=True):
             col_primary, col_challengers = st.columns(2)
             with col_primary:
-                default_primary_idx = (
-                    candidate_scores.index(roles.primary_score_col)
-                    if roles.primary_score_col in candidate_scores
-                    else 0
-                )
                 primary = st.selectbox(
                     "Score primário (baseline)",
                     candidate_scores,
-                    index=default_primary_idx,
+                    index=len(candidate_scores) - 1,
                     key="rg_pw_primary",
                 )
             with col_challengers:
@@ -282,15 +277,10 @@ with tab_matrix:
         with st.container(border=True):
             col_score1, col_score2 = st.columns(2)
             with col_score1:
-                default_score1_idx = (
-                    candidate_scores_matrix.index(roles.primary_score_col)
-                    if roles.primary_score_col in candidate_scores_matrix
-                    else 0
-                )
                 score1 = st.selectbox(
                     "Score 1 (linhas)",
                     candidate_scores_matrix,
-                    index=default_score1_idx,
+                    index=len(candidate_scores_matrix) - 1,
                     key="rg_matrix_score1",
                 )
             with col_score2:

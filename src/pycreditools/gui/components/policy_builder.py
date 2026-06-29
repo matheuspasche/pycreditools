@@ -297,9 +297,7 @@ def render_rule_builder(df: pd.DataFrame, roles: ColumnRoles, entry: PolicyEntry
             st.rerun()
     with add_cutoff_col:
         if st.button("➕ Cutoff", key="add_cutoff", use_container_width=True):
-            default_score = roles.primary_score_col or (
-                roles.score_cols[0] if roles.score_cols else None
-            )
+            default_score = roles.score_cols[-1] if roles.score_cols else None
             cutoffs = (
                 {default_score: float(df[default_score].quantile(0.5))} if default_score else {}
             )

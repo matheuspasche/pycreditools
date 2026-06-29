@@ -48,16 +48,6 @@ def render_column_roles(df: pd.DataFrame, roles: ColumnRoles) -> ColumnRoles:
         key="role_score_cols",
         help=ROLE_HINTS["score_cols"],
     )
-    primary_options = ["—", *score_cols]
-    primary_default = roles.primary_score_col if roles.primary_score_col in score_cols else "—"
-    primary_score_col = st.selectbox(
-        "Score principal",
-        primary_options,
-        index=primary_options.index(primary_default),
-        key="role_primary_score",
-        help=ROLE_HINTS["primary_score_col"],
-    )
-    primary_score_col = None if primary_score_col == "—" else primary_score_col
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -147,7 +137,6 @@ def render_column_roles(df: pd.DataFrame, roles: ColumnRoles) -> ColumnRoles:
     return ColumnRoles(
         applicant_id_col=applicant_id_col,
         score_cols=score_cols,
-        primary_score_col=primary_score_col,
         current_approval_col=current_approval_col,
         actual_default_col=actual_default_col,
         current_hired_col=current_hired_col,

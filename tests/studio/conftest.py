@@ -81,7 +81,7 @@ def rating_result(sample_df, roles):
     )
     return fit_groups(
         subset,
-        [roles.primary_score_col],
+        ["score_5"],
         roles.actual_default_col,
         bins=30,
         max_groups=5,

@@ -16,7 +16,6 @@ def test_detect_roles_on_sample_data(sample_df):
         "score_4",
         "score_5",
     }
-    assert roles.primary_score_col == "score_5"
     assert roles.current_approval_col == "approved"
     assert roles.actual_default_col == "actual_default"
     assert roles.current_hired_col == "hired"
@@ -28,8 +27,8 @@ def test_detect_roles_on_sample_data(sample_df):
 
 def test_detect_roles_user_can_override(sample_df):
     roles = detect_roles(sample_df)
-    roles.primary_score_col = "score_2"
-    assert roles.primary_score_col == "score_2"
+    roles.segment_col = "score_2"
+    assert roles.segment_col == "score_2"
 
 
 def test_make_sample_is_deterministic():

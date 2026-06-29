@@ -20,7 +20,6 @@ class ColumnRoles:
 
     applicant_id_col: str | None = None
     score_cols: list[str] = field(default_factory=list)
-    primary_score_col: str | None = None
     current_approval_col: str | None = None
     actual_default_col: str | None = None
     current_hired_col: str | None = None

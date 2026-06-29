@@ -15,7 +15,6 @@ def test_column_roles_round_trip():
     roles = ColumnRoles(
         applicant_id_col="id",
         score_cols=["score_1", "score_2"],
-        primary_score_col="score_1",
         current_approval_col="approved",
         actual_default_col="bad",
         current_hired_col="hired",
@@ -25,7 +24,6 @@ def test_column_roles_round_trip():
         oot_date="2025-01",
     )
     assert roles.score_cols == ["score_1", "score_2"]
-    assert roles.primary_score_col == "score_1"
     assert roles.oot_date == "2025-01"
 
 
@@ -41,7 +39,7 @@ def test_project_bundle_round_trip():
     bundle = ProjectBundle(
         project_name="acme",
         df_name="sample",
-        roles=ColumnRoles(primary_score_col="score_1"),
+        roles=ColumnRoles(score_cols=["score_1"]),
         policies={"v14": {"applicant_id_col": "id"}},
         active_policy="v14",
         rating_recipe=None,

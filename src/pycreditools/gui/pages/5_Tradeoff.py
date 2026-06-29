@@ -99,9 +99,7 @@ legacy_kpis = policy_kpis(state.legacy_sim) if state.legacy_sim is not None else
 has_legacy = legacy_kpis is not None and legacy_kpis["bad_rate"] is not None
 legacy_point = (legacy_kpis["approval_rate"], legacy_kpis["bad_rate"]) if has_legacy else None
 
-primary_score = (
-    roles.primary_score_col if roles.primary_score_col in selected_scores else selected_scores[0]
-)
+primary_score = selected_scores[-1]
 res_primary = res_all[res_all["Score_Model"] == primary_score]
 
 scenarios = (
