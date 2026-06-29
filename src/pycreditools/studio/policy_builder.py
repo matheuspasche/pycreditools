@@ -196,7 +196,7 @@ def apply_cutoff_to_rows(
 ) -> list[dict[str, Any]]:
     """Update the existing `Cutoff` row on `score_col`, or append a new one if none exists.
 
-    Used by the Trade-off scenario picker to carry a chosen cutoff back to the Bancada.
+    Used by `apply_cutoffs_to_rows` to carry a chosen cutoff back to the Bancada.
     """
     rows = copy.deepcopy(rows)
     for row in rows:
@@ -205,9 +205,7 @@ def apply_cutoff_to_rows(
             row["direction"] = direction
             return rows
     rows.append(
-        make_cutoff_row(
-            name=f"Cutoff {score_col} (Trade-off)", cutoffs={score_col: value}, direction=direction
-        )
+        make_cutoff_row(name=f"Cutoff {score_col}", cutoffs={score_col: value}, direction=direction)
     )
     return rows
 

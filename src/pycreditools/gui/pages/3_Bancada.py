@@ -15,6 +15,8 @@ from pycreditools.studio.analyses import compare_vs_base, policy_kpis, survivor_
 from pycreditools.studio.detection import detect_tier
 from pycreditools.studio.policy_builder import build_policy, policy_cache_key
 
+_AGGRAVATION_MIN, _AGGRAVATION_MAX = 1.0, 5.0
+
 _QUADRANT_LABELS = {
     "keep_in": "Keep In",
     "swap_in": "Swap In",
@@ -108,7 +110,33 @@ def _render_live_funnel() -> None:
             percent_cols=("Stage_Pass_Rate", "Cum_Pass_Rate", "Stage_Rej_Rate"),
         )
 
-    _render_comparison_vs_base(sim)
+    _render_dragcutoff_tradeoff(subset, population)
+    _render_comparison_vs_base(sim, subset, population)
+
+
+def _render_dragcutoff_tradeoff(subset: pd.DataFrame, population: str) -> None:
+    """Trade-off = drag the cutoff (ADR 0001, critique 2.3): the live curve for the
+    Bancada's contextual score-in-use, updating as the cutoff slider moves."""
+    score_in_use = entry.policy.calibration_score_col
+    st.divider()
+    st.subheader("Trade-off: arraste o corte")
+    if score_in_use is None:
+        st.info("Adicione um corte a um score para ver a curva de trade-off.")
+        return
+    try:
+        curve = session.bancada_tradeoff_curve(
+            subset, state.df_hash, population, entry.policy, policy_cache_key(entry.policy),
+            score_in_use,
+        )
+    except Exception as exc:  # noqa: BLE001 - surfaced as a friendly error
+        st.error(f"Não foi possível calcular o trade-off de {score_in_use}: {exc}")
+        return
+    st.caption(f"Score em uso: **{score_in_use}** — aprovação x inadimplência por corte.")
+    st.plotly_chart(
+        charts.cutoff_tradeoff(curve, score_col=score_in_use),
+        use_container_width=True,
+        config={"displayModeBar": False},
+    )
 
 
 def _delta_kpi(label: str, value: float, delta: float | None, *, fmt, higher_is_good: bool):
@@ -134,7 +162,66 @@ def _quadrant_card(container, quad_by_scenario: dict, scenario: str) -> None:
         st.caption(f"Inadimplência: {tables.pct(bad_rate) if pd.notna(bad_rate) else 'N/A'}")
 
 
-def _render_comparison_vs_base(sim) -> None:
+def _render_aggravation_game(
+    subset: pd.DataFrame, population: str, base_bad_rate: float | None
+) -> None:
+    """Aggravation game (ADR 0001, critique 2.7): pull the flat stress factor until
+    the candidate breaks even vs. the base — "even so, can I still approve?". Folds
+    the old Crash Test page into the Bancada."""
+    st.divider()
+    st.subheader("Jogo de agravamento")
+    st.caption(
+        "Agrave a PD por um fator de stress flat e veja a inadimplência resultante "
+        "frente à base, e o fator de equilíbrio (breakeven)."
+    )
+    current_factor = st.slider(
+        "Fator de agravamento",
+        _AGGRAVATION_MIN,
+        _AGGRAVATION_MAX,
+        value=1.0,
+        step=0.05,
+        key="bancada_aggravation_factor",
+    )
+    try:
+        result = session.aggravation_game(
+            subset, state.df_hash, population, entry.policy, policy_cache_key(entry.policy),
+            current_factor, base_bad_rate,
+        )
+    except Exception as exc:  # noqa: BLE001 - surfaced as a friendly error
+        st.error(f"Não foi possível rodar o jogo de agravamento: {exc}")
+        return
+
+    breakeven = result["breakeven_factor"]
+    kpi_items = [
+        {
+            "label": "Inadimplência no fator atual",
+            "value": tables.pct(result["current_default_rate"]),
+        },
+        {
+            "label": "Fator de breakeven",
+            "value": f"{breakeven:.2f}×" if breakeven is not None else "Não atingido",
+        },
+    ]
+    kpi.kpi_row(kpi_items)
+
+    if base_bad_rate is None:
+        st.caption("Sem base de comparação (Tier C) — resultado standalone, sem breakeven.")
+    elif breakeven is not None:
+        verdict = (
+            "✅ ainda aprovável"
+            if current_factor < breakeven
+            else "⚠️ já no ponto de equilíbrio ou além"
+        )
+        st.caption(f"{verdict} frente à inadimplência da base.")
+
+    st.plotly_chart(
+        charts.crash(result["curve"], legacy_bad_rate=base_bad_rate, breakeven=breakeven),
+        use_container_width=True,
+        config={"displayModeBar": False},
+    )
+
+
+def _render_comparison_vs_base(sim, subset: pd.DataFrame, population: str) -> None:
     """Comparison-vs-base readout (ADR 0001 bullets 5-7, ADR 0002): tier-adapted
     delta + swap quadrants, folding the old Simulation page into the Bancada."""
     st.divider()
@@ -149,6 +236,7 @@ def _render_comparison_vs_base(sim) -> None:
             "nesta base): os quadrantes de swap não estão disponíveis. O resultado "
             "acima é standalone, com a PD vindo da coluna de PD estimada."
         )
+        _render_aggravation_game(subset, population, None)
         return
 
     candidate, base, delta = comparison["candidate"], comparison["base"], comparison["delta"]
@@ -183,6 +271,8 @@ def _render_comparison_vs_base(sim) -> None:
     _quadrant_card(row2[1], quad_by_scenario, "keep_out")
     with st.expander("Tabela de quadrantes"):
         tables.dataframe(quad, percent_cols=("Bad_Rate",))
+
+    _render_aggravation_game(subset, population, base["bad_rate"])
 
 
 with funnel_col:

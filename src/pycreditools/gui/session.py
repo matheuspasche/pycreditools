@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 import streamlit as st
 
@@ -149,6 +151,36 @@ def run_crash_test(
 ) -> pd.DataFrame:
     """Cached crash-test sweep; `df_hash`/`population`/`policy_key` are cache-key-only."""
     return analyses.run_crash_test(_df, _policy, list(factors), parallel=parallel)
+
+
+@st.cache_data(show_spinner="Calculando trade-off do corte...")
+def bancada_tradeoff_curve(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    _policy: CreditPolicy,
+    policy_key: str,
+    score_col: str,
+    steps: int = 25,
+) -> pd.DataFrame:
+    """Cached drag-the-cutoff curve (ADR 0001, critique 2.3); `df_hash`/`population`/
+    `policy_key` are cache-key-only."""
+    return analyses.tradeoff_curve_for_score_in_use(_df, _policy, score_col, steps=steps)
+
+
+@st.cache_data(show_spinner="Calculando jogo de agravamento...")
+def aggravation_game(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    _policy: CreditPolicy,
+    policy_key: str,
+    current_factor: float,
+    base_bad_rate: float | None,
+) -> dict[str, Any]:
+    """Cached aggravation game (ADR 0001, critique 2.7); `df_hash`/`population`/
+    `policy_key` are cache-key-only."""
+    return analyses.aggravation_game(_df, _policy, current_factor, base_bad_rate)
 
 
 @st.cache_data(show_spinner="Otimizando cortes...")

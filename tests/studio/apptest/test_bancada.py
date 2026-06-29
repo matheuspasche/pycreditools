@@ -1,10 +1,27 @@
 import dataclasses
 import pathlib
 
+import pytest
 from streamlit.testing.v1 import AppTest
+
+from pycreditools.studio.models import PolicyEntry
+from pycreditools.studio.policy_builder import build_policy, make_cutoff_row
 
 GUI = pathlib.Path(__file__).resolve().parents[3] / "src" / "pycreditools" / "gui"
 PAGE = str(GUI / "pages" / "3_Bancada.py")
+
+
+@pytest.fixture
+def studio_state_with_cutoff(studio_state_with_policy):
+    """`StudioState` whose active policy also cuts `score_5` — gives it a score-in-use
+    (ADR 0003) so the drag-the-cutoff trade-off section (#28) has something to sweep."""
+    state = studio_state_with_policy
+    rows = state.policies["v14"].rows + [
+        make_cutoff_row(name="Corte score_5", cutoffs={"score_5": 600})
+    ]
+    policy = build_policy(state.roles, rows)
+    entry = PolicyEntry(name="v14", policy=policy, rows=rows)
+    return dataclasses.replace(state, policies={"v14": entry})
 
 
 def test_page_without_roles_shows_warning_not_traceback():
@@ -160,3 +177,82 @@ def test_comparison_vs_base_hides_swap_with_a_note_in_tier_c(studio_state_with_p
     assert any("Tier C" in str(item.value) for item in at.info)
     assert not any("Keep In" in str(item.value) for item in at.markdown)
     assert not any("Swap In" in str(item.value) for item in at.markdown)
+
+
+def test_without_a_cutoff_the_tradeoff_section_shows_an_info_hint(studio_state_with_policy):
+    """No cutoff row -> no score-in-use (ADR 0003) -> nothing to sweep yet (#28)."""
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_policy
+    at.run(timeout=15)
+    assert not at.exception
+
+    assert any("Trade-off: arraste o corte" in str(item.value) for item in at.subheader)
+    assert any("Adicione um corte" in str(item.value) for item in at.info)
+
+
+def test_with_a_cutoff_the_tradeoff_curve_renders_for_the_score_in_use(studio_state_with_cutoff):
+    """Drag-the-cutoff trade-off (ADR 0001, critique 2.3): renders a live curve for
+    the contextual score-in-use, no separate Trade-off page (#28)."""
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_cutoff
+    at.run(timeout=30)
+    assert not at.exception
+
+    assert any("Score em uso: **score_5**" in str(item.value) for item in at.caption)
+    assert len(at.get("plotly_chart")) >= 2  # funnel + trade-off curve
+
+
+def test_changing_the_cutoff_slider_updates_the_live_tradeoff_curve(studio_state_with_cutoff):
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_cutoff
+    at.run(timeout=30)
+    assert not at.exception
+
+    sliders = [s for s in at.slider if s.key and s.key.startswith("cutoff_val_")]
+    assert sliders, "expected a cutoff slider for the existing score_5 cutoff row"
+    new_value = sliders[0].min + (sliders[0].max - sliders[0].min) * 0.9
+    sliders[0].set_value(new_value).run(timeout=30)
+    assert not at.exception
+    assert any("Score em uso: **score_5**" in str(item.value) for item in at.caption)
+
+
+def test_aggravation_game_renders_slider_and_breakeven_kpi_in_tier_b(studio_state_with_policy):
+    """Aggravation game (ADR 0001, critique 2.7): folds Crash Test into the Bancada (#28)."""
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_policy
+    at.run(timeout=30)
+    assert not at.exception
+
+    assert any("Jogo de agravamento" in str(item.value) for item in at.subheader)
+    sliders = [s for s in at.slider if s.key == "bancada_aggravation_factor"]
+    assert sliders, "expected the aggravation-factor slider"
+    assert any("Fator de breakeven" in str(item.value) for item in at.caption)
+
+
+def test_dragging_the_aggravation_slider_recomputes_the_curve_without_exception(
+    studio_state_with_policy,
+):
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_policy
+    at.run(timeout=30)
+    assert not at.exception
+
+    sliders = [s for s in at.slider if s.key == "bancada_aggravation_factor"]
+    assert sliders, "expected the aggravation-factor slider"
+    sliders[0].set_value(3.0).run(timeout=30)
+    assert not at.exception
+    assert len(at.get("plotly_chart")) >= 1
+
+
+def test_aggravation_game_skips_breakeven_with_a_note_in_tier_c(studio_state_with_policy):
+    """Tier C (no base) — standalone curve, no breakeven (#28)."""
+    tier_c_roles = dataclasses.replace(studio_state_with_policy.roles, current_approval_col=None)
+    tier_c_state = dataclasses.replace(studio_state_with_policy, roles=tier_c_roles)
+
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = tier_c_state
+    at.run(timeout=30)
+    assert not at.exception
+
+    assert any("Jogo de agravamento" in str(item.value) for item in at.subheader)
+    assert any("sem breakeven" in str(item.value) for item in at.caption)

@@ -228,3 +228,36 @@ def test_crash_empty_df_returns_empty_figure():
     fig = charts.crash(pd.DataFrame())
     assert isinstance(fig, go.Figure)
     assert len(fig.data) == 0
+
+
+def test_cutoff_tradeoff_draws_two_lines_and_marks_the_current_cutoff():
+    df = pd.DataFrame(
+        {
+            "Cutoff": [400, 500, 600],
+            "approval_rate": [0.6, 0.4, 0.2],
+            "default_rate": [0.08, 0.05, 0.03],
+            "is_current": [False, True, False],
+        }
+    )
+    fig = charts.cutoff_tradeoff(df, score_col="score_5")
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 2
+    names = {trace.name for trace in fig.data}
+    assert names == {"Taxa de aprovação", "Inadimplência"}
+    assert len(fig.layout.shapes) == 1
+    assert fig.layout.shapes[0].type == "line"
+
+
+def test_cutoff_tradeoff_without_a_current_flag_draws_no_vline():
+    df = pd.DataFrame(
+        {"Cutoff": [400, 500], "approval_rate": [0.6, 0.4], "default_rate": [0.08, 0.05]}
+    )
+    fig = charts.cutoff_tradeoff(df, score_col="score_5")
+    assert len(fig.data) == 2
+    assert len(fig.layout.shapes) == 0
+
+
+def test_cutoff_tradeoff_empty_df_returns_empty_figure():
+    fig = charts.cutoff_tradeoff(pd.DataFrame(), score_col="score_5")
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 0

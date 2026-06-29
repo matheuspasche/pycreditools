@@ -505,6 +505,66 @@ def breakeven_aggravation_factor(
     return float(prev["aggravation_factor"] + frac * factor_gap)
 
 
+def current_cutoff_value(policy: CreditPolicy, score_col: str) -> float | None:
+    """The cutoff `policy` currently applies to `score_col`, or `None` if unset."""
+    for stage in policy.stages:
+        if isinstance(stage, CutoffStage) and score_col in stage.cutoffs:
+            return float(stage.cutoffs[score_col])
+    return None
+
+
+def tradeoff_curve_for_score_in_use(
+    df: pd.DataFrame, policy: CreditPolicy, score_col: str, steps: int = 25
+) -> pd.DataFrame:
+    """The Bancada's live "drag the cutoff" trade-off curve (ADR 0001, critique 2.3).
+
+    Sweeps `score_col`'s cutoff via `cutoff_range` + `run_tradeoff` (no separate page,
+    no reimplemented sweep) and flags the row closest to `policy`'s currently applied
+    cutoff for `score_col` as `is_current` — the point the chart highlights as the
+    user drags the slider. No row is flagged when `score_col` has no active cutoff.
+    """
+    values = cutoff_range(df, score_col, steps)
+    result = run_tradeoff(df, policy, score_col, values)
+    result["is_current"] = False
+    current = current_cutoff_value(policy, score_col)
+    if current is not None and not result.empty:
+        idx = (result["Cutoff"] - current).abs().idxmin()
+        result.loc[idx, "is_current"] = True
+    return result
+
+
+def aggravation_game(
+    df: pd.DataFrame,
+    policy: CreditPolicy,
+    current_factor: float,
+    base_bad_rate: float | None,
+    *,
+    factors: list[float] | None = None,
+) -> dict[str, Any]:
+    """The Bancada's aggravation game (ADR 0001, critique 2.7): "even so, can I still
+    approve?". Sweeps the flat stress factor via `run_crash_test`, reads off the
+    candidate's default rate at `current_factor`, and finds the break-even factor
+    (`breakeven_aggravation_factor`) at which it reaches `base_bad_rate` — absorbing
+    the Crash Test page rather than reimplementing its sweep.
+
+    `base_bad_rate=None` (Tier C, no comparison base) yields no breakeven factor;
+    the standalone curve + current default rate are still returned.
+    """
+    sweep = sorted({*(factors or np.linspace(1.0, 5.0, 25).tolist()), current_factor})
+    curve = run_crash_test(df, policy, sweep)
+    idx = (curve["aggravation_factor"] - current_factor).abs().idxmin()
+    breakeven = (
+        breakeven_aggravation_factor(curve, base_bad_rate) if base_bad_rate is not None else None
+    )
+    return {
+        "curve": curve,
+        "current_factor": current_factor,
+        "current_default_rate": float(curve.loc[idx, "default_rate"]),
+        "base_bad_rate": base_bad_rate,
+        "breakeven_factor": breakeven,
+    }
+
+
 def tradeoff_scenarios(
     res_s: pd.DataFrame, legacy_approval_rate: float, legacy_bad_rate: float
 ) -> dict[str, pd.Series]:
