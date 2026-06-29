@@ -11,9 +11,21 @@ from pycreditools.gui.components.policy_builder import render_policy_manager, re
 from pycreditools.gui.components.population import render_population_selector
 from pycreditools.gui.session import get_state, guard_roles
 from pycreditools.studio import charts
-from pycreditools.studio.analyses import compare_vs_base, policy_kpis, survivor_population
+from pycreditools.studio.analyses import (
+    compare_vs_base,
+    get_scores_em_jogo,
+    policy_kpis,
+    survivor_population,
+)
+from pycreditools.studio.data import population_filter
 from pycreditools.studio.detection import detect_tier
-from pycreditools.studio.policy_builder import build_policy, policy_cache_key
+from pycreditools.studio.models import PolicyEntry, StudioState
+from pycreditools.studio.policy_builder import (
+    apply_cutoffs_to_rows,
+    build_policy,
+    policy_cache_key,
+    roles_cache_key,
+)
 
 _AGGRAVATION_MIN, _AGGRAVATION_MAX = 1.0, 5.0
 
@@ -35,10 +47,55 @@ guard_roles("applicant_id_col", "score_cols")
 state = get_state()
 roles = state.roles
 
+def _render_suggested_scenarios(state: StudioState, entry: PolicyEntry) -> None:
+    """Suggestion-first entry (ADR 0005, issue #30): opens with 2-3 scenarios from
+    the optimization engine, run only on the scores em jogo. Picking one applies its
+    cutoffs to the live policy; every knob stays freely editable afterwards."""
+    scores_em_jogo = get_scores_em_jogo(state)
+    if not scores_em_jogo:
+        return
+
+    st.subheader("Cenários sugeridos")
+    st.caption(
+        "Sugestões do motor de otimização sobre os scores em jogo "
+        f"({', '.join(scores_em_jogo)}) — escolha uma para começar e ajuste livremente."
+    )
+    subset = population_filter(state.df, state.roles, "DEV")
+    if subset.empty:
+        st.info("Sem dados na população DEV para sugerir cenários.")
+        return
+    try:
+        scenarios = session.suggest_scenarios(
+            subset,
+            state.df_hash,
+            "DEV",
+            state.roles,
+            roles_cache_key(state.roles),
+            tuple(scores_em_jogo),
+        )
+    except Exception as exc:  # noqa: BLE001 - surfaced as a friendly error
+        st.error(f"Não foi possível sugerir cenários: {exc}")
+        return
+
+    cols = st.columns(len(scenarios))
+    for col, scenario in zip(cols, scenarios, strict=False):
+        with col, st.container(border=True):
+            st.markdown(f"**{scenario.name.capitalize()}**")
+            st.caption(f"Aprovação: {tables.pct(scenario.approval_rate)}")
+            st.caption(f"Inadimplência: {tables.pct(scenario.default_rate)}")
+            if st.button(
+                "Usar este cenário", key=f"use_scenario_{scenario.name}", use_container_width=True
+            ):
+                entry.rows = apply_cutoffs_to_rows(entry.rows, scenario.cutoffs)
+                st.toast(f"Cenário '{scenario.name}' aplicado à política '{entry.name}'.")
+    st.divider()
+
+
 builder_col, funnel_col = st.columns([1, 1], gap="large")
 
 with builder_col:
     entry = render_policy_manager(state)
+    _render_suggested_scenarios(state, entry)
     rows = render_rule_builder(state.df, roles, entry)
 
     rating_recipe = state.rating_result.recipe if state.rating_result is not None else None

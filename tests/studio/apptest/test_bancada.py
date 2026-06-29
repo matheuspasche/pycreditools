@@ -24,6 +24,15 @@ def studio_state_with_cutoff(studio_state_with_policy):
     return dataclasses.replace(state, policies={"v14": entry})
 
 
+@pytest.fixture
+def studio_state_with_scores_em_jogo(studio_state_with_policy):
+    """`StudioState` with 2 scores em jogo marked (#29) — gates the Bancada's
+    suggested-scenarios entry point (ADR 0005, #30)."""
+    return dataclasses.replace(
+        studio_state_with_policy, scores_em_jogo=["score_4", "score_5"]
+    )
+
+
 def test_page_without_roles_shows_warning_not_traceback():
     at = AppTest.from_file(PAGE)
     at.run(timeout=15)
@@ -242,6 +251,52 @@ def test_dragging_the_aggravation_slider_recomputes_the_curve_without_exception(
     sliders[0].set_value(3.0).run(timeout=30)
     assert not at.exception
     assert len(at.get("plotly_chart")) >= 1
+
+
+def test_without_scores_em_jogo_the_suggested_scenarios_section_is_hidden(
+    studio_state_with_policy,
+):
+    """No short-list (#29 not run yet) -> the suggestion-first entry stays hidden (#30)."""
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_policy
+    at.run(timeout=15)
+    assert not at.exception
+    assert not any("Cenários sugeridos" in str(item.value) for item in at.subheader)
+
+
+def test_with_scores_em_jogo_the_bancada_opens_with_suggested_scenarios(
+    studio_state_with_scores_em_jogo,
+):
+    """Suggestion-first Bancada (ADR 0005, #30): opens with scenarios from the
+    optimization engine run only on the scores em jogo."""
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_scores_em_jogo
+    at.run(timeout=30)
+    assert not at.exception
+
+    assert any("Cenários sugeridos" in str(item.value) for item in at.subheader)
+    buttons = [b for b in at.button if b.key and b.key.startswith("use_scenario_")]
+    assert len(buttons) >= 2
+
+
+def test_picking_a_suggested_scenario_applies_its_cutoffs_to_the_live_policy(
+    studio_state_with_scores_em_jogo,
+):
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_scores_em_jogo
+    at.run(timeout=30)
+    assert not at.exception
+
+    buttons = [b for b in at.button if b.key and b.key.startswith("use_scenario_")]
+    assert buttons, "expected at least one suggested-scenario button"
+    buttons[0].click().run(timeout=30)
+    assert not at.exception
+
+    state = at.session_state["studio"]
+    entry = state.policies[state.active_policy]
+    cutoff_rows = [r for r in entry.rows if r["type"] == "cutoff"]
+    cut_scores = {score for row in cutoff_rows for score in row["cutoffs"]}
+    assert {"score_4", "score_5"} <= cut_scores
 
 
 def test_aggravation_game_skips_breakeven_with_a_note_in_tier_c(studio_state_with_policy):

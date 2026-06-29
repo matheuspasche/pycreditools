@@ -54,6 +54,17 @@ class TierDetection:
 
 
 @dataclass
+class PolicyScenario:
+    """One suggested Bancada scenario (ADR 0005): a named cutoff spec plus its
+    resulting approval/default rate from the optimization grid search."""
+
+    name: str
+    cutoffs: dict[str, float]
+    approval_rate: float
+    default_rate: float
+
+
+@dataclass
 class PolicyEntry:
     """A named, built `CreditPolicy` plus its mirrored flat stress factor."""
 

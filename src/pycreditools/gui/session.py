@@ -15,7 +15,13 @@ from pycreditools import (
     RiskGroupResult,
 )
 from pycreditools.studio import analyses
-from pycreditools.studio.models import OpenMatrix, PolicyEntry, StudioState
+from pycreditools.studio.models import (
+    ColumnRoles,
+    OpenMatrix,
+    PolicyEntry,
+    PolicyScenario,
+    StudioState,
+)
 
 _KEY = "studio"
 DATASET_SOURCE_KEY = "studio_dataset_source"
@@ -207,6 +213,30 @@ def run_optimization(
         method=method,
         parallel=parallel,
         percentiles=percentiles,
+    )
+
+
+@st.cache_data(show_spinner="Sugerindo cenários...")
+def suggest_scenarios(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    _roles: ColumnRoles,
+    roles_key: str,
+    scores_em_jogo: tuple[str, ...],
+    cutoff_steps: int = 8,
+    target_default_rate: float = 0.05,
+    min_approval_rate: float = 0.3,
+) -> list[PolicyScenario]:
+    """Cached suggested scenarios (ADR 0005); `df_hash`/`population`/`roles_key` are
+    cache-key-only."""
+    return analyses.suggest_scenarios(
+        _df,
+        _roles,
+        list(scores_em_jogo),
+        cutoff_steps=cutoff_steps,
+        target_default_rate=target_default_rate,
+        min_approval_rate=min_approval_rate,
     )
 
 

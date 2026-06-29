@@ -14,7 +14,6 @@ pages = [
     st.Page("pages/1_Ingestion.py", title="Ingestão", icon="📥"),
     st.Page("pages/2_Score_Evaluation.py", title="Avaliação de Score", icon="📈"),
     st.Page("pages/3_Bancada.py", title="Bancada", icon="🧱"),
-    st.Page("pages/6_Optimization.py", title="Otimização", icon="🎯"),
     st.Page("pages/7_Risk_Grouping.py", title="Risk Grouping", icon="🗂️"),
     st.Page("pages/10_Deployment.py", title="Deploy & Scoring", icon="🚀"),
 ]

@@ -31,7 +31,7 @@ from pycreditools import (
     summarize_results,
 )
 
-from .models import ColumnRoles, OpenMatrix, StudioState
+from .models import ColumnRoles, OpenMatrix, PolicyScenario, StudioState
 
 # Absolute PD gap (in DEV vs OOT) above which a tier is flagged as unstable.
 RATING_STABILITY_THRESHOLD = 0.02
@@ -618,6 +618,63 @@ def run_optimization(
         percentiles=percentiles,
         cutoff_ranges=cutoff_ranges,
     )
+
+
+def suggest_scenarios(
+    df: pd.DataFrame,
+    roles: ColumnRoles,
+    scores_em_jogo: list[str],
+    *,
+    cutoff_steps: int = 8,
+    target_default_rate: float = 0.05,
+    min_approval_rate: float = 0.3,
+    percentiles: tuple[float, float] | None = (0.05, 0.95),
+) -> list[PolicyScenario]:
+    """Suggest-first Bancada entry point (ADR 0005): 3 scenarios — conservador /
+    neutro / agressivo — picked off an `optimize_cutoffs` grid run **only** on
+    `scores_em_jogo`, so heavy compute never touches the other candidate scores.
+    """
+    if not scores_em_jogo:
+        raise ValueError("scores_em_jogo não pode ser vazio.")
+    base_policy = CreditPolicy(
+        applicant_id_col=roles.applicant_id_col,
+        score_cols=tuple(scores_em_jogo),
+        current_approval_col=roles.current_approval_col,
+        actual_default_col=roles.actual_default_col,
+        time_col=roles.time_col,
+        current_hired_col=roles.current_hired_col,
+        estimated_default_col=roles.estimated_default_col,
+    )
+    result = run_optimization(
+        df,
+        base_policy,
+        cutoff_steps=cutoff_steps,
+        target_default_rate=target_default_rate,
+        min_approval_rate=min_approval_rate,
+        percentiles=percentiles,
+    )
+    grid = result.all_results
+    conservative_row = grid.loc[grid["overall_default_rate"].idxmin()]
+    aggressive_row = grid.loc[grid["overall_approval_rate"].idxmax()]
+    mid_approval = (
+        conservative_row["overall_approval_rate"] + aggressive_row["overall_approval_rate"]
+    ) / 2
+    neutral_row = grid.loc[(grid["overall_approval_rate"] - mid_approval).abs().idxmin()]
+
+    picks = {
+        "conservador": conservative_row,
+        "neutro": neutral_row,
+        "agressivo": aggressive_row,
+    }
+    return [
+        PolicyScenario(
+            name=name,
+            cutoffs={score: float(row[score]) for score in scores_em_jogo},
+            approval_rate=float(row["overall_approval_rate"]),
+            default_rate=float(row["overall_default_rate"]),
+        )
+        for name, row in picks.items()
+    ]
 
 
 def find_equivalent(

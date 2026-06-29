@@ -7,6 +7,7 @@ dicts (so they survive `st.session_state` reruns); never user-typed Python.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import uuid
 from collections.abc import Iterable
@@ -235,3 +236,8 @@ def clone_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def policy_cache_key(policy: CreditPolicy) -> str:
     """A stable, hashable cache key for a `CreditPolicy` (its serialized `to_dict()`)."""
     return json.dumps(policy.to_dict(), sort_keys=True, default=str)
+
+
+def roles_cache_key(roles: ColumnRoles) -> str:
+    """A stable, hashable cache key for a `ColumnRoles` (its serialized fields)."""
+    return json.dumps(dataclasses.asdict(roles), sort_keys=True, default=str)
