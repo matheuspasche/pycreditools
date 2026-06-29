@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 from pycreditools.gui import session
@@ -10,8 +11,17 @@ from pycreditools.gui.components.policy_builder import render_policy_manager, re
 from pycreditools.gui.components.population import render_population_selector
 from pycreditools.gui.session import get_state, guard_roles
 from pycreditools.studio import charts
-from pycreditools.studio.analyses import policy_kpis, survivor_population
+from pycreditools.studio.analyses import compare_vs_base, policy_kpis, survivor_population
+from pycreditools.studio.detection import detect_tier
 from pycreditools.studio.policy_builder import build_policy, policy_cache_key
+
+_QUADRANT_LABELS = {
+    "keep_in": "Keep In",
+    "swap_in": "Swap In",
+    "swap_out": "Swap Out",
+    "keep_out": "Keep Out",
+}
+_QUADRANT_ACCENTS = {"swap_in": "var(--accent)", "swap_out": "var(--danger)"}
 
 st.title("Bancada")
 st.caption(
@@ -97,6 +107,82 @@ def _render_live_funnel() -> None:
             funnel_df,
             percent_cols=("Stage_Pass_Rate", "Cum_Pass_Rate", "Stage_Rej_Rate"),
         )
+
+    _render_comparison_vs_base(sim)
+
+
+def _delta_kpi(label: str, value: float, delta: float | None, *, fmt, higher_is_good: bool):
+    item = {"label": label, "value": fmt(value)}
+    if delta is not None:
+        item["delta"] = f"{'+' if delta >= 0 else ''}{fmt(delta)} vs. base"
+        item["delta_good"] = (delta >= 0) == higher_is_good
+    return item
+
+
+def _quadrant_card(container, quad_by_scenario: dict, scenario: str) -> None:
+    with container, st.container(border=True):
+        color = _QUADRANT_ACCENTS.get(scenario)
+        label = _QUADRANT_LABELS[scenario]
+        html = f"<span style='color:{color}'>{label}</span>" if color else label
+        st.markdown(html, unsafe_allow_html=True)
+        row = quad_by_scenario.get(scenario)
+        if row is None:
+            st.caption("Sem dados")
+            return
+        st.markdown(f"**{tables.thousands(row['Hired'])}** contratados")
+        bad_rate = row["Bad_Rate"]
+        st.caption(f"Inadimplência: {tables.pct(bad_rate) if pd.notna(bad_rate) else 'N/A'}")
+
+
+def _render_comparison_vs_base(sim) -> None:
+    """Comparison-vs-base readout (ADR 0001 bullets 5-7, ADR 0002): tier-adapted
+    delta + swap quadrants, folding the old Simulation page into the Bancada."""
+    st.divider()
+    st.subheader("Comparação vs. base")
+
+    tier = detect_tier(roles, sim.data).tier
+    comparison = compare_vs_base(sim, roles, tier)
+
+    if tier == "C":
+        st.info(
+            "Tier C — nenhuma base de comparação foi mapeada (sem aprovação vigente "
+            "nesta base): os quadrantes de swap não estão disponíveis. O resultado "
+            "acima é standalone, com a PD vindo da coluna de PD estimada."
+        )
+        return
+
+    candidate, base, delta = comparison["candidate"], comparison["base"], comparison["delta"]
+    delta_items = [
+        _delta_kpi(
+            "Taxa de aprovação",
+            candidate["approval_rate"],
+            delta["approval_rate"],
+            fmt=tables.pct,
+            higher_is_good=True,
+        )
+    ]
+    if candidate["bad_rate"] is not None and base["bad_rate"] is not None:
+        delta_items.append(
+            _delta_kpi(
+                "Inadimplência",
+                candidate["bad_rate"],
+                delta["bad_rate"],
+                fmt=tables.pct,
+                higher_is_good=False,
+            )
+        )
+    kpi.kpi_row(delta_items)
+
+    quad = comparison["quadrants"]
+    quad_by_scenario = {row["scenario"]: row for _, row in quad.iterrows()}
+    row1 = st.columns(2)
+    row2 = st.columns(2)
+    _quadrant_card(row1[0], quad_by_scenario, "keep_in")
+    _quadrant_card(row1[1], quad_by_scenario, "swap_in")
+    _quadrant_card(row2[0], quad_by_scenario, "swap_out")
+    _quadrant_card(row2[1], quad_by_scenario, "keep_out")
+    with st.expander("Tabela de quadrantes"):
+        tables.dataframe(quad, percent_cols=("Bad_Rate",))
 
 
 with funnel_col:

@@ -77,8 +77,8 @@ with st.container(border=True):
 
 if auto_legacy_bad_rate is None:
     st.info(
-        "Sem baseline definido (página Simulação) nem coluna de contratação observada — "
-        "informe a inadimplência legada manualmente."
+        "Sem baseline definido nem coluna de contratação observada — informe a "
+        "inadimplência legada manualmente."
     )
 elif observed_n is not None:
     st.caption(f"Inadimplência legada observada em {observed_n:,} contratos.")

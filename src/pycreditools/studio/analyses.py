@@ -290,6 +290,66 @@ def swap_in_by_segment(
     )
 
 
+def base_outcome(sim: CreditSimResults, roles: ColumnRoles) -> dict[str, float | None] | None:
+    """Vigente (historical) approval rate + observed bad rate, read straight off
+    `sim.data`'s approval flag and actual default (ADR 0002 Tier A/B) — no rule
+    reconstruction, no second simulation. `None` when no base is mapped (Tier C),
+    signalling the caller to hide the comparison-vs-base readout entirely.
+    """
+    if not roles.current_approval_col or roles.current_approval_col not in sim.data.columns:
+        return None
+    approval_col = sim.data[roles.current_approval_col].fillna(0)
+    approval_rate = float(approval_col.mean())
+    bad_rate = None
+    if roles.actual_default_col and roles.actual_default_col in sim.data.columns:
+        observed = sim.data.loc[approval_col == 1, roles.actual_default_col]
+        if observed.notna().any():
+            bad_rate = float(observed.mean())
+    return {"approval_rate": approval_rate, "bad_rate": bad_rate}
+
+
+def compare_vs_base(
+    sim: CreditSimResults, roles: ColumnRoles, tier: str
+) -> dict[str, Any]:
+    """The Bancada's comparison-vs-base readout (ADR 0001 bullets 5-7, ADR 0002),
+    tier-adapted.
+
+    Tier A/B (`current_approval_col` mapped): the candidate's approval/default
+    rate delta vs the vigente decision (`base_outcome`), plus the
+    swap-in/out/keep-in/keep-out breakdown via the engine's existing swap
+    classification (`quadrant_table`) — neither is reimplemented here.
+    Tier C (no base): no delta, no quadrants — only the candidate's standalone
+    result, whose PD comes from `estimated_default_col`.
+    """
+    candidate = policy_kpis(sim)
+    if tier == "C":
+        return {
+            "tier": tier,
+            "candidate": candidate,
+            "base": None,
+            "delta": None,
+            "quadrants": None,
+        }
+
+    base = base_outcome(sim, roles)
+    bad_delta = (
+        candidate["bad_rate"] - base["bad_rate"]
+        if candidate["bad_rate"] is not None and base["bad_rate"] is not None
+        else None
+    )
+    delta = {
+        "approval_rate": candidate["approval_rate"] - base["approval_rate"],
+        "bad_rate": bad_delta,
+    }
+    return {
+        "tier": tier,
+        "candidate": candidate,
+        "base": base,
+        "delta": delta,
+        "quadrants": quadrant_table(sim),
+    }
+
+
 def compare_with_baseline(sim_new: CreditSimResults, sim_old: CreditSimResults) -> dict[str, Any]:
     """Approval/bad-rate deltas + swap summary vs `sim_old`, via `compare_policies()`."""
     return compare_policies(sim_new, sim_old)

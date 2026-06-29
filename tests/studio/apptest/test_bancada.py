@@ -1,3 +1,4 @@
+import dataclasses
 import pathlib
 
 from streamlit.testing.v1 import AppTest
@@ -129,3 +130,33 @@ def test_changing_a_cutoff_slider_recomputes_the_live_funnel(studio_state_with_p
 
     after = at.session_state["studio"].last_sim.to_funnel_dataframe()
     assert not before.equals(after)
+
+
+def test_comparison_vs_base_renders_delta_and_quadrants_in_tier_b(studio_state_with_policy):
+    """Tier B (the fixture's default roles: flag only, no vigente score) — full swap."""
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_policy
+    at.run(timeout=15)
+    assert not at.exception
+
+    assert any("Comparação vs. base" in str(item.value) for item in at.subheader)
+    assert any("Taxa de aprovação" in str(item.value) for item in at.caption)
+    assert any("Keep In" in str(item.value) for item in at.markdown)
+    assert any("Swap In" in str(item.value) for item in at.markdown)
+
+
+def test_comparison_vs_base_hides_swap_with_a_note_in_tier_c(studio_state_with_policy):
+    """Tier C (no `current_approval_col` mapped) hides the swap UI with a pt-BR note."""
+    state = studio_state_with_policy
+    tier_c_roles = dataclasses.replace(state.roles, current_approval_col=None)
+    tier_c_state = dataclasses.replace(state, roles=tier_c_roles)
+
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = tier_c_state
+    at.run(timeout=15)
+    assert not at.exception
+
+    assert any("Comparação vs. base" in str(item.value) for item in at.subheader)
+    assert any("Tier C" in str(item.value) for item in at.info)
+    assert not any("Keep In" in str(item.value) for item in at.markdown)
+    assert not any("Swap In" in str(item.value) for item in at.markdown)

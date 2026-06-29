@@ -123,7 +123,7 @@ st.plotly_chart(
 st.subheader("Cenários executivos")
 if not has_legacy:
     st.info(
-        "Defina um baseline na página Simulação para calcular os cenários executivos "
+        "Defina um baseline (política legada) para calcular os cenários executivos "
         "(conservador / agressivo / neutro)."
     )
 else:

@@ -1,13 +1,18 @@
-"""Bancada tracer #1 — política viva + funil (ADR 0001, issue #26)."""
+"""Bancada tracer #1 — política viva + funil (ADR 0001, issue #26).
+
+Also covers the comparison-vs-base core (ADR 0001, 0002; issue #27).
+"""
 
 import dataclasses
 
 import pandas as pd
+import pytest
 
 from pycreditools import col, run_simulation
 from pycreditools.gui import session
-from pycreditools.studio.analyses import survivor_population
+from pycreditools.studio.analyses import compare_vs_base, survivor_population
 from pycreditools.studio.data import population_filter
+from pycreditools.studio.detection import detect_tier
 from pycreditools.studio.policy_builder import (
     build_policy,
     make_cutoff_row,
@@ -124,3 +129,77 @@ def test_flat_stress_changes_bad_rate_but_not_funnel_volumes(sample_df, roles):
         stressed_sim.data["simulated_default"] * stressed_sim.data["new_approval"]
     ).sum()
     assert stressed_bad > base_bad
+
+
+def _build_sim(df: pd.DataFrame, roles):
+    rows = v14_quickfill_rows(df.columns)
+    return build_policy(roles, rows).simulate(df, method="analytical")
+
+
+def test_compare_vs_base_shows_full_swap_and_deltas_in_tier_b(sample_df, roles):
+    """Tier B (approval flag only, no vigente score): swap works off the flag alone."""
+    tier_b_roles = dataclasses.replace(roles, vigente_score=None)
+    subset = population_filter(sample_df, tier_b_roles, "Todos")
+    tier = detect_tier(tier_b_roles, subset).tier
+    assert tier == "B"
+    sim = _build_sim(subset, tier_b_roles)
+
+    result = compare_vs_base(sim, tier_b_roles, tier)
+
+    expected_base_approval = float(subset[tier_b_roles.current_approval_col].mean())
+    approved_mask = subset[tier_b_roles.current_approval_col] == 1
+    expected_base_bad = float(
+        subset.loc[approved_mask, tier_b_roles.actual_default_col].mean()
+    )
+
+    assert result["tier"] == "B"
+    assert result["base"]["approval_rate"] == pytest.approx(expected_base_approval)
+    assert result["base"]["bad_rate"] == pytest.approx(expected_base_bad)
+    assert result["delta"]["approval_rate"] == pytest.approx(
+        result["candidate"]["approval_rate"] - expected_base_approval
+    )
+    assert result["delta"]["bad_rate"] == pytest.approx(
+        result["candidate"]["bad_rate"] - expected_base_bad
+    )
+    assert result["quadrants"] is not None
+    assert set(result["quadrants"]["scenario"]) == {
+        "keep_in",
+        "swap_in",
+        "swap_out",
+        "keep_out",
+    }
+
+
+def test_compare_vs_base_also_shows_full_swap_in_tier_a(sample_df, roles):
+    """Tier A (vigente score mapped too): same comparison-vs-base contract holds."""
+    tier_a_roles = dataclasses.replace(roles, vigente_score="legacy_score")
+    subset = population_filter(sample_df, tier_a_roles, "Todos")
+    tier = detect_tier(tier_a_roles, subset).tier
+    assert tier == "A"
+    sim = _build_sim(subset, tier_a_roles)
+
+    result = compare_vs_base(sim, tier_a_roles, tier)
+
+    assert result["tier"] == "A"
+    assert result["base"] is not None
+    assert result["delta"] is not None
+    assert result["quadrants"] is not None
+
+
+def test_compare_vs_base_is_standalone_with_no_swap_in_tier_c(sample_df, roles):
+    """Tier C (no base mapped): no delta/quadrants — only the standalone candidate."""
+    tier_c_roles = dataclasses.replace(roles, current_approval_col=None)
+    subset = population_filter(sample_df, tier_c_roles, "Todos")
+    tier = detect_tier(tier_c_roles, subset).tier
+    assert tier == "C"
+    sim = _build_sim(subset, tier_c_roles)
+
+    result = compare_vs_base(sim, tier_c_roles, tier)
+
+    assert result["tier"] == "C"
+    assert result["base"] is None
+    assert result["delta"] is None
+    assert result["quadrants"] is None
+    assert result["candidate"]["approval_rate"] == pytest.approx(
+        float(sim.data["new_approval"].mean())
+    )
