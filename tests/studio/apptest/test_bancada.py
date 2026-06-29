@@ -5,7 +5,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from pycreditools.studio.models import PolicyEntry
-from pycreditools.studio.policy_builder import build_policy, make_cutoff_row
+from pycreditools.studio.policy_builder import build_policy, make_cutoff_row, make_rate_row
 
 GUI = pathlib.Path(__file__).resolve().parents[3] / "src" / "pycreditools" / "gui"
 PAGE = str(GUI / "pages" / "3_Bancada.py")
@@ -392,3 +392,67 @@ def test_aggravation_game_skips_breakeven_with_a_note_in_tier_c(studio_state_wit
 
     assert any("Jogo de agravamento" in str(item.value) for item in at.subheader)
     assert any("sem breakeven" in str(item.value) for item in at.caption)
+
+
+def _make_state_with_rate_row(studio_state_with_policy):
+    """Helper: active policy has one rate row so the rate-row UI renders."""
+    state = studio_state_with_policy
+    rows = state.policies["v14"].rows + [
+        make_rate_row(name="Taxa aceite", base_rate=0.5),
+    ]
+    policy = build_policy(state.roles, rows)
+    entry = PolicyEntry(name="v14", policy=policy, rows=rows)
+    return dataclasses.replace(state, policies={"v14": entry})
+
+
+def test_adding_a_rate_row_shows_aceite_contratacao_caption(studio_state_with_policy):
+    """Rate row editor shows pt-BR aceite/contratação label (#35 acceptance)."""
+    state = _make_state_with_rate_row(studio_state_with_policy)
+
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = state
+    at.run(timeout=15)
+    assert not at.exception
+
+    captions = [str(c.value) for c in at.caption]
+    assert any("aceite" in c.lower() and "contrata" in c.lower() for c in captions), (
+        "Expected a rate-row caption mentioning aceite/contratação"
+    )
+
+
+def test_rate_row_shows_suggested_rate_hint_when_hired_col_is_mapped(studio_state_with_policy):
+    """Suggested take-up rate hint is shown (non-locking) when hired data is available (#35)."""
+    state = _make_state_with_rate_row(studio_state_with_policy)
+
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = state
+    at.run(timeout=15)
+    assert not at.exception
+
+    captions = [str(c.value) for c in at.caption]
+    assert any("Sugestão" in c for c in captions), (
+        "Expected a suggested-rate caption when hired column is mapped"
+    )
+    # The base_rate slider should still be fully editable (not locked to suggestion)
+    sliders = [s for s in at.slider if s.key and s.key.startswith("rate_base_")]
+    assert sliders, "Expected the base_rate slider to remain freely editable"
+
+
+def test_adding_a_second_rate_row_does_not_raise(studio_state_with_policy):
+    """Multiple chained rate stages: two Taxa rows coexist without error (#35)."""
+    state = studio_state_with_policy
+    rows = state.policies["v14"].rows + [
+        make_rate_row(name="Taxa aceite", base_rate=0.8),
+        make_rate_row(name="Anti-fraude", base_rate=0.95),
+    ]
+    policy = build_policy(state.roles, rows)
+    entry = PolicyEntry(name="v14", policy=policy, rows=rows)
+    state = dataclasses.replace(state, policies={"v14": entry})
+
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = state
+    at.run(timeout=15)
+    assert not at.exception
+
+    rate_sliders = [s for s in at.slider if s.key and s.key.startswith("rate_base_")]
+    assert len(rate_sliders) == 2, "Expected two base_rate sliders for two chained rate rows"

@@ -258,3 +258,43 @@ def policy_cache_key(policy: CreditPolicy) -> str:
 def roles_cache_key(roles: ColumnRoles) -> str:
     """A stable, hashable cache key for a `ColumnRoles` (its serialized fields)."""
     return json.dumps(dataclasses.asdict(roles), sort_keys=True, default=str)
+
+
+def suggested_take_up_rate(df: pd.DataFrame, roles: ColumnRoles) -> float | None:
+    """Suggested take-up rate: fraction of approved applicants who were actually hired.
+
+    Returns ``None`` when the hired or approval column is not mapped (Tier C, etc.)
+    so callers can gracefully skip the hint without crashing.
+    """
+    if not roles.current_approval_col or not roles.current_hired_col:
+        return None
+    if roles.current_approval_col not in df.columns or roles.current_hired_col not in df.columns:
+        return None
+    approved_mask = df[roles.current_approval_col] == 1
+    if not approved_mask.any():
+        return None
+    return float(df.loc[approved_mask, roles.current_hired_col].mean())
+
+
+def angled_rate_variable(
+    df: pd.DataFrame, score_col: str, *, spread: float = 0.4
+) -> Expression:
+    """An Expression that gives a higher multiplier to applicants with worse (lower) scores.
+
+    For "gte" direction policies (higher score = better), worse applicants have lower
+    score values and are more likely to accept any offer ("seekers"). The multiplier
+    is linearly inverse-normalized:
+
+        multiplier = (1 + spread) - 2*spread * (score - min) / (max - min)
+
+    So the worst-score applicant gets ``1 + spread`` and the best-score gets
+    ``1 - spread``, centered at ``1.0`` at the midpoint of the observed range.
+    When combined with a ``base_rate`` the engine clips the result to ``[0, 1]``.
+    """
+    lo = float(df[score_col].min())
+    hi = float(df[score_col].max())
+    span = hi - lo if hi > lo else 1.0
+    # normalized ∈ [0, 1]: higher score → closer to 1
+    normalized = (col(score_col) - lo) / span
+    # invert: worse score (low) → higher multiplier in [1-spread, 1+spread]
+    return (1.0 + spread) - (2.0 * spread) * normalized

@@ -11,12 +11,14 @@ from pycreditools.studio.models import ColumnRoles, PolicyEntry, StudioState
 from pycreditools.studio.policy_builder import (
     DIRECTIONS,
     OPERATORS,
+    angled_rate_variable,
     build_policy,
     clone_rows,
     make_cutoff_row,
     make_filter_row,
     make_rate_row,
     make_stress_row,
+    suggested_take_up_rate,
     v14_quickfill_rows,
 )
 
@@ -190,27 +192,50 @@ def _render_cutoff_row(df: pd.DataFrame, roles: ColumnRoles, row: dict[str, Any]
     )
 
 
-def _render_rate_row(df: pd.DataFrame, row: dict[str, Any]) -> None:
+def _render_rate_row(
+    df: pd.DataFrame, roles: ColumnRoles, row: dict[str, Any]
+) -> None:
+    st.caption(
+        "**Taxa de aceite/contratação** — dos aprovados, % que efetivamente contrata. "
+        "Cada etapa encolhe o funil e evita superdimensionar o swap-in."
+    )
     row["name"] = st.text_input("Nome da taxa", value=row["name"], key=f"rate_name_{row['id']}")
+
+    # Suggestion hint (non-locking)
+    suggested = suggested_take_up_rate(df, roles)
+    if suggested is not None:
+        hint_col, use_col = st.columns([3, 1])
+        with hint_col:
+            st.caption(f"Sugestão baseada nos dados: **{suggested:.1%}** (contratados / aprovados)")
+        with use_col:
+            if st.button("Usar", key=f"rate_suggest_use_{row['id']}", use_container_width=True):
+                row["base_rate"] = round(suggested, 4)
+                st.rerun()
+
     row["base_rate"] = st.slider(
         "Taxa base", 0.0, 1.0, value=float(row.get("base_rate", 0.5)), key=f"rate_base_{row['id']}"
     )
+
     current_variable = row.get("variable")
-    modes = ("Nenhuma", "Coluna", "Constante")
-    if isinstance(current_variable, str):
+    is_angled = row.get("_angled_mode", False)
+    modes = ("Nenhuma", "Coluna", "Constante", "Ângulo por score")
+    if is_angled:
+        mode_index = 3
+    elif isinstance(current_variable, str):
         mode_index = 1
-    elif isinstance(current_variable, int | float):
+    elif isinstance(current_variable, (int, float)):
         mode_index = 2
     else:
         mode_index = 0
     mode = st.radio(
         "Variável", modes, index=mode_index, horizontal=True, key=f"rate_mode_{row['id']}"
     )
+
     if mode == "Coluna":
+        row["_angled_mode"] = False
         numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-        default_col = current_variable if current_variable in numeric_cols else (
-            numeric_cols[0] if numeric_cols else None
-        )
+        is_col = isinstance(current_variable, str) and current_variable in numeric_cols
+        default_col = current_variable if is_col else (numeric_cols[0] if numeric_cols else None)
         if numeric_cols:
             row["variable"] = st.selectbox(
                 "Coluna",
@@ -221,13 +246,60 @@ def _render_rate_row(df: pd.DataFrame, row: dict[str, Any]) -> None:
         else:
             row["variable"] = None
     elif mode == "Constante":
-        is_number = isinstance(current_variable, int | float)
+        row["_angled_mode"] = False
+        is_number = isinstance(current_variable, (int, float)) and not isinstance(
+            current_variable, bool
+        )
         default_const = float(current_variable) if is_number else 1.0
         row["variable"] = st.number_input(
             "Multiplicador constante", value=default_const, key=f"rate_var_const_{row['id']}"
         )
+    elif mode == "Ângulo por score":
+        row["_angled_mode"] = True
+        numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+        score_choices = roles.score_cols or numeric_cols
+        saved = row.get("_angled_score_col")
+        default_score = saved or (score_choices[-1] if score_choices else None)
+        if score_choices and default_score in score_choices:
+            default_idx = score_choices.index(default_score)
+        elif score_choices:
+            default_idx = 0
+        else:
+            default_idx = None
+        angled_col, spread_col = st.columns([2, 1])
+        with angled_col:
+            if score_choices and default_idx is not None:
+                chosen_score = st.selectbox(
+                    "Score (pior → mais tomadores)",
+                    score_choices,
+                    index=default_idx,
+                    key=f"rate_angled_col_{row['id']}",
+                )
+                row["_angled_score_col"] = chosen_score
+            else:
+                st.caption("Nenhuma coluna de score disponível.")
+                row["variable"] = None
+                row["_angled_mode"] = False
+                return
+        with spread_col:
+            spread = st.slider(
+                "Amplitude",
+                0.05,
+                0.6,
+                value=float(row.get("_angled_spread", 0.4)),
+                step=0.05,
+                key=f"rate_angled_spread_{row['id']}",
+            )
+            row["_angled_spread"] = spread
+        st.caption(
+            "Piores scores recebem multiplicador maior (mais tomadores). "
+            f"Faixa: [{1.0 - spread:.0%} – {1.0 + spread:.0%}] × taxa base."
+        )
+        row["variable"] = angled_rate_variable(df, row["_angled_score_col"], spread=spread)
     else:
+        row["_angled_mode"] = False
         row["variable"] = None
+
     row["calibrate"] = st.toggle(
         "Calibrar (avançado)",
         value=bool(row.get("calibrate", False)),
@@ -275,7 +347,7 @@ def _render_row(
         elif row["type"] == "cutoff":
             _render_cutoff_row(df, roles, row)
         elif row["type"] == "rate":
-            _render_rate_row(df, row)
+            _render_rate_row(df, roles, row)
         elif row["type"] == "stress":
             _render_stress_row(row)
 
