@@ -132,7 +132,7 @@ st.plotly_chart(
     config={"displayModeBar": False},
 )
 
-if st.button("Aplicar melhor combinação ao Policy Studio"):
+if st.button("Aplicar melhor combinação à Bancada"):
     entry.rows = apply_cutoffs_to_rows(entry.rows, result.best_combination)
     rating_recipe = state.rating_result.recipe if state.rating_result is not None else None
     entry.policy = build_policy(roles, entry.rows, rating_recipe=rating_recipe)

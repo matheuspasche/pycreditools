@@ -59,7 +59,7 @@ def test_applying_a_scenario_updates_the_policy_entry_rows(studio_state_with_bas
     at.run(timeout=30)
     assert not at.exception
 
-    buttons = [b for b in at.button if b.label == "Aplicar cutoff ao Policy Studio"]
+    buttons = [b for b in at.button if b.label == "Aplicar cutoff à Bancada"]
     assert buttons, "expected the apply-cutoff button"
     buttons[0].click().run(timeout=30)
     assert not at.exception

@@ -1,4 +1,4 @@
-"""Policy Studio page — filters/cutoffs/rates + flat stress, live funnel (PRD 04)."""
+"""Bancada — the live policy-design workbench (ADR 0001, Bancada tracer #1 / #26)."""
 
 from __future__ import annotations
 
@@ -10,11 +10,14 @@ from pycreditools.gui.components.policy_builder import render_policy_manager, re
 from pycreditools.gui.components.population import render_population_selector
 from pycreditools.gui.session import get_state, guard_roles
 from pycreditools.studio import charts
-from pycreditools.studio.analyses import policy_kpis
+from pycreditools.studio.analyses import policy_kpis, survivor_population
 from pycreditools.studio.policy_builder import build_policy, policy_cache_key
 
-st.title("Policy Studio")
-st.caption("Construa filtros, cortes e taxas com uma prévia de funil ao vivo.")
+st.title("Bancada")
+st.caption(
+    "Monte a política viva — scores, cortes, filtros e taxas — e veja o funil, a "
+    "aprovação e a inadimplência recalcularem a cada ajuste."
+)
 guard_roles("applicant_id_col", "score_cols")
 
 state = get_state()
@@ -51,7 +54,7 @@ with builder_col:
 def _render_live_funnel() -> None:
     with st.container(border=True):
         population, subset = render_population_selector(
-            state.df, roles, key="policy_population", default="DEV"
+            state.df, roles, key="bancada_population", default="DEV"
         )
 
     try:
@@ -65,6 +68,7 @@ def _render_live_funnel() -> None:
     state.last_sim = sim
     funnel_df = sim.to_funnel_dataframe()
     kpis = policy_kpis(sim)
+    survivors = survivor_population(sim)
 
     kpi_items = [
         {"label": "Taxa de aprovação", "value": tables.pct(kpis["approval_rate"])},
@@ -75,6 +79,11 @@ def _render_live_funnel() -> None:
             {"label": "Inadimplência simulada", "value": tables.pct(kpis["bad_rate"])}
         )
     kpi.kpi_row(kpi_items)
+    st.caption(
+        f"Sobreviventes aos filtros: {tables.thousands(len(survivors))} de "
+        f"{tables.thousands(len(subset))} — é essa população, não a base bruta, "
+        "que alimenta o agrupamento de risco."
+    )
 
     tab_chart, tab_table = st.tabs(["Funil", "Tabela"])
     with tab_chart:

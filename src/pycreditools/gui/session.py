@@ -54,7 +54,7 @@ def require_policy() -> PolicyEntry:
     guard_dataset()
     state = get_state()
     if not state.active_policy or state.active_policy not in state.policies:
-        st.warning("Construa uma política na página Policy Studio.")
+        st.warning("Construa uma política na página Bancada.")
         st.stop()
     return state.policies[state.active_policy]
 

@@ -49,6 +49,17 @@ def run_policy_sim(
     return policy.simulate(df, method=method)
 
 
+def survivor_population(sim: CreditSimResults) -> pd.DataFrame:
+    """Rows that passed every hard filter/cutoff of the live policy (ADR 0001).
+
+    This is "whoever survives the filters" — the population risk clustering and
+    other downstream readouts must use, instead of the raw base. Independent of
+    any rate stage (take-up): a row counts as a survivor once it clears the last
+    filter/cutoff, even before the take-up draw decides if it is hired.
+    """
+    return sim.data[sim.data["reason"] == "Approved"]
+
+
 def policy_kpis(sim: CreditSimResults) -> dict[str, float | None]:
     """Final approval rate, approved/hired volume, and (if observed) the simulated bad rate."""
     data = sim.data

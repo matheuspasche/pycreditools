@@ -73,7 +73,7 @@ def test_applying_best_combination_updates_the_policy_entry_rows(studio_state_si
     at.run(timeout=30)
     assert not at.exception
 
-    buttons = [b for b in at.button if b.label == "Aplicar melhor combinação ao Policy Studio"]
+    buttons = [b for b in at.button if b.label == "Aplicar melhor combinação à Bancada"]
     assert buttons, "expected the apply-best-combination button"
     buttons[0].click().run(timeout=30)
     assert not at.exception

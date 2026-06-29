@@ -3,7 +3,7 @@ import pathlib
 from streamlit.testing.v1 import AppTest
 
 GUI = pathlib.Path(__file__).resolve().parents[3] / "src" / "pycreditools" / "gui"
-PAGE = str(GUI / "pages" / "3_Policy_Studio.py")
+PAGE = str(GUI / "pages" / "3_Bancada.py")
 
 
 def test_page_without_roles_shows_warning_not_traceback():
@@ -93,7 +93,39 @@ def test_changing_population_rerenders_without_exception(studio_state_with_polic
     at.run(timeout=15)
     assert not at.exception
 
-    selects = [s for s in at.selectbox if s.key == "policy_population"]
+    selects = [s for s in at.selectbox if s.key == "bancada_population"]
     assert selects, "expected the population selectbox"
     selects[0].set_value("Todos").run(timeout=15)
     assert not at.exception
+
+
+def test_survivor_caption_reflects_simulated_approved_population(studio_state_with_policy):
+    """Survivor-based readouts use the live policy's simulated population (ADR 0001)."""
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_policy
+    at.run(timeout=15)
+    assert not at.exception
+    assert any("Sobreviventes aos filtros" in str(c.value) for c in at.caption)
+
+
+def test_changing_a_cutoff_slider_recomputes_the_live_funnel(studio_state_with_policy):
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_policy
+    at.run(timeout=15)
+    assert not at.exception
+
+    add_cutoff = [b for b in at.button if b.key == "add_cutoff"]
+    assert add_cutoff, "expected the add-cutoff button"
+    add_cutoff[0].click().run(timeout=15)
+    assert not at.exception
+
+    before = at.session_state["studio"].last_sim.to_funnel_dataframe()
+
+    sliders = [s for s in at.slider if s.key and s.key.startswith("cutoff_val_")]
+    assert sliders, "expected a cutoff slider after adding a cutoff row"
+    new_value = sliders[0].min + (sliders[0].max - sliders[0].min) * 0.9
+    sliders[0].set_value(new_value).run(timeout=15)
+    assert not at.exception
+
+    after = at.session_state["studio"].last_sim.to_funnel_dataframe()
+    assert not before.equals(after)

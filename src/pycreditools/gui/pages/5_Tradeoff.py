@@ -147,7 +147,7 @@ else:
         )
     with button_col:
         st.markdown("&nbsp;")
-        if st.button("Aplicar cutoff ao Policy Studio", use_container_width=True):
+        if st.button("Aplicar cutoff à Bancada", use_container_width=True):
             cutoff_value = float(scenarios[chosen]["Cutoff"])
             entry.rows = apply_cutoff_to_rows(entry.rows, primary_score, cutoff_value)
             rating_recipe = state.rating_result.recipe if state.rating_result is not None else None

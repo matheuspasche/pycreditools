@@ -196,7 +196,7 @@ def apply_cutoff_to_rows(
 ) -> list[dict[str, Any]]:
     """Update the existing `Cutoff` row on `score_col`, or append a new one if none exists.
 
-    Used by the Trade-off scenario picker to carry a chosen cutoff back to Policy Studio.
+    Used by the Trade-off scenario picker to carry a chosen cutoff back to the Bancada.
     """
     rows = copy.deepcopy(rows)
     for row in rows:
@@ -217,7 +217,7 @@ def apply_cutoffs_to_rows(
 ) -> list[dict[str, Any]]:
     """Update/append a `Cutoff` row for each `{score: value}` pair in `cutoffs`.
 
-    Used by the Optimization page to carry a best combination back to Policy Studio.
+    Used by the Optimization page to carry a best combination back to the Bancada.
     """
     for score, value in cutoffs.items():
         rows = apply_cutoff_to_rows(rows, score, value, direction)
