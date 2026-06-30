@@ -190,7 +190,13 @@ run_claude_turn() {
     LAST_STATUS=$(printf '%s' "$result_text" | grep -oE 'STATUS: [A-Z_]+' | tail -1 | awk '{print $2}')
 
     if [ -z "$LAST_STATUS" ]; then
-        if grep -qiE 'rate limit|usage limit|try again later|429' "$LAST_OUTPUT_FILE" "${LAST_OUTPUT_FILE%.json}.stderr"; then
+        # Prefer the CLI's STRUCTURED 429 over text-matching: grepping the raw JSON
+        # for "429" gave false positives (it matched "429" inside token-count
+        # numbers), and the wording varies ("session limit" / "usage limit").
+        local api_err
+        api_err=$(jq -r '.api_error_status // empty' "$LAST_OUTPUT_FILE" 2>/dev/null)
+        if [ "$api_err" = "429" ] \
+           || grep -qiE 'session limit|usage limit|rate limit|try again later' "$LAST_OUTPUT_FILE" "${LAST_OUTPUT_FILE%.json}.stderr"; then
             LAST_STATUS="RATE_LIMITED"
         elif [ "$exit_code" -ne 0 ]; then
             LAST_STATUS="CLI_ERROR"
@@ -198,6 +204,46 @@ run_claude_turn() {
             LAST_STATUS="ERROR"
         fi
     fi
+}
+
+# ---------------------------------------------------------------------------
+# How long to wait out a rate limit. On a 429 the CLI's result text says when the
+# quota resets, e.g. "You've hit your session limit · resets 10:30pm (UTC)". Sleep
+# until ONE MINUTE PAST that reset instead of polling blindly every
+# RATE_LIMIT_BACKOFF_SECONDS — the blind 30-min poll burned ~4.5h of wasted retries
+# waiting out a single session window on issue #34.
+#
+# Pure + testable: result text comes from $1 (defaults to $LAST_OUTPUT_FILE's
+# .result) and "now" from $NOW_EPOCH. Any missing/odd format falls back to the fixed
+# backoff, so an unrecognised wording is never worse than the old behaviour.
+# ---------------------------------------------------------------------------
+rate_limit_backoff_seconds() {
+    local result_text="${1:-$(jq -r '.result // empty' "$LAST_OUTPUT_FILE" 2>/dev/null)}"
+    local now="${NOW_EPOCH:-$(date +%s)}"
+    local clause timepart tz base target sleep_s
+
+    # "... resets 10:30pm (UTC)" / "... resets 3am (UTC)"
+    clause=$(printf '%s' "$result_text" \
+        | grep -oiE 'resets?[[:space:]]+[0-9]{1,2}(:[0-9]{2})?[[:space:]]*(am|pm)?[[:space:]]*\(?[A-Za-z]{2,5}\)?' \
+        | head -1)
+    [ -z "$clause" ] && { echo "$RATE_LIMIT_BACKOFF_SECONDS"; return; }
+
+    timepart=$(printf '%s' "$clause" | grep -oiE '[0-9]{1,2}(:[0-9]{2})?[[:space:]]*(am|pm)?' | head -1)
+    tz=$(printf '%s' "$clause" | grep -oiE '[A-Za-z]{2,5}\)?$' | tr -d '()')
+    [ -z "$tz" ] && tz="UTC"
+
+    # The hint carries a time-of-day but no DATE — anchor to "now"'s UTC date and, if
+    # that instant already passed, roll forward one day.
+    base=$(date -u -d "@$now" +%Y-%m-%d 2>/dev/null) || { echo "$RATE_LIMIT_BACKOFF_SECONDS"; return; }
+    target=$(date -d "$base $timepart $tz" +%s 2>/dev/null)
+    [ -z "$target" ] && { echo "$RATE_LIMIT_BACKOFF_SECONDS"; return; }
+    [ "$target" -le "$now" ] && target=$((target + 86400))
+
+    sleep_s=$((target - now + 60))     # one minute past the reset, as requested
+    # Safety rails: never busy-spin, never sleep absurdly long on a misparse.
+    [ "$sleep_s" -lt 60 ] && sleep_s=60
+    [ "$sleep_s" -gt 21600 ] && sleep_s="$RATE_LIMIT_BACKOFF_SECONDS"
+    echo "$sleep_s"
 }
 
 # ---------------------------------------------------------------------------
@@ -257,8 +303,11 @@ while true; do
 
     # Only RATE_LIMITED retries (resuming the same conversation) until it goes through.
     while [ "$LAST_STATUS" = "RATE_LIMITED" ]; do
-        notify.sh "PRD 12 — limite de uso" "Cota atingida na issue #$ISSUE. Pausando ${RATE_LIMIT_BACKOFF_SECONDS}s e retomando a mesma sessão." "default"
-        sleep "$RATE_LIMIT_BACKOFF_SECONDS"
+        backoff=$(rate_limit_backoff_seconds)
+        resume_at=$(date -u -d "+${backoff} seconds" +%H:%MZ 2>/dev/null || echo '?')
+        notify.sh "PRD 12 — limite de uso" "Cota atingida na issue #$ISSUE. Dormindo ${backoff}s (retomo ~${resume_at}, 1 min após o reset informado) e resumo a mesma sessão." "default"
+        echo "[ralph_loop] #$ISSUE rate-limited — sleeping ${backoff}s, resume ~${resume_at} (log: $LAST_OUTPUT_FILE)"
+        sleep "$backoff"
         run_claude_turn "$PROMPT" "$CURRENT_SESSION_ID"
         [ -n "$LAST_SESSION_ID" ] && CURRENT_SESSION_ID="$LAST_SESSION_ID"
         echo "[ralph_loop] issue #$ISSUE retry finished — STATUS=$LAST_STATUS (log: $LAST_OUTPUT_FILE)"
