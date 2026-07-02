@@ -61,6 +61,57 @@ def survivor_population(sim: CreditSimResults) -> pd.DataFrame:
     return sim.data[sim.data["reason"] == "Approved"]
 
 
+# Minimum number of survivors with an observed default required before we attempt
+# a fresh risk-group fit (too few rows → unstable clusters).
+_SURVIVOR_REFIT_MIN_VOLUME = 30
+
+
+def derive_survivor_rating(
+    sim: CreditSimResults,
+    roles: ColumnRoles,
+    *,
+    bins: int = 10,
+    max_groups: int = 5,
+    min_vol_ratio: float = 0.02,
+) -> RiskGroupResult | None:
+    """Re-derive the risk grouping over the survivors of `sim` (ADR 0007, issue #39).
+
+    Called after every Bancada simulation so the risk readouts always reflect the
+    population that actually survived the current filters — never the static recipe
+    from the Risk Grouping page. Returns None when preconditions are unmet (no
+    default col, no score cols, too few survivors with observed defaults, or if
+    the clustering engine raises).
+    """
+    default_col = roles.actual_default_col
+    score_cols = [c for c in (roles.score_cols or []) if c]
+    if not default_col or not score_cols:
+        return None
+
+    survivors = survivor_population(sim)
+    if survivors.empty:
+        return None
+
+    with_defaults = survivors.dropna(subset=[default_col])
+    if len(with_defaults) < _SURVIVOR_REFIT_MIN_VOLUME:
+        return None
+
+    present_scores = [c for c in score_cols if c in with_defaults.columns]
+    if not present_scores:
+        return None
+
+    try:
+        return fit_groups(
+            with_defaults,
+            present_scores,
+            default_col,
+            bins=bins,
+            max_groups=max_groups,
+            min_vol_ratio=min_vol_ratio,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _candidate_outcome(data: pd.DataFrame) -> dict[str, float | None]:
     """Candidate approval rate + (if observed) simulated bad rate over `data`'s rows."""
     approved_volume = float(data["new_approval"].sum())

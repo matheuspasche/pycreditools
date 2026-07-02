@@ -332,3 +332,76 @@ def test_exposure_kpis_computes_delta_vs_base_in_tier_b(sample_df, roles):
     assert result["candidate_bad_volume"] == pytest.approx(expected_candidate_volume)
     assert result["base_bad_volume"] == pytest.approx(expected_base_volume)
     assert result["delta"] == pytest.approx(expected_candidate_volume - expected_base_volume)
+
+
+# ── Bancada — re-fit automático do rating sobre os sobreviventes (ADR 0007; issue #39) ──
+
+
+from pycreditools.studio.analyses import derive_survivor_rating  # noqa: E402
+
+
+def test_derive_survivor_rating_recomputes_thresholds_when_cutoff_moves(sample_df, roles):
+    """Moving a cutoff re-derives rating thresholds on the new survivor set (ADR 0007)."""
+    score_col = roles.score_cols[0]
+    subset = population_filter(sample_df, roles, "Todos")
+
+    loose_value = float(subset[score_col].quantile(0.2))
+    tight_value = float(subset[score_col].quantile(0.8))
+
+    loose_sim = build_policy(
+        roles, [make_cutoff_row(name="Corte", cutoffs={score_col: loose_value})]
+    ).simulate(subset, method="analytical")
+    tight_sim = build_policy(
+        roles, [make_cutoff_row(name="Corte", cutoffs={score_col: tight_value})]
+    ).simulate(subset, method="analytical")
+
+    loose_rating = derive_survivor_rating(loose_sim, roles)
+    tight_rating = derive_survivor_rating(tight_sim, roles)
+
+    assert loose_rating is not None
+    assert tight_rating is not None
+
+    # Tight survivors are fewer and have higher scores than loose survivors.
+    assert len(survivor_population(tight_sim)) < len(survivor_population(loose_sim))
+
+    # Re-fitted breaks differ because the survivor populations differ.
+    loose_breaks = loose_rating.recipe.quantile_breaks[score_col]
+    tight_breaks = tight_rating.recipe.quantile_breaks[score_col]
+    assert loose_breaks != tight_breaks
+
+
+def test_derive_survivor_rating_is_fitted_only_on_survivors(sample_df, roles):
+    """The re-fitted rating uses survivors with observed defaults, not the full population."""
+    score_col = roles.score_cols[0]
+    subset = population_filter(sample_df, roles, "Todos")
+
+    tight_value = float(subset[score_col].quantile(0.75))
+    sim = build_policy(
+        roles, [make_cutoff_row(name="Corte", cutoffs={score_col: tight_value})]
+    ).simulate(subset, method="analytical")
+
+    survivor_rating = derive_survivor_rating(sim, roles)
+
+    assert survivor_rating is not None
+    # Fitted volume must be ≤ the number of survivors (some may lack observed defaults).
+    assert len(survivor_rating.data) <= len(survivor_population(sim))
+    # And strictly less than the full population (the cutoff removed some rows).
+    assert len(survivor_rating.data) < len(subset)
+
+
+def test_derive_survivor_rating_returns_none_without_default_col(sample_df, roles):
+    """No actual_default_col → cannot fit a risk grouping → returns None."""
+    subset = population_filter(sample_df, roles, "Todos")
+    sim = build_policy(roles, []).simulate(subset, method="analytical")
+
+    no_default_roles = dataclasses.replace(roles, actual_default_col=None)
+    assert derive_survivor_rating(sim, no_default_roles) is None
+
+
+def test_derive_survivor_rating_returns_none_without_score_cols(sample_df, roles):
+    """No score cols mapped → cannot fit a risk grouping → returns None."""
+    subset = population_filter(sample_df, roles, "Todos")
+    sim = build_policy(roles, []).simulate(subset, method="analytical")
+
+    no_scores_roles = dataclasses.replace(roles, score_cols=[])
+    assert derive_survivor_rating(sim, no_scores_roles) is None

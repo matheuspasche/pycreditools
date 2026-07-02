@@ -360,9 +360,11 @@ def test_turning_on_the_segment_toggle_renders_the_aggregate_and_per_segment_bre
     assert any("Detalhamento por segmento" in str(t.label) for t in at.tabs)
 
 
-def test_depth_section_shows_a_friendly_note_without_an_active_rating(studio_state_with_policy):
-    """No rating fitted yet (#32): a friendly pt-BR note, not a crash (#33 acceptance:
-    gated cleanly when prerequisites are missing)."""
+def test_depth_section_shows_auto_refit_badge_when_survivors_have_defaults(
+    studio_state_with_policy,
+):
+    """Auto re-fit (ADR 0007, #39): when survivors have observed defaults the depth section
+    shows the re-derived-rating badge — no static rating from Risk Grouping required."""
     at = AppTest.from_file(PAGE)
     at.session_state["studio"] = studio_state_with_policy
     at.run(timeout=15)
@@ -371,13 +373,17 @@ def test_depth_section_shows_a_friendly_note_without_an_active_rating(studio_sta
     assert any(
         "Profundidade: risco, tempo e exposição" in str(item.value) for item in at.subheader
     )
-    assert any("Sem matriz de rating ativa" in str(item.value) for item in at.caption)
+    assert any(
+        "re-derivado" in str(item.value) for item in at.caption
+    )
 
 
 def test_depth_section_renders_risk_tier_distribution_with_an_active_rating(
     studio_state_with_deployment,
 ):
-    """A fitted rating (Risk Grouping, #32) feeds the swap-group risk-tier table (#33)."""
+    """A fitted rating (Risk Grouping, #32) feeds the swap-group risk-tier table (#33).
+    With ADR 0007, the rating is re-derived from survivors — the static recipe is ignored
+    for the depth readout."""
     at = AppTest.from_file(PAGE)
     at.session_state["studio"] = studio_state_with_deployment
     at.run(timeout=30)
@@ -386,7 +392,7 @@ def test_depth_section_renders_risk_tier_distribution_with_an_active_rating(
     assert any(
         "Profundidade: risco, tempo e exposição" in str(item.value) for item in at.subheader
     )
-    assert not any("Sem matriz de rating ativa" in str(item.value) for item in at.caption)
+    assert any("re-derivado" in str(item.value) for item in at.caption)
 
 
 def test_aggravation_game_skips_breakeven_with_a_note_in_tier_c(studio_state_with_policy):

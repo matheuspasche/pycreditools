@@ -16,8 +16,10 @@ from pycreditools.studio.analyses import (
     aggregate_segment_kpis,
     compare_vs_base,
     current_cutoff_value,
+    derive_survivor_rating,
     exposure_kpis,
     get_scores_em_jogo,
+    label_ratings_by_pd,
     policy_kpis,
     policy_vintage_comparison,
     risk_tier_distribution,
@@ -376,21 +378,27 @@ def _render_aggravation_game(
 
 
 def _render_depth_section(sim, tier: str) -> None:
-    """Risk/time/exposure depth (ADR 0001, 0004; issue #33): risk-tier distribution of
-    the swap groups, candidate-vs-base behaviour over vintages, and a risk-exposure
-    KPI — each gated with a friendly pt-BR note when its prerequisite is missing
-    (no rating recipe, no vintage column, no base), never a crash."""
+    """Risk/time/exposure depth (ADR 0001, 0004, 0007; issue #33, #39): risk-tier
+    distribution of the swap groups re-fitted on current survivors, candidate-vs-base
+    behaviour over vintages, and a risk-exposure KPI."""
     st.divider()
     st.subheader("Profundidade: risco, tempo e exposição")
 
     st.markdown("**Distribuição de risco dos grupos de swap**")
-    if state.rating_result is None:
+    survivor_rating = derive_survivor_rating(sim, roles)
+    if survivor_rating is None:
         st.caption(
-            "Sem matriz de rating ativa (Risk Grouping) — agrupe os scores em risco "
-            "para ver os grupos de swap por nível de risco."
+            "Sem dados de inadimplência observada nos sobreviventes — "
+            "não é possível re-derivar o rating sobre esta população."
         )
     else:
-        tiers = risk_tier_distribution(sim, state.rating_result, state.rating_labels)
+        survivor_labels = label_ratings_by_pd(survivor_rating, roles.actual_default_col)
+        n_survivors = len(survivor_population(sim))
+        st.caption(
+            f"Rating re-derivado sobre os {tables.thousands(n_survivors)} sobreviventes "
+            "correntes — os rótulos (A, B, …) são relativos a esta população, não à base bruta."
+        )
+        tiers = risk_tier_distribution(sim, survivor_rating, survivor_labels)
         if tiers.empty:
             st.caption("Sem grupos de swap para detalhar por rating nesta comparação.")
         else:
