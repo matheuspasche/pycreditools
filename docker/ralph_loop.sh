@@ -31,6 +31,16 @@ PROGRESS_LABEL="status:in-progress"
 DONE_LABEL="status:done"
 MODEL="${CLAUDE_MODEL:-claude-sonnet-4-6}"                   # never default to Opus
 RATE_LIMIT_BACKOFF_SECONDS="${RATE_LIMIT_BACKOFF_SECONDS:-1800}"
+# GitHub Project (board) sync — keep the card's Status in step with the loop. IDs are
+# stable for Project #5 "Pycreditools Studio"; override via env if the board changes.
+# Best-effort: a board hiccup must never break the loop (every call ends in `|| true`).
+PROJECT_OWNER="${PROJECT_OWNER:-matheuspasche}"
+PROJECT_NUMBER="${PROJECT_NUMBER:-5}"
+PROJECT_ID="${PROJECT_ID:-PVT_kwHOAscaNc4Bble_}"
+PROJECT_STATUS_FIELD="${PROJECT_STATUS_FIELD:-PVTSSF_lAHOAscaNc4Bble_zhWU_7U}"
+PROJECT_OPT_TODO="${PROJECT_OPT_TODO:-f75ad846}"
+PROJECT_OPT_INPROGRESS="${PROJECT_OPT_INPROGRESS:-47fc9ee4}"
+PROJECT_OPT_DONE="${PROJECT_OPT_DONE:-98236657}"
 LOG_DIR="/workspace/.ralph/logs"
 mkdir -p "$LOG_DIR"
 
@@ -271,6 +281,24 @@ verify_turn() {
 }
 
 # ---------------------------------------------------------------------------
+# Move issue #$1's card to Status option $2 on the GitHub Project board. Resolves the
+# board item id by matching content.number, then edits the single-select. Any failure
+# (item not on the board, missing `project` scope, API blip) is swallowed so board
+# sync can never stall the implementation loop.
+# ---------------------------------------------------------------------------
+board_set_status() {
+    local issue="$1" option="$2" item_id
+    [ -n "$PROJECT_ID" ] || return 0
+    item_id=$(gh project item-list "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" \
+        --format json --limit 200 2>/dev/null \
+        | jq -r --argjson n "$issue" '.items[] | select(.content.number==$n) | .id' 2>/dev/null | head -1)
+    [ -n "$item_id" ] || return 0
+    gh project item-edit --id "$item_id" --project-id "$PROJECT_ID" \
+        --field-id "$PROJECT_STATUS_FIELD" --single-select-option-id "$option" \
+        >/dev/null 2>&1 || true
+}
+
+# ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 echo "[ralph_loop] starting — model=$MODEL repo=$REPO"
@@ -294,6 +322,7 @@ while true; do
 
     echo "[ralph_loop] next issue: #$ISSUE"
     gh issue edit "$ISSUE" --repo "$REPO" --add-label "$PROGRESS_LABEL" --remove-label "$TODO_LABEL" >/dev/null 2>&1 || true
+    board_set_status "$ISSUE" "$PROJECT_OPT_INPROGRESS"
 
     PROMPT=$(build_kickoff "$ISSUE")
     CURRENT_SESSION_ID=""
@@ -318,6 +347,7 @@ while true; do
             # Trust-but-verify: never accept the agent's DONE blind.
             if ! verify_turn; then
                 gh issue edit "$ISSUE" --repo "$REPO" --add-label "$TODO_LABEL" --remove-label "$PROGRESS_LABEL" >/dev/null 2>&1 || true
+                board_set_status "$ISSUE" "$PROJECT_OPT_TODO"
                 notify.sh "PRD 12 — verificação falhou" "Agente reportou DONE na #$ISSUE mas pytest/ruff falharam. O commit local NÃO foi enviado. Parando. Veja $LOG_DIR/verify_${ISSUE}.log" "urgent"
                 echo "[ralph_loop] verification failed for #$ISSUE — not pushing/closing. Stopping for a human."
                 break
@@ -327,9 +357,11 @@ while true; do
                 ensure_pr
                 gh issue edit "$ISSUE" --repo "$REPO" --add-label "$DONE_LABEL" --remove-label "$PROGRESS_LABEL" >/dev/null 2>&1 || true
                 gh issue close "$ISSUE" --repo "$REPO" --reason completed >/dev/null 2>&1 || true
+                board_set_status "$ISSUE" "$PROJECT_OPT_DONE"
                 notify.sh "Issue #$ISSUE concluída" "Slice implementada, commitada e empurrada para $WORK_BRANCH. Seguindo." "default"
             else
                 gh issue edit "$ISSUE" --repo "$REPO" --add-label "$TODO_LABEL" --remove-label "$PROGRESS_LABEL" >/dev/null 2>&1 || true
+                board_set_status "$ISSUE" "$PROJECT_OPT_TODO"
                 notify.sh "PRD 12 — falha no push" "Issue #$ISSUE foi implementada mas o push falhou. Parando para você olhar." "urgent"
                 echo "[ralph_loop] push failed for #$ISSUE — stopping."
                 break
@@ -338,6 +370,7 @@ while true; do
 
         BLOCKED)
             gh issue edit "$ISSUE" --repo "$REPO" --add-label "$TODO_LABEL" --remove-label "$PROGRESS_LABEL" >/dev/null 2>&1 || true
+            board_set_status "$ISSUE" "$PROJECT_OPT_TODO"
             notify.sh "PRD 12 — issue bloqueada" "Issue #$ISSUE precisa de uma decisão sua. Veja: $LAST_OUTPUT_FILE" "urgent"
             echo "[ralph_loop] #$ISSUE BLOCKED — stopping for a human."
             break
@@ -345,6 +378,7 @@ while true; do
 
         ERROR|CLI_ERROR|*)
             gh issue edit "$ISSUE" --repo "$REPO" --add-label "$TODO_LABEL" --remove-label "$PROGRESS_LABEL" >/dev/null 2>&1 || true
+            board_set_status "$ISSUE" "$PROJECT_OPT_TODO"
             notify.sh "PRD 12 — ERRO" "Falha inesperada na issue #$ISSUE (STATUS=$LAST_STATUS). Veja: $LAST_OUTPUT_FILE" "urgent"
             echo "[ralph_loop] unrecoverable status '$LAST_STATUS' on #$ISSUE — stopping."
             break
