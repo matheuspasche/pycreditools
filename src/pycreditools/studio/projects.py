@@ -11,7 +11,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from pycreditools import CreditPolicy
+from pycreditools.grouping import GroupingRecipe, RiskGroupResult
 
 from .models import ColumnRoles, PolicyEntry, ProjectBundle, StudioState
 
@@ -114,3 +117,23 @@ def load_project(name: str, directory: Path | str | None = None) -> ProjectBundl
     path = target_dir / f"{name}.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     return from_json_dict(data)
+
+
+def restore_rating_result(bundle: ProjectBundle) -> RiskGroupResult | None:
+    """Reconstruct a recipe-only `RiskGroupResult` from the bundle's `rating_recipe`.
+
+    Returns None when the bundle carries no recipe (session was saved without a
+    fitted rating). The restored object exposes `.recipe` and `.predict()` — the
+    two things Bancada and Deployment need after a load — but `.data` and `.groups`
+    are empty DataFrames because the original fitting data is not serialized.
+    """
+    if bundle.rating_recipe is None:
+        return None
+    recipe = GroupingRecipe.from_dict(bundle.rating_recipe)
+    return RiskGroupResult(
+        data=pd.DataFrame(),
+        groups=pd.DataFrame(),
+        recipe=recipe,
+        n_groups=0,
+        params={},
+    )

@@ -123,6 +123,7 @@ def render_session_actions() -> None:
             state.roles = bundle.roles
             state.policies = studio_projects.restore_policies(bundle)
             state.active_policy = bundle.active_policy
+            state.rating_result = studio_projects.restore_rating_result(bundle)
             state.rating_labels = bundle.rating_labels
             state.scores_em_jogo = list(bundle.scores_em_jogo)
             dataset = bundle.dataset or {}
