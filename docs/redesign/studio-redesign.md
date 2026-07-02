@@ -158,6 +158,11 @@ inadimplência conhecida (base do cálculo)".
   - Value mapping of mis-coded columns (e.g. "pago"/"não pago" → 0/1) — 1.5 ships
     hints + validation only.
   - Manual tier override on the auto-detected comparison base (ADR 0002).
+  - **Reconstrução de regras vigentes (Tier A):** embora o Tier A disponha do score
+    vigente + flag, a v2 não reconstrói as regras a partir do score — o swap usa
+    apenas a flag de aprovação (igual ao Tier B). A reconstrução das regras é future
+    work; o badge/rationale do Tier A descreve o comportamento real, sem prometer
+    reconstrução. (#41)
 
 ## Glossary (terms used above)
 

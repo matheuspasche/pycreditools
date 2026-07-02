@@ -196,8 +196,9 @@ def detect_tier(roles: ColumnRoles, df: pd.DataFrame) -> TierDetection:
         return TierDetection(
             tier="A",
             rationale=(
-                "Score vigente e aprovação atual mapeados: as regras da política vigente "
-                "podem ser reconstruídas e o swap completo fica disponível."
+                "Score vigente e aprovação atual mapeados: o swap completo "
+                "(swap-in / swap-out / keep) é calculado pela flag de aprovação histórica. "
+                "A reconstrução das regras vigentes a partir do score não é realizada nesta versão."
             ),
         )
     if has_approval:

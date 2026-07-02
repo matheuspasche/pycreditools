@@ -30,7 +30,7 @@ configured column roles, **adapting the Bancada** accordingly:
 
 | Tier | Available | Bancada behaviour |
 |---|---|---|
-| **A — Full reproduction** | vigente score + decline reasons + flag | offer to reconstruct the vigente rules; full swap + comparison |
+| **A — Full base** | vigente score + flag | swap completo (swap-in/out/keep) via flag; score vigente disponível para análises futuras |
 | **B — Flags only** | approval flag, no vigente score | swap in/out/keep works; cannot reconstruct rules |
 | **C — No base** | none | standalone / market inference, **no swap**; PD comes from `estimated_default_col` |
 
@@ -45,6 +45,15 @@ automatic; a future override may be added but is not required for v1.
 - Resolves critique **1.2**: segment and several roles become **optional**;
   required roles depend on the detected tier.
 - The Ingestion page must classify the tier and explain it in plain language.
+
+## Implementation note (v2)
+
+Tier A and Tier B use the **same swap mechanism** in `base_outcome` — both rely
+solely on the historical approval flag. The vigente score (available in Tier A)
+is not used to reconstruct the vigente policy rules in v2. **Reconstructing vigente
+rules from the score is deferred to future work** (see redesign spec §Deferred).
+The Tier A badge rationale reflects this: it describes the actual swap-flag behavior
+without promising reconstruction. (#41)
 
 ## Related
 

@@ -86,3 +86,21 @@ def test_validate_role_format_flags_non_numeric_vigente_score():
     warning = validate_role_format("vigente_score", series)
 
     assert warning is not None
+
+
+def test_tier_a_rationale_does_not_promise_rule_reconstruction():
+    """Tier A has score + flag but the studio does NOT reconstruct vigente rules.
+    The rationale must describe what actually happens (swap via approval flag)
+    without promising reconstruction — that is future work. (#41)"""
+    df = pd.DataFrame({"vigente_score": [1, 2, 3], "approved": [1, 0, 1]})
+    roles = ColumnRoles(vigente_score="vigente_score", current_approval_col="approved")
+
+    detection = detect_tier(roles, df)
+
+    assert detection.tier == "A"
+    # The old text promised "podem ser reconstruídas" (can be reconstructed) which
+    # is false — nothing reconstructs the vigente rules today.
+    assert "reconstruídas" not in detection.rationale
+    assert "reconstruir" not in detection.rationale.lower()
+    # Must still say something meaningful about what Tier A actually enables
+    assert detection.rationale
