@@ -812,6 +812,7 @@ def aggravation_game(
     base_bad_rate: float | None,
     *,
     factors: list[float] | None = None,
+    max_factor: float = 10.0,
 ) -> dict[str, Any]:
     """The Bancada's aggravation game (ADR 0001, critique 2.7): "even so, can I still
     approve?". Sweeps the flat stress factor via `run_crash_test`, reads off the
@@ -821,8 +822,11 @@ def aggravation_game(
 
     `base_bad_rate=None` (Tier C, no comparison base) yields no breakeven factor;
     the standalone curve + current default rate are still returned.
+
+    `max_factor` sets the sweep ceiling (default 10×, raised from the old 5× cap).
+    Ignored when `factors` is supplied explicitly.
     """
-    sweep = sorted({*(factors or np.linspace(1.0, 5.0, 25).tolist()), current_factor})
+    sweep = sorted({*(factors or np.linspace(1.0, max_factor, 25).tolist()), current_factor})
     curve = run_crash_test(df, policy, sweep)
     idx = (curve["aggravation_factor"] - current_factor).abs().idxmin()
     breakeven = (

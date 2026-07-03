@@ -37,7 +37,7 @@ from pycreditools.studio.policy_builder import (
     roles_cache_key,
 )
 
-_AGGRAVATION_MIN, _AGGRAVATION_MAX = 1.0, 5.0
+_AGGRAVATION_MIN, _AGGRAVATION_MAX = 1.0, 10.0
 
 _QUADRANT_LABELS = {
     "keep_in": "Keep In",
@@ -355,7 +355,11 @@ def _render_aggravation_game(
         },
         {
             "label": "Fator de breakeven",
-            "value": f"{breakeven:.2f}×" if breakeven is not None else "Não atingido",
+            "value": (
+                f"{breakeven:.2f}×"
+                if breakeven is not None
+                else f"Não atingido (até {_AGGRAVATION_MAX:.0f}×)"
+            ),
         },
     ]
     kpi.kpi_row(kpi_items)
@@ -369,6 +373,11 @@ def _render_aggravation_game(
             else "⚠️ já no ponto de equilíbrio ou além"
         )
         st.caption(f"{verdict} frente à inadimplência da base.")
+    else:
+        st.caption(
+            f"Breakeven não atingido na faixa de 1× a {_AGGRAVATION_MAX:.0f}× — "
+            "a política é robusta ao stress máximo testado."
+        )
 
     st.plotly_chart(
         charts.crash(result["curve"], legacy_bad_rate=base_bad_rate, breakeven=breakeven),

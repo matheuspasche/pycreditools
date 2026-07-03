@@ -90,6 +90,30 @@ def test_aggravation_game_skips_breakeven_when_no_base_bad_rate_is_available(sam
     assert result["base_bad_rate"] is None
 
 
+def test_aggravation_game_default_sweep_reaches_10x(sample_df, roles):
+    """Default sweep must cover up to 10× — previously capped at 5× (issue #43)."""
+    subset = population_filter(sample_df, roles, "Todos").head(800)
+    policy = build_policy(roles, v14_quickfill_rows(subset.columns))
+
+    result = analyses.aggravation_game(subset, policy, current_factor=1.0, base_bad_rate=None)
+
+    assert result["curve"]["aggravation_factor"].max() >= 10.0
+
+
+def test_aggravation_game_max_factor_configurable(sample_df, roles):
+    """max_factor param sets the sweep ceiling (issue #43)."""
+    subset = population_filter(sample_df, roles, "Todos").head(800)
+    policy = build_policy(roles, v14_quickfill_rows(subset.columns))
+
+    result = analyses.aggravation_game(
+        subset, policy, current_factor=1.0, base_bad_rate=None, max_factor=7.0
+    )
+
+    curve_max = result["curve"]["aggravation_factor"].max()
+    assert curve_max >= 7.0
+    assert curve_max < 10.0
+
+
 def test_session_bancada_tradeoff_curve_matches_the_studio_analyses_wrapper_directly(
     sample_df, roles
 ):

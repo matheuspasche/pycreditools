@@ -338,7 +338,7 @@ def _render_stress_row(row: dict[str, Any]) -> None:
     row["factor"] = st.slider(
         "Fator de agravamento",
         1.0,
-        5.0,
+        10.0,
         value=float(row.get("factor", 1.2)),
         step=0.05,
         key=f"stress_factor_{row['id']}",
