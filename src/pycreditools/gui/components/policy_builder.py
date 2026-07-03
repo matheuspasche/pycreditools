@@ -11,7 +11,6 @@ from pycreditools.studio.models import ColumnRoles, PolicyEntry, StudioState
 from pycreditools.studio.policy_builder import (
     DIRECTIONS,
     OPERATORS,
-    angled_rate_variable,
     build_policy,
     clone_rows,
     filter_pass_drop_stats,
@@ -317,11 +316,25 @@ def _render_rate_row(
                 key=f"rate_angled_spread_{row['id']}",
             )
             row["_angled_spread"] = spread
+        saved_direction = row.get("_angled_direction", "gte")
+        dir_index = DIRECTIONS.index(saved_direction) if saved_direction in DIRECTIONS else 0
+        angled_direction = st.selectbox(
+            "Direção do score",
+            DIRECTIONS,
+            index=dir_index,
+            format_func=lambda d: (
+                "≥ (gte) — maior score = melhor" if d == "gte" else "≤ (lte) — menor score = melhor"
+            ),
+            key=f"rate_angled_dir_{row['id']}",
+        )
+        row["_angled_direction"] = angled_direction
+        dir_label = "menor" if angled_direction == "gte" else "maior"
         st.caption(
-            "Piores scores recebem multiplicador maior (mais tomadores). "
+            f"Piores scores ({dir_label} valor) recebem multiplicador maior (mais tomadores). "
             f"Faixa: [{1.0 - spread:.0%} – {1.0 + spread:.0%}] × taxa base."
         )
-        row["variable"] = angled_rate_variable(df, row["_angled_score_col"], spread=spread)
+        # Params stored in row; Expression reconstructed by build_policy(df=...) at assembly time.
+        row["variable"] = None
     else:
         row["_angled_mode"] = False
         row["variable"] = None

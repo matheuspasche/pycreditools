@@ -81,6 +81,36 @@ def make_rate_row(
     }
 
 
+def make_angled_rate_row(
+    *,
+    name: str,
+    base_rate: float,
+    score_col: str,
+    spread: float = 0.4,
+    direction: str = "gte",
+    calibrate: bool = False,
+    row_id: str | None = None,
+) -> dict[str, Any]:
+    """A `Taxa` row with an angled multiplier — stores serializable params, never a live Expression.
+
+    The Expression is reconstructed by ``build_policy`` when ``df`` is supplied.
+    """
+    if direction not in DIRECTIONS:
+        raise ValueError(f"Direção desconhecida: {direction!r}. Use 'gte' ou 'lte'.")
+    return {
+        "id": row_id or new_row_id(),
+        "type": "rate",
+        "name": name,
+        "base_rate": base_rate,
+        "variable": None,
+        "calibrate": calibrate,
+        "_angled_mode": True,
+        "_angled_score_col": score_col,
+        "_angled_spread": spread,
+        "_angled_direction": direction,
+    }
+
+
 def make_stress_row(*, factor: float = 1.2, row_id: str | None = None) -> dict[str, Any]:
     """The (at most one) flat `AggravationStress` row."""
     return {"id": row_id or new_row_id(), "type": "stress", "factor": factor}
@@ -133,6 +163,7 @@ def build_filter_expression(clauses: list[dict[str, Any]]) -> Expression:
 def build_policy(
     roles: ColumnRoles,
     rows: list[dict[str, Any]],
+    df: pd.DataFrame | None = None,
     rating_recipe: Any | None = None,
 ) -> CreditPolicy:
     """Assemble an immutable `CreditPolicy` by chaining builder methods in row order.
@@ -141,6 +172,10 @@ def build_policy(
     builder binds the PD calibration column to that same score so the two can never
     diverge (ADR 0003) — there is no parameter to set `calibration_score_col` on its
     own.
+
+    When ``df`` is supplied, angled rate rows (``_angled_mode=True``) have their
+    ``Expression`` reconstructed from the stored params instead of relying on a live
+    object embedded in the row dict.
     """
     policy = CreditPolicy(
         applicant_id_col=roles.applicant_id_col,
@@ -161,8 +196,16 @@ def build_policy(
             if row["cutoffs"]:
                 score_in_use = list(row["cutoffs"])[-1]
         elif row_type == "rate":
+            variable = row.get("variable")
+            if row.get("_angled_mode") and df is not None:
+                variable = angled_rate_variable(
+                    df,
+                    row["_angled_score_col"],
+                    spread=float(row.get("_angled_spread", 0.4)),
+                    direction=str(row.get("_angled_direction", "gte")),
+                )
             policy = policy.rate(
-                row["name"], row["base_rate"], row.get("variable"), row.get("calibrate", False)
+                row["name"], row["base_rate"], variable, row.get("calibrate", False)
             )
         elif row_type == "stress":
             policy = policy.stress_aggravation(row["factor"])
@@ -315,24 +358,31 @@ def suggested_take_up_rate(df: pd.DataFrame, roles: ColumnRoles) -> float | None
 
 
 def angled_rate_variable(
-    df: pd.DataFrame, score_col: str, *, spread: float = 0.4
+    df: pd.DataFrame, score_col: str, *, spread: float = 0.4, direction: str = "gte"
 ) -> Expression:
-    """An Expression that gives a higher multiplier to applicants with worse (lower) scores.
+    """An Expression that gives a higher multiplier to applicants with worse scores.
 
-    For "gte" direction policies (higher score = better), worse applicants have lower
-    score values and are more likely to accept any offer ("seekers"). The multiplier
-    is linearly inverse-normalized:
+    For ``gte`` direction (higher score = better): worse applicants have lower scores.
+    For ``lte`` direction (lower score = better, e.g. PD/risk): worse applicants have
+    higher scores.
 
-        multiplier = (1 + spread) - 2*spread * (score - min) / (max - min)
+    In both cases the worst-score applicant gets ``1 + spread`` and the best-score
+    applicant gets ``1 - spread``, centered at ``1.0`` at the midpoint of the observed
+    range.  When combined with a ``base_rate`` the engine clips the result to ``[0, 1]``.
 
-    So the worst-score applicant gets ``1 + spread`` and the best-score gets
-    ``1 - spread``, centered at ``1.0`` at the midpoint of the observed range.
-    When combined with a ``base_rate`` the engine clips the result to ``[0, 1]``.
+    ``gte`` formula:  (1 + spread) - 2*spread * normalized
+    ``lte`` formula:  (1 - spread) + 2*spread * normalized
+    where normalized = (score - min) / (max - min) ∈ [0, 1].
     """
+    if direction not in DIRECTIONS:
+        raise ValueError(f"Direção inválida para taxa angular: {direction!r}. Use 'gte' ou 'lte'.")
     lo = float(df[score_col].min())
     hi = float(df[score_col].max())
     span = hi - lo if hi > lo else 1.0
     # normalized ∈ [0, 1]: higher score → closer to 1
     normalized = (col(score_col) - lo) / span
-    # invert: worse score (low) → higher multiplier in [1-spread, 1+spread]
+    if direction == "lte":
+        # lte: higher score = worse → high normalized = high multiplier
+        return (1.0 - spread) + (2.0 * spread) * normalized
+    # gte (default): lower score = worse → low normalized = high multiplier
     return (1.0 + spread) - (2.0 * spread) * normalized

@@ -110,7 +110,7 @@ with builder_col:
 
     rating_recipe = state.rating_result.recipe if state.rating_result is not None else None
     try:
-        policy = build_policy(roles, rows, rating_recipe=rating_recipe)
+        policy = build_policy(roles, rows, df=state.df, rating_recipe=rating_recipe)
     except Exception as exc:  # noqa: BLE001 - surfaced as a friendly error
         st.error(f"Não foi possível montar a política: {exc}")
         st.stop()

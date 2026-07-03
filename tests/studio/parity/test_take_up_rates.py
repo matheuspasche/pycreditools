@@ -4,9 +4,12 @@ Acceptance criteria:
   (a) suggested_take_up_rate computes hired/approved from the data.
   (b) angled_rate_variable gives a higher multiplier for worse (lower) scores.
   (c) two chained rate stages compose multiplicatively on the funnel.
+  (d) angled_rate_variable respects lte direction (issue #47).
+  (e) angled rate row representation is clean/serializable (issue #47).
 """
 
 import dataclasses
+import json
 
 import pytest
 
@@ -14,6 +17,7 @@ from pycreditools.studio.data import population_filter
 from pycreditools.studio.policy_builder import (
     angled_rate_variable,
     build_policy,
+    make_angled_rate_row,
     make_cutoff_row,
     make_rate_row,
     suggested_take_up_rate,
@@ -142,3 +146,123 @@ def test_chained_rates_each_reduce_the_funnel_beyond_the_previous(sample_df, rol
     v2 = float(sim2.data["new_approval"].sum())
     assert v1 < v0, "first rate stage must shrink the funnel"
     assert v2 < v1, "second rate stage must shrink beyond the first"
+
+
+# ---------------------------------------------------------------------------
+# (d) angled rate variable: lte direction — issue #47
+# ---------------------------------------------------------------------------
+
+
+def test_angled_variable_lte_gives_higher_multiplier_for_worse_scores(sample_df, roles):
+    """For direction='lte' (lower=better), higher scores are worse → must get higher multiplier."""
+    score_col = roles.score_cols[-1]
+    expr = angled_rate_variable(sample_df, score_col, direction="lte")
+
+    multipliers = expr.eval(sample_df)
+    sorted_by_score = sample_df[[score_col]].assign(mult=multipliers).sort_values(score_col)
+    # High-score rows (worse for lte) are in the top quartile
+    high_score_mult = sorted_by_score["mult"].iloc[3 * len(sorted_by_score) // 4 :].mean()
+    low_score_mult = sorted_by_score["mult"].iloc[: len(sorted_by_score) // 4].mean()
+    assert high_score_mult > low_score_mult, (
+        "For lte direction, higher-score rows must get a higher multiplier"
+        " (worse score => more seekers)"
+    )
+
+
+def test_angled_variable_lte_spread_bounds(sample_df, roles):
+    """For lte direction, multipliers also fall within [1-spread, 1+spread]."""
+    score_col = roles.score_cols[-1]
+    for spread in (0.2, 0.4):
+        expr = angled_rate_variable(sample_df, score_col, spread=spread, direction="lte")
+        multipliers = expr.eval(sample_df)
+        assert float(multipliers.min()) == pytest.approx(1.0 - spread, abs=1e-6)
+        assert float(multipliers.max()) == pytest.approx(1.0 + spread, abs=1e-6)
+
+
+def test_angled_variable_rejects_unknown_direction(sample_df, roles):
+    """Unknown direction raises ValueError."""
+    with pytest.raises(ValueError, match=r"(?i)dire"):
+        angled_rate_variable(sample_df, roles.score_cols[-1], direction="bogus")
+
+
+# ---------------------------------------------------------------------------
+# (e) angled rate row representation: clean schema — issue #47
+# ---------------------------------------------------------------------------
+
+
+def test_make_angled_rate_row_is_json_serializable(roles):
+    """make_angled_rate_row returns a plain dict with no live Expression objects."""
+    row = make_angled_rate_row(
+        name="Taxa angular",
+        base_rate=0.6,
+        score_col="score_5",
+        spread=0.3,
+        direction="gte",
+    )
+    serialized = json.dumps(row)  # must not raise
+    assert isinstance(serialized, str)
+    assert row["variable"] is None
+    assert row["_angled_mode"] is True
+    assert row["_angled_score_col"] == "score_5"
+    assert row["_angled_spread"] == 0.3
+    assert row["_angled_direction"] == "gte"
+
+
+def test_make_angled_rate_row_lte_direction(roles):
+    """make_angled_rate_row preserves the lte direction in the row schema."""
+    row = make_angled_rate_row(
+        name="Taxa angular lte",
+        base_rate=0.5,
+        score_col="score_5",
+        direction="lte",
+    )
+    assert row["_angled_direction"] == "lte"
+    assert row["type"] == "rate"
+
+
+def test_build_policy_angled_row_with_df_reconstructs_expression(sample_df, roles):
+    """build_policy with an angled rate row and df reconstructs the Expression without crashing."""
+    score_col = roles.score_cols[-1]
+    cutoff_val = float(sample_df[score_col].quantile(0.5))
+    rows = [
+        make_cutoff_row(name="Corte", cutoffs={score_col: cutoff_val}),
+        make_angled_rate_row(name="Taxa angular", base_rate=0.6, score_col=score_col),
+    ]
+    from pycreditools import CreditPolicy
+
+    policy = build_policy(roles, rows, df=sample_df)
+    assert isinstance(policy, CreditPolicy)
+    sim = policy.simulate(sample_df, method="analytical")
+    assert "new_approval" in sim.data.columns
+
+
+def test_build_policy_angled_row_lte_gives_more_approvals_to_high_score(sample_df, roles):
+    """Angled lte policy: high-score (worse-for-lte) applicants get higher rate."""
+    score_col = roles.score_cols[-1]
+    cutoff_val = float(sample_df[score_col].quantile(0.5))
+
+    rows_gte = [
+        make_cutoff_row(name="Corte", cutoffs={score_col: cutoff_val}),
+        make_angled_rate_row(name="Angular gte", base_rate=0.5, score_col=score_col),
+    ]
+    rows_lte = [
+        make_cutoff_row(name="Corte", cutoffs={score_col: cutoff_val}),
+        make_angled_rate_row(
+            name="Angular lte", base_rate=0.5, score_col=score_col, direction="lte"
+        ),
+    ]
+
+    sim_gte = build_policy(roles, rows_gte, df=sample_df).simulate(sample_df, method="analytical")
+    sim_lte = build_policy(roles, rows_lte, df=sample_df).simulate(sample_df, method="analytical")
+
+    # Among the approved-by-cutoff population, join the two simulations and compare
+    # by score band: top half score (gte: better; lte: worse) should have
+    # higher new_approval in lte mode than gte mode
+    merged = sim_gte.data[["new_approval"]].rename(columns={"new_approval": "gte_approval"}).join(
+        sim_lte.data[["new_approval"]].rename(columns={"new_approval": "lte_approval"})
+    )
+    merged[score_col] = sample_df[score_col]
+    high_score = merged[merged[score_col] >= merged[score_col].median()]
+    assert high_score["lte_approval"].mean() > high_score["gte_approval"].mean(), (
+        "lte angled: high-score rows (worse for lte) must get higher approval rate than gte"
+    )
