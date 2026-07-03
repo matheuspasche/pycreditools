@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import string
+import warnings
 from typing import Any
 
 import numpy as np
@@ -19,20 +20,20 @@ from pycreditools import (
     CreditSimResults,
     CutoffStage,
     DeploymentPolicy,
+    GroupingRecipe,
     ModelEvaluator,
     OptimizationResult,
     RiskGroupResult,
-    ScreeningResult,
     TradeoffAnalyzer,
     compare_policies,
     fit_pairwise_risk_groups,
     fit_risk_groups,
-    fit_risk_segments,
     optimize_cutoffs,
     summarize_results,
 )
 
-from .models import ColumnRoles
+from .models import ColumnRoles, OpenMatrix, PolicyScenario, StudioState
+from .policy_builder import build_policy, segment_cutoff_rows
 
 # Absolute PD gap (in DEV vs OOT) above which a tier is flagged as unstable.
 RATING_STABILITY_THRESHOLD = 0.02
@@ -50,24 +51,181 @@ def run_policy_sim(
     return policy.simulate(df, method=method)
 
 
-def policy_kpis(sim: CreditSimResults) -> dict[str, float | None]:
-    """Final approval rate, approved/hired volume, and (if observed) the simulated bad rate."""
-    data = sim.data
+def survivor_population(sim: CreditSimResults) -> pd.DataFrame:
+    """Rows that passed every hard filter/cutoff of the live policy (ADR 0001).
+
+    This is "whoever survives the filters" — the population risk clustering and
+    other downstream readouts must use, instead of the raw base. Independent of
+    any rate stage (take-up): a row counts as a survivor once it clears the last
+    filter/cutoff, even before the take-up draw decides if it is hired.
+    """
+    return sim.data[sim.data["reason"] == "Approved"]
+
+
+# Minimum number of survivors with an observed default required before we attempt
+# a fresh risk-group fit (too few rows → unstable clusters).
+_SURVIVOR_REFIT_MIN_VOLUME = 30
+
+
+def derive_survivor_rating(
+    sim: CreditSimResults,
+    roles: ColumnRoles,
+    *,
+    bins: int = 10,
+    max_groups: int = 5,
+    min_vol_ratio: float = 0.02,
+) -> RiskGroupResult | None:
+    """Re-derive the risk grouping over the survivors of `sim` (ADR 0007, issue #39).
+
+    Called after every Bancada simulation so the risk readouts always reflect the
+    population that actually survived the current filters — never the static recipe
+    from the Risk Grouping page. Returns None when preconditions are unmet (no
+    default col, no score cols, too few survivors with observed defaults, or if
+    the clustering engine raises).
+    """
+    default_col = roles.actual_default_col
+    score_cols = [c for c in (roles.score_cols or []) if c]
+    if not default_col or not score_cols:
+        return None
+
+    survivors = survivor_population(sim)
+    if survivors.empty:
+        return None
+
+    with_defaults = survivors.dropna(subset=[default_col])
+    if len(with_defaults) < _SURVIVOR_REFIT_MIN_VOLUME:
+        return None
+
+    present_scores = [c for c in score_cols if c in with_defaults.columns]
+    if not present_scores:
+        return None
+
+    try:
+        return fit_groups(
+            with_defaults,
+            present_scores,
+            default_col,
+            bins=bins,
+            max_groups=max_groups,
+            min_vol_ratio=min_vol_ratio,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _candidate_outcome(data: pd.DataFrame) -> dict[str, float | None]:
+    """Candidate approval rate + (if observed) simulated bad rate over `data`'s rows."""
     approved_volume = float(data["new_approval"].sum())
     approval_rate = float(data["new_approval"].mean()) if len(data) else 0.0
     bad_rate = None
     if "simulated_default" in data.columns and data["simulated_default"].notna().any():
         weighted = (data["simulated_default"] * data["new_approval"]).sum()
         bad_rate = float(weighted / approved_volume) if approved_volume > 0 else None
-    pre_rate_volume = (
-        float(data["approved_pre_rate"].sum()) if "approved_pre_rate" in data.columns else None
-    )
     return {
         "approval_rate": approval_rate,
         "approved_volume": approved_volume,
         "bad_rate": bad_rate,
-        "pre_rate_volume": pre_rate_volume,
     }
+
+
+def policy_kpis(sim: CreditSimResults) -> dict[str, float | None]:
+    """Final approval rate, approved/hired volume, and (if observed) the simulated bad rate."""
+    data = sim.data
+    outcome = _candidate_outcome(data)
+    pre_rate_volume = (
+        float(data["approved_pre_rate"].sum()) if "approved_pre_rate" in data.columns else None
+    )
+    return {**outcome, "pre_rate_volume": pre_rate_volume}
+
+
+# ── Light business segmentation — cutoffs per segment (ADR 0006, issue #34) ────
+
+
+def run_segmented_sim(
+    df: pd.DataFrame,
+    roles: ColumnRoles,
+    rows: list[dict[str, Any]],
+    score_col: str,
+    segment_cutoffs: dict[str, float],
+    *,
+    direction: str = "gte",
+    method: str = "analytical",
+) -> dict[str, CreditSimResults]:
+    """Simulate each segment value's own cutoff variant on its own slice of `df`
+    (ADR 0006). `roles.segment_col` selects the slice; `segment_cutoff_rows` swaps in
+    each segment's `score_col` cutoff value while every other rule row stays shared.
+    """
+    if not roles.segment_col:
+        raise ValueError("roles.segment_col não está mapeado.")
+    variants = segment_cutoff_rows(rows, score_col, segment_cutoffs, direction)
+    return {
+        segment_value: build_policy(roles, segment_rows).simulate(
+            df[df[roles.segment_col] == segment_value], method=method
+        )
+        for segment_value, segment_rows in variants.items()
+    }
+
+
+def aggregate_funnel(funnels: list[pd.DataFrame]) -> pd.DataFrame:
+    """Sum per-stage `Candidates`/`Passed`/`Rejections` across segment funnels and
+    recompute the rate columns from those sums (ADR 0006) — the Bancada's "aggregate
+    total" alongside the per-segment breakout. Stage order/names follow the first
+    funnel (every segment shares the same rule rows, so stages line up 1:1).
+    """
+    columns = [
+        "Stage", "Candidates", "Passed", "Stage_Pass_Rate", "Cum_Pass_Rate",
+        "Rejections", "Stage_Rej_Rate",
+    ]
+    if not funnels:
+        return pd.DataFrame(columns=columns)
+
+    stage_order = funnels[0]["Stage"].tolist()
+    combined = pd.concat(funnels, ignore_index=True)
+    summed = (
+        combined.groupby("Stage", sort=False)[["Candidates", "Passed", "Rejections"]]
+        .sum()
+        .reindex(stage_order)
+        .reset_index()
+    )
+    total_candidates = summed.loc[summed["Stage"] == "Total", "Candidates"]
+    if total_candidates.empty:
+        warnings.warn(
+            "Etapa 'Total' ausente do funil agregado — provavelmente um segmento sem dados. "
+            "Funil agregado não disponível.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return pd.DataFrame(columns=columns)
+    n_total = float(total_candidates.iloc[0])
+    summed["Stage_Pass_Rate"] = summed["Passed"] / summed["Candidates"]
+    summed["Stage_Rej_Rate"] = summed["Rejections"] / summed["Candidates"]
+    no_stage_rate = summed["Stage"].isin(["Total", "Approved"])
+    summed.loc[no_stage_rate, ["Stage_Pass_Rate", "Stage_Rej_Rate"]] = np.nan
+    summed["Cum_Pass_Rate"] = summed["Passed"] / n_total if n_total > 0 else 0.0
+    return summed[columns]
+
+
+def segment_kpi_table(sims: dict[str, CreditSimResults]) -> pd.DataFrame:
+    """Per-segment approval/bad-rate breakout (ADR 0006): one row per segment value,
+    each segment's own `policy_kpis` over its own cutoff variant and data slice.
+    """
+    rows = [{"segment": segment, **policy_kpis(sim)} for segment, sim in sims.items()]
+    columns = ["segment", "approval_rate", "approved_volume", "bad_rate", "pre_rate_volume"]
+    return pd.DataFrame(rows, columns=columns)
+
+
+def aggregate_segment_kpis(sims: dict[str, CreditSimResults]) -> dict[str, float | None]:
+    """Approval/bad-rate KPIs over every segment's combined data (ADR 0006) — the
+    Bancada's "aggregate total" companion to `segment_kpi_table`'s breakout.
+    """
+    combined = pd.concat([sim.data for sim in sims.values()], ignore_index=True)
+    outcome = _candidate_outcome(combined)
+    pre_rate_volume = (
+        float(combined["approved_pre_rate"].sum())
+        if "approved_pre_rate" in combined.columns
+        else None
+    )
+    return {**outcome, "pre_rate_volume": pre_rate_volume}
 
 
 def evaluate_scores(df: pd.DataFrame, score_cols: list[str], target_col: str) -> dict[str, float]:
@@ -78,6 +236,138 @@ def evaluate_scores(df: pd.DataFrame, score_cols: list[str], target_col: str) ->
 def ks_table(df: pd.DataFrame, score_col: str, target_col: str, bins: int = 10) -> pd.DataFrame:
     """Per-bucket KS/bad-rate table for one score, via `ModelEvaluator.compute_ks_table()`."""
     return ModelEvaluator(df, [score_col], target_col).compute_ks_table(score_col, bins)
+
+
+# Owner rule (ADR 0005): after KS, only 2-3 of the candidate scores are worth the
+# downstream compute (Bancada suggestions, complementarity); the rest stay out.
+MAX_SHORTLISTED_SCORES = 3
+
+
+def select_shortlisted_scores(
+    candidates: list[str], available: list[str], max_count: int = MAX_SHORTLISTED_SCORES
+) -> tuple[list[str], str | None]:
+    """Apply the "scores em jogo" short-list rule (ADR 0005) to a raw selection.
+
+    Dedupes, drops names not in `available` (e.g. stale from a previous dataset), and
+    caps at `max_count`, keeping the first `max_count` valid candidates in order.
+    Returns the resulting selection plus a pt-BR warning when the cap was applied.
+    """
+    valid = [c for c in dict.fromkeys(candidates) if c in available]
+    if len(valid) > max_count:
+        kept = valid[:max_count]
+        warning = (
+            f"Selecione no máximo {max_count} scores em jogo; mantidos os primeiros "
+            f"{max_count}: {', '.join(kept)}."
+        )
+        return kept, warning
+    return valid, None
+
+
+def get_shortlisted_scores(state: StudioState) -> list[str]:
+    """The persisted shortlisted scores (ADR 0005), filtered to scores still
+    present in the current roles — the set downstream slices (Bancada, suggestions,
+    complementarity) should read.
+    """
+    return [s for s in state.shortlisted_scores if s in state.roles.score_cols]
+
+
+# ADR 0004: a new score usually enters matriciated with the vigente score, so the
+# owner must judge complementarity, not isolated KS. Verdict thresholds:
+# - a marginal lift at or above LIFT_SIGNIFICANT means the candidate adds real
+#   discriminatory power on top of the reference, worth matriciating;
+# - below that, a highly correlated (>= CORRELATION_HIGH) and clearly stronger
+#   candidate means the reference adds nothing the candidate doesn't already
+#   capture, so replacing it is simpler than keeping both;
+# - otherwise the candidate is only a marginal, partially-redundant complement,
+#   best used as a secondary repechage filter rather than a full swap or matrix.
+COMPLEMENTARITY_CORRELATION_HIGH = 0.7
+COMPLEMENTARITY_LIFT_SIGNIFICANT = 0.02
+
+
+def combined_ks(
+    df: pd.DataFrame, candidate_score: str, reference_score: str, target_col: str
+) -> float:
+    """KS of the rank-average ensemble of `candidate_score` + `reference_score`.
+
+    A model-free combination (average percentile rank, not fit against
+    `target_col`) so the result reflects genuine joint discriminatory power rather
+    than a value inflated by fitting risk-grouping cells to the very labels being
+    scored. The KS itself is computed by `ModelEvaluator.compute_ks()`.
+    """
+    ensemble = df[[candidate_score, reference_score]].rank(pct=True).sum(axis=1)
+    working = df[[target_col]].copy()
+    working["_ensemble"] = ensemble
+    return ModelEvaluator(working, ["_ensemble"], target_col).compute_ks()["_ensemble"]
+
+
+def complementarity_verdict(
+    correlation: float, marginal_lift: float, ks_candidate: float, ks_reference: float
+) -> str:
+    """The ADR 0004 verdict hint (repechar / matriciar / substituir); see thresholds above."""
+    if marginal_lift >= COMPLEMENTARITY_LIFT_SIGNIFICANT:
+        return "matriciar"
+    if correlation >= COMPLEMENTARITY_CORRELATION_HIGH and ks_candidate > ks_reference:
+        return "substituir"
+    return "repechar"
+
+
+def compute_complementarity(
+    df: pd.DataFrame, candidate_score: str, reference_score: str, target_col: str
+) -> dict[str, float | str]:
+    """Correlation, isolated vs combined KS, marginal lift, and a verdict hint (ADR 0004)
+    for `candidate_score` vs `reference_score` (the vigente/in-use score)."""
+    ks_values = evaluate_scores(df, [candidate_score, reference_score], target_col)
+    correlation = float(df[[candidate_score, reference_score]].corr().iloc[0, 1])
+    ks_pair = combined_ks(df, candidate_score, reference_score, target_col)
+    marginal_lift = ks_pair - ks_values[reference_score]
+    verdict = complementarity_verdict(
+        correlation, marginal_lift, ks_values[candidate_score], ks_values[reference_score]
+    )
+    return {
+        "candidate_score": candidate_score,
+        "reference_score": reference_score,
+        "correlation": correlation,
+        "ks_candidate": ks_values[candidate_score],
+        "ks_reference": ks_values[reference_score],
+        "ks_combined": ks_pair,
+        "marginal_lift": marginal_lift,
+        "verdict": verdict,
+    }
+
+
+def complementarity_table(
+    df: pd.DataFrame, candidate_scores: list[str], reference_score: str, target_col: str
+) -> pd.DataFrame:
+    """One row per `candidate_scores` (excluding `reference_score`) vs `reference_score`."""
+    columns = [
+        "candidate_score",
+        "reference_score",
+        "correlation",
+        "ks_candidate",
+        "ks_reference",
+        "ks_combined",
+        "marginal_lift",
+        "verdict",
+    ]
+    rows = [
+        compute_complementarity(df, candidate, reference_score, target_col)
+        for candidate in candidate_scores
+        if candidate != reference_score
+    ]
+    return pd.DataFrame(rows, columns=columns)
+
+
+def resolve_reference_score(
+    roles: ColumnRoles, ks_ranking: dict[str, float] | pd.Series
+) -> str | None:
+    """The complementarity reference (ADR 0004): `vigente_score` when set and still
+    ranked, else the current KS champion (the contextual in-use score)."""
+    ranking = ks_ranking.to_dict() if isinstance(ks_ranking, pd.Series) else dict(ks_ranking)
+    if roles.vigente_score and roles.vigente_score in ranking:
+        return roles.vigente_score
+    if not ranking:
+        return None
+    return max(ranking, key=ranking.get)
 
 
 def quadrant_table(sim: CreditSimResults) -> pd.DataFrame:
@@ -146,6 +436,203 @@ def swap_in_by_segment(
         aggfunc="sum",
         fill_value=0.0,
     )
+
+
+def _base_outcome(data: pd.DataFrame, roles: ColumnRoles) -> dict[str, float | None] | None:
+    """Vigente (historical) approval rate + observed bad rate over `data`'s rows.
+    `None` when no base is mapped (Tier C) or the mapped column is absent from `data`.
+    """
+    if not roles.current_approval_col or roles.current_approval_col not in data.columns:
+        return None
+    raw = data[roles.current_approval_col]
+    if raw.dtype == object or not raw.dropna().isin([0, 1]).all():
+        warnings.warn(
+            f"Coluna de aprovação '{roles.current_approval_col}' contém valores fora de {{0, 1}}. "
+            "Taxa da base não calculada — revise o encoding da coluna de aprovação.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return None
+    approval_col = raw.fillna(0)
+    approval_rate = float(approval_col.mean())
+    bad_rate = None
+    if roles.actual_default_col and roles.actual_default_col in data.columns:
+        observed = data.loc[approval_col == 1, roles.actual_default_col]
+        if observed.notna().any():
+            bad_rate = float(observed.mean())
+    return {"approval_rate": approval_rate, "bad_rate": bad_rate}
+
+
+def base_outcome(sim: CreditSimResults, roles: ColumnRoles) -> dict[str, float | None] | None:
+    """Vigente (historical) approval rate + observed bad rate, read straight off
+    `sim.data`'s approval flag and actual default (ADR 0002 Tier A/B) — no rule
+    reconstruction, no second simulation. `None` when no base is mapped (Tier C),
+    signalling the caller to hide the comparison-vs-base readout entirely.
+    """
+    return _base_outcome(sim.data, roles)
+
+
+def compare_vs_base(
+    sim: CreditSimResults, roles: ColumnRoles, tier: str
+) -> dict[str, Any]:
+    """The Bancada's comparison-vs-base readout (ADR 0001 bullets 5-7, ADR 0002),
+    tier-adapted.
+
+    Tier A/B (`current_approval_col` mapped): the candidate's approval/default
+    rate delta vs the vigente decision (`base_outcome`), plus the
+    swap-in/out/keep-in/keep-out breakdown via the engine's existing swap
+    classification (`quadrant_table`) — neither is reimplemented here.
+    Tier C (no base): no delta, no quadrants — only the candidate's standalone
+    result, whose PD comes from `estimated_default_col`.
+    """
+    candidate = policy_kpis(sim)
+    if tier == "C":
+        return {
+            "tier": tier,
+            "candidate": candidate,
+            "base": None,
+            "delta": None,
+            "quadrants": None,
+        }
+
+    base = base_outcome(sim, roles)
+    if base is None:
+        return {
+            "tier": tier,
+            "candidate": candidate,
+            "base": None,
+            "delta": None,
+            "quadrants": quadrant_table(sim),
+        }
+    bad_delta = (
+        candidate["bad_rate"] - base["bad_rate"]
+        if candidate["bad_rate"] is not None and base["bad_rate"] is not None
+        else None
+    )
+    delta = {
+        "approval_rate": candidate["approval_rate"] - base["approval_rate"],
+        "bad_rate": bad_delta,
+    }
+    return {
+        "tier": tier,
+        "candidate": candidate,
+        "base": base,
+        "delta": delta,
+        "quadrants": quadrant_table(sim),
+    }
+
+
+def risk_tier_distribution(
+    sim: CreditSimResults,
+    rating_result: RiskGroupResult | None,
+    rating_labels: dict[int, str] | None,
+    rating_col: str = "Rating",
+) -> pd.DataFrame:
+    """Volume + bad-rate per rating tier x swap group (issue #33 depth): swap-in/out
+    and keep-in, using the rating recipe from Risk Grouping (ADR 0004) over the
+    engine's own swap classification (`summarize_results`, grouped by `rating_col`)
+    — no swap/bad-rate math is reimplemented here.
+
+    Empty (with the expected columns) when no rating result is fitted yet, or the
+    simulation has no base mapped (Tier C, no swap scenarios to break down) — the
+    caller shows a friendly pt-BR note in either case instead of crashing.
+    """
+    columns = [rating_col, "scenario", "Applicants", "Approved", "Hired", "Bad_Rate"]
+    if rating_result is None or sim.metadata["policy"].get("current_approval_col") is None:
+        return pd.DataFrame(columns=columns)
+
+    attached = attach_rating(sim.data, rating_result, rating_labels, rating_col=rating_col)
+    sim_with_rating = dataclasses.replace(sim, data=attached)
+    table = summarize_results(sim_with_rating, by=rating_col)
+    relevant = table[table["scenario"].isin(("swap_in", "swap_out", "keep_in"))]
+    return relevant.sort_values([rating_col, "scenario"]).reset_index(drop=True)
+
+
+def policy_vintage_comparison(sim: CreditSimResults, roles: ColumnRoles) -> pd.DataFrame:
+    """Candidate vs. base approval/default evolution by vintage (issue #33 depth):
+    the same `(time_col, mean)` grouping the engine's vintage-stability primitive
+    (`plot_vintage_stability`) uses for ratings, applied instead to the candidate's
+    outcome and, when a base is mapped (Tier A/B), the vigente outcome — so the
+    Bancada can chart how the two decisions diverge over time.
+
+    Empty when `roles.time_col` is unset or absent from `sim.data`.
+    """
+    time_col = roles.time_col
+    data = sim.data
+    columns = [time_col or "period", "series", "approval_rate", "bad_rate"]
+    if not time_col or time_col not in data.columns:
+        return pd.DataFrame(columns=columns)
+
+    rows = []
+    for period, group in data.groupby(time_col):
+        candidate = _candidate_outcome(group)
+        rows.append(
+            {
+                time_col: period,
+                "series": "candidate",
+                "approval_rate": candidate["approval_rate"],
+                "bad_rate": candidate["bad_rate"],
+            }
+        )
+        base = _base_outcome(group, roles)
+        if base is not None:
+            rows.append(
+                {
+                    time_col: period,
+                    "series": "base",
+                    "approval_rate": base["approval_rate"],
+                    "bad_rate": base["bad_rate"],
+                }
+            )
+    return pd.DataFrame(rows, columns=columns).sort_values([time_col, "series"]).reset_index(
+        drop=True
+    )
+
+
+def exposure_kpis(
+    sim: CreditSimResults,
+    roles: ColumnRoles,
+    tier: str,
+    *,
+    comparison: dict[str, Any] | None = None,
+) -> dict[str, float | None]:
+    """Risk-exposure KPI (issue #33 depth): the candidate's expected bad volume
+    (`bad_rate x approved_volume`, already computed by `policy_kpis` — no new math),
+    plus the base's for Tier A/B so the delta reads as one clear exposure number
+    instead of two separate rates. `base_bad_volume`/`delta` stay `None` in Tier C.
+
+    Pass `comparison` (the result of `compare_vs_base`) to reuse already-computed
+    candidate/base KPIs and avoid a redundant `policy_kpis`/`base_outcome` call.
+    """
+    if comparison is not None:
+        candidate = comparison["candidate"]
+        precomputed_base = comparison.get("base")
+    else:
+        candidate = policy_kpis(sim)
+        precomputed_base = None
+
+    candidate_bad_volume = (
+        candidate["bad_rate"] * candidate["approved_volume"]
+        if candidate["bad_rate"] is not None
+        else None
+    )
+    result: dict[str, float | None] = {
+        "candidate_bad_volume": candidate_bad_volume,
+        "base_bad_volume": None,
+        "delta": None,
+    }
+    if tier == "C":
+        return result
+
+    base = precomputed_base if comparison is not None else base_outcome(sim, roles)
+    if base is None or base["bad_rate"] is None or not roles.current_approval_col:
+        return result
+    base_volume = float(sim.data[roles.current_approval_col].fillna(0).sum())
+    base_bad_volume = base["bad_rate"] * base_volume
+    result["base_bad_volume"] = base_bad_volume
+    if candidate_bad_volume is not None:
+        result["delta"] = candidate_bad_volume - base_bad_volume
+    return result
 
 
 def compare_with_baseline(sim_new: CreditSimResults, sim_old: CreditSimResults) -> dict[str, Any]:
@@ -303,6 +790,70 @@ def breakeven_aggravation_factor(
     return float(prev["aggravation_factor"] + frac * factor_gap)
 
 
+def current_cutoff_value(policy: CreditPolicy, score_col: str) -> float | None:
+    """The cutoff `policy` currently applies to `score_col`, or `None` if unset."""
+    for stage in policy.stages:
+        if isinstance(stage, CutoffStage) and score_col in stage.cutoffs:
+            return float(stage.cutoffs[score_col])
+    return None
+
+
+def tradeoff_curve_for_score_in_use(
+    df: pd.DataFrame, policy: CreditPolicy, score_col: str, steps: int = 25
+) -> pd.DataFrame:
+    """The Bancada's live "drag the cutoff" trade-off curve (ADR 0001, critique 2.3).
+
+    Sweeps `score_col`'s cutoff via `cutoff_range` + `run_tradeoff` (no separate page,
+    no reimplemented sweep) and flags the row closest to `policy`'s currently applied
+    cutoff for `score_col` as `is_current` — the point the chart highlights as the
+    user drags the slider. No row is flagged when `score_col` has no active cutoff.
+    """
+    values = cutoff_range(df, score_col, steps)
+    result = run_tradeoff(df, policy, score_col, values)
+    result["is_current"] = False
+    current = current_cutoff_value(policy, score_col)
+    if current is not None and not result.empty:
+        idx = (result["Cutoff"] - current).abs().idxmin()
+        result.loc[idx, "is_current"] = True
+    return result
+
+
+def aggravation_game(
+    df: pd.DataFrame,
+    policy: CreditPolicy,
+    current_factor: float,
+    base_bad_rate: float | None,
+    *,
+    factors: list[float] | None = None,
+    max_factor: float = 10.0,
+) -> dict[str, Any]:
+    """The Bancada's aggravation game (ADR 0001, critique 2.7): "even so, can I still
+    approve?". Sweeps the flat stress factor via `run_crash_test`, reads off the
+    candidate's default rate at `current_factor`, and finds the break-even factor
+    (`breakeven_aggravation_factor`) at which it reaches `base_bad_rate` — absorbing
+    the Crash Test page rather than reimplementing its sweep.
+
+    `base_bad_rate=None` (Tier C, no comparison base) yields no breakeven factor;
+    the standalone curve + current default rate are still returned.
+
+    `max_factor` sets the sweep ceiling (default 10×, raised from the old 5× cap).
+    Ignored when `factors` is supplied explicitly.
+    """
+    sweep = sorted({*(factors or np.linspace(1.0, max_factor, 25).tolist()), current_factor})
+    curve = run_crash_test(df, policy, sweep)
+    idx = (curve["aggravation_factor"] - current_factor).abs().idxmin()
+    breakeven = (
+        breakeven_aggravation_factor(curve, base_bad_rate) if base_bad_rate is not None else None
+    )
+    return {
+        "curve": curve,
+        "current_factor": current_factor,
+        "current_default_rate": float(curve.loc[idx, "default_rate"]),
+        "base_bad_rate": base_bad_rate,
+        "breakeven_factor": breakeven,
+    }
+
+
 def tradeoff_scenarios(
     res_s: pd.DataFrame, legacy_approval_rate: float, legacy_bad_rate: float
 ) -> dict[str, pd.Series]:
@@ -356,6 +907,63 @@ def run_optimization(
         percentiles=percentiles,
         cutoff_ranges=cutoff_ranges,
     )
+
+
+def suggest_scenarios(
+    df: pd.DataFrame,
+    roles: ColumnRoles,
+    shortlisted_scores: list[str],
+    *,
+    cutoff_steps: int = 8,
+    target_default_rate: float = 0.05,
+    min_approval_rate: float = 0.3,
+    percentiles: tuple[float, float] | None = (0.05, 0.95),
+) -> list[PolicyScenario]:
+    """Suggest-first Bancada entry point (ADR 0005): 3 scenarios — conservador /
+    neutro / agressivo — picked off an `optimize_cutoffs` grid run **only** on
+    `shortlisted_scores`, so heavy compute never touches the other candidate scores.
+    """
+    if not shortlisted_scores:
+        raise ValueError("shortlisted_scores não pode ser vazio.")
+    base_policy = CreditPolicy(
+        applicant_id_col=roles.applicant_id_col,
+        score_cols=tuple(shortlisted_scores),
+        current_approval_col=roles.current_approval_col,
+        actual_default_col=roles.actual_default_col,
+        time_col=roles.time_col,
+        current_hired_col=roles.current_hired_col,
+        estimated_default_col=roles.estimated_default_col,
+    )
+    result = run_optimization(
+        df,
+        base_policy,
+        cutoff_steps=cutoff_steps,
+        target_default_rate=target_default_rate,
+        min_approval_rate=min_approval_rate,
+        percentiles=percentiles,
+    )
+    grid = result.all_results
+    conservative_row = grid.loc[grid["overall_default_rate"].idxmin()]
+    aggressive_row = grid.loc[grid["overall_approval_rate"].idxmax()]
+    mid_approval = (
+        conservative_row["overall_approval_rate"] + aggressive_row["overall_approval_rate"]
+    ) / 2
+    neutral_row = grid.loc[(grid["overall_approval_rate"] - mid_approval).abs().idxmin()]
+
+    picks = {
+        "conservador": conservative_row,
+        "neutro": neutral_row,
+        "agressivo": aggressive_row,
+    }
+    return [
+        PolicyScenario(
+            name=name,
+            cutoffs={score: float(row[score]) for score in shortlisted_scores},
+            approval_rate=float(row["overall_approval_rate"]),
+            default_rate=float(row["overall_default_rate"]),
+        )
+        for name, row in picks.items()
+    ]
 
 
 def find_equivalent(
@@ -434,6 +1042,147 @@ def fit_pairwise_groups(
         max_crossings=max_crossings,
         method=method,
         oot_date=oot_date,
+    )
+
+
+def _quantile_breaks(series: pd.Series, bins: int) -> list[float]:
+    quantiles = np.linspace(0, 1, bins + 1)
+    breaks = np.unique(np.quantile(series.dropna(), quantiles))
+    if len(breaks) < 2:
+        raise ValueError("Not enough variance to bin this score into quantiles.")
+    return breaks.tolist()
+
+
+def build_open_matrix(
+    data: pd.DataFrame,
+    score1: str,
+    score2: str,
+    default_col: str,
+    bins: int = 5,
+) -> OpenMatrix:
+    """The open score x score quantile grid (critique 2.5 / ADR 0004).
+
+    Every `bins x bins` cell is present, even ones with zero volume, each carrying
+    its volume and default rate — the matriciation construction surface, shown
+    open rather than only clustered.
+    """
+    breaks1 = _quantile_breaks(data[score1], bins)
+    breaks2 = _quantile_breaks(data[score2], bins)
+    bin1 = np.digitize(data[score1], breaks1[1:-1])
+    bin2 = np.digitize(data[score2], breaks2[1:-1])
+
+    work = pd.DataFrame({"bin1": bin1, "bin2": bin2, "_target": data[default_col].to_numpy()})
+    observed = (
+        work.groupby(["bin1", "bin2"])
+        .agg(volume=("_target", "count"), pd=("_target", "mean"))
+        .reset_index()
+    )
+
+    full_grid = pd.MultiIndex.from_product(
+        [range(len(breaks1) - 1), range(len(breaks2) - 1)], names=["bin1", "bin2"]
+    ).to_frame(index=False)
+    cells = full_grid.merge(observed, on=["bin1", "bin2"], how="left")
+    cells["volume"] = cells["volume"].fillna(0).astype(int)
+
+    return OpenMatrix(score1=score1, score2=score2, breaks1=breaks1, breaks2=breaks2, cells=cells)
+
+
+def default_cell_groups(matrix: OpenMatrix) -> dict[tuple[int, int], int]:
+    """Starting-point grouping before any manual edit: each cell is its own group."""
+    return {
+        (int(row.bin1), int(row.bin2)): i + 1
+        for i, row in enumerate(matrix.cells.itertuples())
+    }
+
+
+def recipe_to_cell_groups(recipe: GroupingRecipe) -> dict[tuple[int, int], int]:
+    """Decode a 2-score recipe's `cluster_mapping` into the matrix's cell-group grid.
+
+    The "run the algorithm as a starting point to refine" path (ADR 0004): seeds the
+    editable grid with `fit_pairwise_risk_groups`'s clustering before manual edits.
+    """
+    cell_groups: dict[tuple[int, int], int] = {}
+    for combo_key, group_id in (recipe.cluster_mapping or {}).items():
+        bin1_str, bin2_str = combo_key.split("-")
+        cell_groups[(int(bin1_str), int(bin2_str))] = int(group_id)
+    return cell_groups
+
+
+def cell_groups_to_grid(
+    cell_groups: dict[tuple[int, int], int], bins1: int, bins2: int
+) -> pd.DataFrame:
+    """`cell_groups` as a `bins1 x bins2` grid, for an Excel-like editable table."""
+    grid = pd.DataFrame(index=range(bins1), columns=range(bins2), dtype="Int64")
+    for (bin1, bin2), group_id in cell_groups.items():
+        grid.loc[bin1, bin2] = group_id
+    return grid
+
+
+def grid_to_cell_groups(grid: pd.DataFrame) -> dict[tuple[int, int], int]:
+    """Inverse of `cell_groups_to_grid`: reads the hand-edited grid back into a mapping."""
+    cell_groups: dict[tuple[int, int], int] = {}
+    for bin1 in grid.index:
+        for bin2 in grid.columns:
+            value = grid.loc[bin1, bin2]
+            if pd.notna(value):
+                cell_groups[(int(bin1), int(bin2))] = int(value)
+    return cell_groups
+
+
+def open_matrix_pivot(matrix: OpenMatrix, value: str = "pd") -> pd.DataFrame:
+    """`matrix.cells[value]` pivoted to `bin1 x bin2`, for a heatmap of volume or PD."""
+    return matrix.cells.pivot_table(index="bin1", columns="bin2", values=value)
+
+
+def apply_manual_grouping(
+    matrix: OpenMatrix,
+    data: pd.DataFrame,
+    default_col: str,
+    cell_groups: dict[tuple[int, int], int],
+) -> RiskGroupResult:
+    """Turn a hand-edited `cell_groups` mapping over `matrix` into a `RiskGroupResult`.
+
+    The studio-side counterpart to the engine's algorithmic clustering (ADR 0004 /
+    critique 2.5): every cell of `matrix`'s grid must be assigned a group for the
+    resulting recipe to be valid (`GroupingRecipe.predict()` would otherwise leave
+    unmapped cells as NaN). The result drops into `StudioState.rating_result` like
+    any `fit_risk_groups()` output, feeding the Bancada cutoffs the same way.
+    """
+    grid_cells = {(int(row.bin1), int(row.bin2)) for row in matrix.cells.itertuples()}
+    missing = grid_cells - cell_groups.keys()
+    if missing:
+        raise ValueError(f"Faltam grupos para as células: {sorted(missing)}")
+
+    cluster_mapping = {
+        f"{bin1}-{bin2}": int(group_id) for (bin1, bin2), group_id in cell_groups.items()
+    }
+
+    full_df = data.copy()
+    bin1 = np.digitize(full_df[matrix.score1], matrix.breaks1[1:-1])
+    bin2 = np.digitize(full_df[matrix.score2], matrix.breaks2[1:-1])
+    combo_key = pd.Series(bin1, index=full_df.index).astype(str) + "-" + pd.Series(
+        bin2, index=full_df.index
+    ).astype(str)
+    full_df["risk_rating"] = combo_key.map(cluster_mapping)
+
+    groups_summary = (
+        full_df.groupby("risk_rating")
+        .agg(volume=(default_col, "count"), pd=(default_col, "mean"))
+        .reset_index()
+    )
+
+    recipe = GroupingRecipe(
+        score_cols=[matrix.score1, matrix.score2],
+        quantile_breaks={matrix.score1: matrix.breaks1, matrix.score2: matrix.breaks2},
+        cluster_mapping=cluster_mapping,
+    )
+
+    return RiskGroupResult(
+        data=full_df,
+        groups=groups_summary,
+        recipe=recipe,
+        n_groups=len(set(cell_groups.values())),
+        params={"bins1": len(matrix.breaks1) - 1, "bins2": len(matrix.breaks2) - 1, "manual": True},
     )
 
 
@@ -533,113 +1282,6 @@ def recipe_breaks_table(result: RiskGroupResult, labels: dict[int, str] | None) 
     return out.drop(columns="risk_rating").sort_values("Rating").reset_index(drop=True)
 
 
-def screening_candidate_columns(df: pd.DataFrame, roles: ColumnRoles) -> list[str]:
-    """Numeric columns eligible for screening: excludes ids, scores, and role/target columns."""
-    excluded = {
-        roles.applicant_id_col,
-        roles.actual_default_col,
-        roles.current_approval_col,
-        roles.current_hired_col,
-        roles.time_col,
-        roles.estimated_default_col,
-        *roles.score_cols,
-    }
-    return [
-        c
-        for c in df.columns
-        if c not in excluded
-        and pd.api.types.is_numeric_dtype(df[c])
-        and df[c].nunique(dropna=True) > 1
-    ]
-
-
-def existing_rating_columns(df: pd.DataFrame, max_unique: int = 12) -> list[str]:
-    """Low-cardinality columns usable as an already-existing base rating (`base_risk_col`)."""
-    out = []
-    for c in df.columns:
-        if pd.api.types.is_float_dtype(df[c]):
-            continue
-        nunique = df[c].nunique(dropna=True)
-        if 1 < nunique <= max_unique:
-            out.append(c)
-    return out
-
-
-def screen_segments(
-    df: pd.DataFrame,
-    base_risk_col: str,
-    candidate_cols: list[str],
-    default_col: str,
-    *,
-    n_bins: int = 10,
-    method: str = "quantiles",
-    parallel: bool = False,
-) -> ScreeningResult:
-    """Screen candidates for sub-segments inside `base_risk_col`, via `fit_risk_segments()`."""
-    return fit_risk_segments(
-        df,
-        base_risk_col,
-        candidate_cols,
-        default_col,
-        n_bins=n_bins,
-        method=method,
-        parallel=parallel,
-    )
-
-
-def screening_iv_table(result: ScreeningResult) -> pd.DataFrame:
-    """Total IV (summed across base tiers) per candidate variable, sorted descending."""
-    if result.metrics.empty:
-        return pd.DataFrame(columns=["variable", "iv", "volume"])
-    return (
-        result.metrics.groupby("variable")
-        .agg(iv=("iv", "sum"), volume=("tier_vol", "sum"))
-        .reset_index()
-        .sort_values("iv", ascending=False)
-        .reset_index(drop=True)
-    )
-
-
-def screening_low_coverage_variables(
-    result: ScreeningResult, candidate_cols: list[str]
-) -> list[str]:
-    """Candidates with no tier boundaries at all — too few unique values / rows in every tier."""
-    return [
-        c for c in candidate_cols if not result.recipes.get(c) or not result.recipes[c].boundaries
-    ]
-
-
-def screening_detail_table(
-    result: ScreeningResult,
-    df: pd.DataFrame,
-    variable: str,
-    base_risk_col: str,
-    default_col: str,
-) -> pd.DataFrame:
-    """Bad rate + volume per (base tier x sub-segment) for `variable`, via `.predict()`."""
-    sub_col = f"{variable}_sub"
-    predicted = result.predict(df, variable, base_risk_col)
-    grouped = (
-        predicted.dropna(subset=[default_col, sub_col])
-        .groupby([base_risk_col, sub_col])[default_col]
-        .agg(bad_rate="mean", volume="count")
-        .reset_index()
-        .rename(columns={sub_col: "Subsegmento"})
-        .sort_values([base_risk_col, "Subsegmento"])
-        .reset_index(drop=True)
-    )
-    return grouped
-
-
-def screening_heatmap_table(
-    detail_table: pd.DataFrame, base_risk_col: str, *, value_col: str = "bad_rate"
-) -> pd.DataFrame:
-    """Pivot `screening_detail_table` into a `base_risk_col x Subsegmento` matrix for charts."""
-    if detail_table.empty:
-        return pd.DataFrame()
-    return detail_table.pivot(index=base_risk_col, columns="Subsegmento", values=value_col)
-
-
 def deployment_cache_key(dep: DeploymentPolicy) -> str:
     """A stable, hashable cache key for a `DeploymentPolicy` (its serialized `to_dict()`)."""
     return json.dumps(dep.to_dict(), sort_keys=True, default=str)
@@ -686,25 +1328,3 @@ def rejection_reasons(scored: pd.DataFrame, reason_col: str = "reason") -> pd.Da
     return counts.sort_values("volume", ascending=False).reset_index(drop=True)
 
 
-def screening_boundaries_table(result: ScreeningResult, variable: str) -> pd.DataFrame:
-    """Sub-segment value ranges per base tier, decoded from the variable's `ScreeningRecipe`."""
-    if variable not in result.recipes:
-        return pd.DataFrame(columns=["Tier", "Subsegmento", "Min", "Max"])
-    recipe = result.recipes[variable]
-    rows = []
-    for tier, breaks in recipe.boundaries.items():
-        sub_bins: dict[int, list[int]] = {}
-        for bin_idx, sub_id in recipe.sub_mappings.get(tier, {}).items():
-            sub_bins.setdefault(sub_id, []).append(bin_idx)
-        for sub_id, bin_idxs in sub_bins.items():
-            rows.append(
-                {
-                    "Tier": tier,
-                    "Subsegmento": sub_id,
-                    "Min": breaks[min(bin_idxs)],
-                    "Max": breaks[max(bin_idxs) + 1],
-                }
-            )
-    if not rows:
-        return pd.DataFrame(columns=["Tier", "Subsegmento", "Min", "Max"])
-    return pd.DataFrame(rows).sort_values(["Tier", "Subsegmento"]).reset_index(drop=True)

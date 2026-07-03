@@ -108,6 +108,60 @@ def frontier(
     return _apply_layout(fig, "Fronteira eficiente")
 
 
+def cutoff_tradeoff(
+    df: pd.DataFrame,
+    *,
+    score_col: str,
+    cutoff_col: str = "Cutoff",
+    approval_col: str = "approval_rate",
+    default_col: str = "default_rate",
+) -> go.Figure:
+    """Drag-the-cutoff trade-off curve (ADR 0001, critique 2.3): approval rate and
+    default rate vs `score_col`'s cutoff, on a shared x-axis with two y-scales. A
+    dashed vline marks the policy's current cutoff when `df` has an `is_current` flag.
+    """
+    fig = go.Figure()
+    if not df.empty:
+        ordered = df.sort_values(cutoff_col)
+        fig.add_trace(
+            go.Scatter(
+                x=ordered[cutoff_col],
+                y=ordered[approval_col],
+                mode="lines+markers",
+                name="Taxa de aprovação",
+                line={"color": ACCENT},
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=ordered[cutoff_col],
+                y=ordered[default_col],
+                mode="lines+markers",
+                name="Inadimplência",
+                line={"color": DANGER},
+                yaxis="y2",
+            )
+        )
+        if "is_current" in df.columns and df["is_current"].any():
+            current_cutoff = float(df.loc[df["is_current"], cutoff_col].iloc[0])
+            fig.add_vline(
+                x=current_cutoff,
+                line={"color": TEXT_DIM, "dash": "dash"},
+                annotation_text="Corte atual",
+            )
+    fig.update_layout(
+        xaxis_title=f"Corte ({score_col})",
+        yaxis={"title": "Taxa de aprovação", "tickformat": ".0%"},
+        yaxis2={
+            "title": "Inadimplência",
+            "tickformat": ".0%",
+            "overlaying": "y",
+            "side": "right",
+        },
+    )
+    return _apply_layout(fig, "Trade-off do corte")
+
+
 def funnel(df: pd.DataFrame, *, stage_col: str = "stage", count_col: str = "n") -> go.Figure:
     """Policy funnel (volume per stage)."""
     fig = go.Figure()

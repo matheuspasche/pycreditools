@@ -7,6 +7,7 @@ dicts (so they survive `st.session_state` reruns); never user-typed Python.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import uuid
 from collections.abc import Iterable
@@ -80,6 +81,36 @@ def make_rate_row(
     }
 
 
+def make_angled_rate_row(
+    *,
+    name: str,
+    base_rate: float,
+    score_col: str,
+    spread: float = 0.4,
+    direction: str = "gte",
+    calibrate: bool = False,
+    row_id: str | None = None,
+) -> dict[str, Any]:
+    """A `Taxa` row with an angled multiplier — stores serializable params, never a live Expression.
+
+    The Expression is reconstructed by ``build_policy`` when ``df`` is supplied.
+    """
+    if direction not in DIRECTIONS:
+        raise ValueError(f"Direção desconhecida: {direction!r}. Use 'gte' ou 'lte'.")
+    return {
+        "id": row_id or new_row_id(),
+        "type": "rate",
+        "name": name,
+        "base_rate": base_rate,
+        "variable": None,
+        "calibrate": calibrate,
+        "_angled_mode": True,
+        "_angled_score_col": score_col,
+        "_angled_spread": spread,
+        "_angled_direction": direction,
+    }
+
+
 def make_stress_row(*, factor: float = 1.2, row_id: str | None = None) -> dict[str, Any]:
     """The (at most one) flat `AggravationStress` row."""
     return {"id": row_id or new_row_id(), "type": "stress", "factor": factor}
@@ -98,6 +129,23 @@ def v14_quickfill_rows(columns: Iterable[str]) -> list[dict[str, Any]]:
         for spec in V14_HARD_FILTERS
         if spec["column"] in available
     ]
+
+
+def _mask_for_operator(series: pd.Series, operator: str, value: object) -> pd.Series:
+    """Apply a comparison operator to a pandas Series; raises on unknown operator."""
+    if operator == ">=":
+        return series >= value
+    if operator == ">":
+        return series > value
+    if operator == "<=":
+        return series <= value
+    if operator == "<":
+        return series < value
+    if operator == "==":
+        return series == value
+    if operator == "!=":
+        return series != value
+    raise ValueError(f"Operador desconhecido: {operator}")
 
 
 def build_clause_expression(clause: dict[str, Any]) -> Expression:
@@ -132,9 +180,20 @@ def build_filter_expression(clauses: list[dict[str, Any]]) -> Expression:
 def build_policy(
     roles: ColumnRoles,
     rows: list[dict[str, Any]],
+    df: pd.DataFrame | None = None,
     rating_recipe: Any | None = None,
 ) -> CreditPolicy:
-    """Assemble an immutable `CreditPolicy` by chaining builder methods in row order."""
+    """Assemble an immutable `CreditPolicy` by chaining builder methods in row order.
+
+    The score-in-use is whichever score the most recent `Cutoff` row cuts on; the
+    builder binds the PD calibration column to that same score so the two can never
+    diverge (ADR 0003) — there is no parameter to set `calibration_score_col` on its
+    own.
+
+    When ``df`` is supplied, angled rate rows (``_angled_mode=True``) have their
+    ``Expression`` reconstructed from the stored params instead of relying on a live
+    object embedded in the row dict.
+    """
     policy = CreditPolicy(
         applicant_id_col=roles.applicant_id_col,
         score_cols=tuple(roles.score_cols),
@@ -144,15 +203,26 @@ def build_policy(
         current_hired_col=roles.current_hired_col,
         estimated_default_col=roles.estimated_default_col,
     )
+    score_in_use: str | None = None
     for row in rows:
         row_type = row["type"]
         if row_type == "filter":
             policy = policy.filter(row["name"], build_filter_expression(row["clauses"]))
         elif row_type == "cutoff":
             policy = policy.cutoff(row["name"], dict(row["cutoffs"]), row.get("direction", "gte"))
+            if row["cutoffs"]:
+                score_in_use = list(row["cutoffs"])[-1]
         elif row_type == "rate":
+            variable = row.get("variable")
+            if row.get("_angled_mode") and df is not None:
+                variable = angled_rate_variable(
+                    df,
+                    row["_angled_score_col"],
+                    spread=float(row.get("_angled_spread", 0.4)),
+                    direction=str(row.get("_angled_direction", "gte")),
+                )
             policy = policy.rate(
-                row["name"], row["base_rate"], row.get("variable"), row.get("calibrate", False)
+                row["name"], row["base_rate"], variable, row.get("calibrate", False)
             )
         elif row_type == "stress":
             policy = policy.stress_aggravation(row["factor"])
@@ -160,6 +230,8 @@ def build_policy(
             raise ValueError(f"Tipo de regra desconhecido: {row_type}")
     if rating_recipe is not None:
         policy = policy.with_rating(rating_recipe)
+    if score_in_use is not None:
+        policy = policy.with_calibration(score_col=score_in_use)
     return policy
 
 
@@ -183,10 +255,7 @@ def legacy_cutoff_policy(
 def apply_cutoff_to_rows(
     rows: list[dict[str, Any]], score_col: str, value: float, direction: str = "gte"
 ) -> list[dict[str, Any]]:
-    """Update the existing `Cutoff` row on `score_col`, or append a new one if none exists.
-
-    Used by the Trade-off scenario picker to carry a chosen cutoff back to Policy Studio.
-    """
+    """Update the existing `Cutoff` row on `score_col`, or append a new one if none exists."""
     rows = copy.deepcopy(rows)
     for row in rows:
         if row["type"] == "cutoff" and score_col in row["cutoffs"]:
@@ -194,9 +263,7 @@ def apply_cutoff_to_rows(
             row["direction"] = direction
             return rows
     rows.append(
-        make_cutoff_row(
-            name=f"Cutoff {score_col} (Trade-off)", cutoffs={score_col: value}, direction=direction
-        )
+        make_cutoff_row(name=f"Cutoff {score_col}", cutoffs={score_col: value}, direction=direction)
     )
     return rows
 
@@ -206,11 +273,28 @@ def apply_cutoffs_to_rows(
 ) -> list[dict[str, Any]]:
     """Update/append a `Cutoff` row for each `{score: value}` pair in `cutoffs`.
 
-    Used by the Optimization page to carry a best combination back to Policy Studio.
+    Used by the Optimization page to carry a best combination back to the Bancada.
     """
     for score, value in cutoffs.items():
         rows = apply_cutoff_to_rows(rows, score, value, direction)
     return rows
+
+
+def segment_cutoff_rows(
+    rows: list[dict[str, Any]],
+    score_col: str,
+    segment_cutoffs: dict[str, float],
+    direction: str = "gte",
+) -> dict[str, list[dict[str, Any]]]:
+    """Per-segment row variants (ADR 0006, issue #34): one `rows` copy per segment
+    value, each with only `score_col`'s `Cutoff` value overridden to that segment's
+    figure. Everything else (filters, rates, other cutoffs) is shared — "policy stays
+    a single object with per-segment cutoff overrides, not a set of policies".
+    """
+    return {
+        segment_value: apply_cutoff_to_rows(rows, score_col, value, direction)
+        for segment_value, value in segment_cutoffs.items()
+    }
 
 
 def clone_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -226,3 +310,80 @@ def clone_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def policy_cache_key(policy: CreditPolicy) -> str:
     """A stable, hashable cache key for a `CreditPolicy` (its serialized `to_dict()`)."""
     return json.dumps(policy.to_dict(), sort_keys=True, default=str)
+
+
+def roles_cache_key(roles: ColumnRoles) -> str:
+    """A stable, hashable cache key for a `ColumnRoles` (its serialized fields)."""
+    return json.dumps(dataclasses.asdict(roles), sort_keys=True, default=str)
+
+
+def filter_pass_drop_stats(
+    df: pd.DataFrame,
+    column: str,
+    operator: str,
+    value: object,
+) -> dict[str, object]:
+    """Count and fraction of rows that pass or drop for a single filter clause.
+
+    Returns a dict with keys: total, pass_count, drop_count, pass_frac, drop_frac.
+    Used by the live histogram to show "corta X%" as the cutoff value moves.
+    """
+    series = df[column] if column in df.columns else pd.Series([], dtype=float)
+    total = len(df)
+    mask = _mask_for_operator(series, operator, value)
+    pass_count = int(mask.sum())
+    drop_count = total - pass_count
+    return {
+        "total": total,
+        "pass_count": pass_count,
+        "drop_count": drop_count,
+        "pass_frac": pass_count / total if total > 0 else 0.0,
+        "drop_frac": drop_count / total if total > 0 else 0.0,
+    }
+
+
+def suggested_take_up_rate(df: pd.DataFrame, roles: ColumnRoles) -> float | None:
+    """Suggested take-up rate: fraction of approved applicants who were actually hired.
+
+    Returns ``None`` when the hired or approval column is not mapped (Tier C, etc.)
+    so callers can gracefully skip the hint without crashing.
+    """
+    if not roles.current_approval_col or not roles.current_hired_col:
+        return None
+    if roles.current_approval_col not in df.columns or roles.current_hired_col not in df.columns:
+        return None
+    approved_mask = df[roles.current_approval_col] == 1
+    if not approved_mask.any():
+        return None
+    return float(df.loc[approved_mask, roles.current_hired_col].mean())
+
+
+def angled_rate_variable(
+    df: pd.DataFrame, score_col: str, *, spread: float = 0.4, direction: str = "gte"
+) -> Expression:
+    """An Expression that gives a higher multiplier to applicants with worse scores.
+
+    For ``gte`` direction (higher score = better): worse applicants have lower scores.
+    For ``lte`` direction (lower score = better, e.g. PD/risk): worse applicants have
+    higher scores.
+
+    In both cases the worst-score applicant gets ``1 + spread`` and the best-score
+    applicant gets ``1 - spread``, centered at ``1.0`` at the midpoint of the observed
+    range.  When combined with a ``base_rate`` the engine clips the result to ``[0, 1]``.
+
+    ``gte`` formula:  (1 + spread) - 2*spread * normalized
+    ``lte`` formula:  (1 - spread) + 2*spread * normalized
+    where normalized = (score - min) / (max - min) ∈ [0, 1].
+    """
+    if direction not in DIRECTIONS:
+        raise ValueError(f"Direção inválida para taxa angular: {direction!r}. Use 'gte' ou 'lte'.")
+    lo = float(df[score_col].min())
+    hi = float(df[score_col].max())
+    span = hi - lo if hi > lo else 1.0
+    # normalized ∈ [0, 1]: higher score → closer to 1
+    normalized = (col(score_col) - lo) / span
+    if direction == "lte":
+        # lte: higher score = worse → high normalized = high multiplier
+        return (1.0 - spread) + (2.0 * spread) * normalized
+    # gte (default): lower score = worse → low normalized = high multiplier
+    return (1.0 + spread) - (2.0 * spread) * normalized

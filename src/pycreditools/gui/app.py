@@ -2,6 +2,7 @@
 
 import streamlit as st
 
+from pycreditools.gui.components.session_actions import render_session_actions
 from pycreditools.gui.session import get_state, init_state
 from pycreditools.gui.theme import apply_theme
 
@@ -12,13 +13,8 @@ init_state()
 pages = [
     st.Page("pages/1_Ingestion.py", title="Ingestão", icon="📥"),
     st.Page("pages/2_Score_Evaluation.py", title="Avaliação de Score", icon="📈"),
-    st.Page("pages/3_Policy_Studio.py", title="Policy Studio", icon="🧱"),
-    st.Page("pages/4_Simulation.py", title="Simulação", icon="🧪"),
-    st.Page("pages/5_Tradeoff.py", title="Trade-off", icon="⚖️"),
-    st.Page("pages/6_Optimization.py", title="Otimização", icon="🎯"),
+    st.Page("pages/3_Bancada.py", title="Bancada", icon="🧱"),
     st.Page("pages/7_Risk_Grouping.py", title="Risk Grouping", icon="🗂️"),
-    st.Page("pages/8_Risk_Screening.py", title="Screening", icon="🔬"),
-    st.Page("pages/9_Crash_Test.py", title="Crash Test", icon="💥"),
     st.Page("pages/10_Deployment.py", title="Deploy & Scoring", icon="🚀"),
 ]
 nav = st.navigation(pages, position="sidebar")
@@ -33,6 +29,7 @@ def render_sidebar_context() -> None:
         n_rows = f"{len(state.df):,}" if state.df is not None else "0"
         st.caption(f"Base: `{state.df_name or '—'}` · {n_rows} linhas")
         st.caption(f"Política ativa: `{state.active_policy or '—'}`")
+        render_session_actions()
 
 
 render_sidebar_context()

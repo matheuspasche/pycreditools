@@ -31,6 +31,16 @@ PROGRESS_LABEL="status:in-progress"
 DONE_LABEL="status:done"
 MODEL="${CLAUDE_MODEL:-claude-sonnet-4-6}"                   # never default to Opus
 RATE_LIMIT_BACKOFF_SECONDS="${RATE_LIMIT_BACKOFF_SECONDS:-1800}"
+# GitHub Project (board) sync — keep the card's Status in step with the loop. IDs are
+# stable for Project #5 "Pycreditools Studio"; override via env if the board changes.
+# Best-effort: a board hiccup must never break the loop (every call ends in `|| true`).
+PROJECT_OWNER="${PROJECT_OWNER:-matheuspasche}"
+PROJECT_NUMBER="${PROJECT_NUMBER:-5}"
+PROJECT_ID="${PROJECT_ID:-PVT_kwHOAscaNc4Bble_}"
+PROJECT_STATUS_FIELD="${PROJECT_STATUS_FIELD:-PVTSSF_lAHOAscaNc4Bble_zhWU_7U}"
+PROJECT_OPT_TODO="${PROJECT_OPT_TODO:-f75ad846}"
+PROJECT_OPT_INPROGRESS="${PROJECT_OPT_INPROGRESS:-47fc9ee4}"
+PROJECT_OPT_DONE="${PROJECT_OPT_DONE:-98236657}"
 LOG_DIR="/workspace/.ralph/logs"
 mkdir -p "$LOG_DIR"
 
@@ -73,8 +83,12 @@ blockers_all_closed() {
     body=$(gh issue view "$num" --repo "$REPO" --json body -q .body 2>/dev/null) || return 1
     # Only the "## Blocked by" section carries dependencies — parsing the whole body
     # would wrongly treat the parent "#16" reference as a blocker.
+    # Take only the LEADING "#N" of each "- #N — ..." list item. Parsing every
+    # "#N" on the line would also catch issue numbers embedded in a blocker's
+    # TITLE (e.g. "Bancada tracer #1"), creating a phantom blocker that never
+    # closes and deadlocks the queue.
     blockers=$(printf '%s\n' "$body" | awk 'f; /^## Blocked by/{f=1}' \
-                 | grep -oE '#[0-9]+' | tr -d '#' | sort -u)
+                 | grep -oE '^- #[0-9]+' | grep -oE '[0-9]+' | sort -u)
     for b in $blockers; do
         state=$(gh issue view "$b" --repo "$REPO" --json state -q .state 2>/dev/null)
         [ "$state" = "CLOSED" ] || return 1
@@ -134,6 +148,10 @@ Do this end-to-end in this single turn:
 1. Read issue #${n} in full: \`gh issue view ${n} --repo ${REPO}\`. Then read the
    context it points to: the parent PRD #${PARENT_ISSUE}, the ADRs it names under
    docs/adr/, and docs/redesign/studio-redesign.md (per-critique map + glossary).
+1b. Dependency sanity check: confirm every issue under this issue's "Blocked by" is
+   actually CLOSED. If, while reading, you realize you genuinely need something from
+   an issue that is NOT yet done/closed (an UNDECLARED dependency), STOP with
+   \`STATUS: BLOCKED\` naming it — do NOT stub around or fake an unbuilt foundation.
 2. Implement the slice TEST-FIRST (TDD), red->green->refactor:
    - write the failing core test in tests/studio/parity/ first (pure: data in ->
      plain data out), watch it fail, then implement in src/pycreditools/studio/;
@@ -146,7 +164,8 @@ Do this end-to-end in this single turn:
 4. Use the project's Linux virtualenv before running tools — activate it if present:
    \`source .venv-linux/bin/activate\` (or call \`.venv-linux/bin/pytest\` /
    \`.venv-linux/bin/ruff\` directly). Then run \`pytest tests/studio\` and
-   \`ruff check src tests\` — everything green.
+   \`ruff check src/pycreditools/studio src/pycreditools/gui tests/studio\` (the
+   studio surface only — do not lint the whole repo) — everything green.
 5. COMMIT your work with a clear message that references #${n} (e.g.
    "feat(studio): <slice> (#${n})"). Do NOT push — the loop pushes and manages the
    issue state and the pull request.
@@ -181,7 +200,13 @@ run_claude_turn() {
     LAST_STATUS=$(printf '%s' "$result_text" | grep -oE 'STATUS: [A-Z_]+' | tail -1 | awk '{print $2}')
 
     if [ -z "$LAST_STATUS" ]; then
-        if grep -qiE 'rate limit|usage limit|try again later|429' "$LAST_OUTPUT_FILE" "${LAST_OUTPUT_FILE%.json}.stderr"; then
+        # Prefer the CLI's STRUCTURED 429 over text-matching: grepping the raw JSON
+        # for "429" gave false positives (it matched "429" inside token-count
+        # numbers), and the wording varies ("session limit" / "usage limit").
+        local api_err
+        api_err=$(jq -r '.api_error_status // empty' "$LAST_OUTPUT_FILE" 2>/dev/null)
+        if [ "$api_err" = "429" ] \
+           || grep -qiE 'session limit|usage limit|rate limit|try again later' "$LAST_OUTPUT_FILE" "${LAST_OUTPUT_FILE%.json}.stderr"; then
             LAST_STATUS="RATE_LIMITED"
         elif [ "$exit_code" -ne 0 ]; then
             LAST_STATUS="CLI_ERROR"
@@ -189,6 +214,88 @@ run_claude_turn() {
             LAST_STATUS="ERROR"
         fi
     fi
+}
+
+# ---------------------------------------------------------------------------
+# How long to wait out a rate limit. On a 429 the CLI's result text says when the
+# quota resets, e.g. "You've hit your session limit · resets 10:30pm (UTC)". Sleep
+# until ONE MINUTE PAST that reset instead of polling blindly every
+# RATE_LIMIT_BACKOFF_SECONDS — the blind 30-min poll burned ~4.5h of wasted retries
+# waiting out a single session window on issue #34.
+#
+# Pure + testable: result text comes from $1 (defaults to $LAST_OUTPUT_FILE's
+# .result) and "now" from $NOW_EPOCH. Any missing/odd format falls back to the fixed
+# backoff, so an unrecognised wording is never worse than the old behaviour.
+# ---------------------------------------------------------------------------
+rate_limit_backoff_seconds() {
+    local result_text="${1:-$(jq -r '.result // empty' "$LAST_OUTPUT_FILE" 2>/dev/null)}"
+    local now="${NOW_EPOCH:-$(date +%s)}"
+    local clause timepart tz base target sleep_s
+
+    # "... resets 10:30pm (UTC)" / "... resets 3am (UTC)"
+    clause=$(printf '%s' "$result_text" \
+        | grep -oiE 'resets?[[:space:]]+[0-9]{1,2}(:[0-9]{2})?[[:space:]]*(am|pm)?[[:space:]]*\(?[A-Za-z]{2,5}\)?' \
+        | head -1)
+    [ -z "$clause" ] && { echo "$RATE_LIMIT_BACKOFF_SECONDS"; return; }
+
+    timepart=$(printf '%s' "$clause" | grep -oiE '[0-9]{1,2}(:[0-9]{2})?[[:space:]]*(am|pm)?' | head -1)
+    tz=$(printf '%s' "$clause" | grep -oiE '[A-Za-z]{2,5}\)?$' | tr -d '()')
+    [ -z "$tz" ] && tz="UTC"
+
+    # The hint carries a time-of-day but no DATE — anchor to "now"'s UTC date and, if
+    # that instant already passed, roll forward one day.
+    base=$(date -u -d "@$now" +%Y-%m-%d 2>/dev/null) || { echo "$RATE_LIMIT_BACKOFF_SECONDS"; return; }
+    target=$(date -d "$base $timepart $tz" +%s 2>/dev/null)
+    [ -z "$target" ] && { echo "$RATE_LIMIT_BACKOFF_SECONDS"; return; }
+    [ "$target" -le "$now" ] && target=$((target + 86400))
+
+    sleep_s=$((target - now + 60))     # one minute past the reset, as requested
+    # Safety rails: never busy-spin, never sleep absurdly long on a misparse.
+    [ "$sleep_s" -lt 60 ] && sleep_s=60
+    [ "$sleep_s" -gt 21600 ] && sleep_s="$RATE_LIMIT_BACKOFF_SECONDS"
+    echo "$sleep_s"
+}
+
+# ---------------------------------------------------------------------------
+# Independent verification gate. The agent reports STATUS: DONE, but we never trust
+# it blind — re-run the suite ourselves before pushing or closing. A broken or sham
+# "done" thus can't pollute the branch or close an issue. Returns 0 only if green.
+# ---------------------------------------------------------------------------
+verify_turn() {
+    local py="python3" rf=0 pt=0
+    [ -x ".venv-linux/bin/python" ] && py=".venv-linux/bin/python"
+    echo "[ralph_loop] verifying #$ISSUE (pytest + ruff) before accepting DONE..."
+    "$py" -m pytest tests/studio -q > "$LOG_DIR/verify_${ISSUE}.log" 2>&1 || pt=$?
+    if [ -x ".venv-linux/bin/ruff" ]; then
+        # Scope to the studio surface only — linting the whole repo would fail on
+        # pre-existing v1 lint debt (engine + old tests) that the studio work never
+        # touches, blocking every issue with a false positive.
+        .venv-linux/bin/ruff check src/pycreditools/studio src/pycreditools/gui tests/studio >> "$LOG_DIR/verify_${ISSUE}.log" 2>&1 || rf=$?
+    fi
+    if [ "$pt" -ne 0 ] || [ "$rf" -ne 0 ]; then
+        echo "[ralph_loop] verify FAILED for #$ISSUE (pytest=$pt ruff=$rf) — see $LOG_DIR/verify_${ISSUE}.log"
+        return 1
+    fi
+    echo "[ralph_loop] verify OK for #$ISSUE"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Move issue #$1's card to Status option $2 on the GitHub Project board. Resolves the
+# board item id by matching content.number, then edits the single-select. Any failure
+# (item not on the board, missing `project` scope, API blip) is swallowed so board
+# sync can never stall the implementation loop.
+# ---------------------------------------------------------------------------
+board_set_status() {
+    local issue="$1" option="$2" item_id
+    [ -n "$PROJECT_ID" ] || return 0
+    item_id=$(gh project item-list "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" \
+        --format json --limit 200 2>/dev/null \
+        | jq -r --argjson n "$issue" '.items[] | select(.content.number==$n) | .id' 2>/dev/null | head -1)
+    [ -n "$item_id" ] || return 0
+    gh project item-edit --id "$item_id" --project-id "$PROJECT_ID" \
+        --field-id "$PROJECT_STATUS_FIELD" --single-select-option-id "$option" \
+        >/dev/null 2>&1 || true
 }
 
 # ---------------------------------------------------------------------------
@@ -215,6 +322,7 @@ while true; do
 
     echo "[ralph_loop] next issue: #$ISSUE"
     gh issue edit "$ISSUE" --repo "$REPO" --add-label "$PROGRESS_LABEL" --remove-label "$TODO_LABEL" >/dev/null 2>&1 || true
+    board_set_status "$ISSUE" "$PROJECT_OPT_INPROGRESS"
 
     PROMPT=$(build_kickoff "$ISSUE")
     CURRENT_SESSION_ID=""
@@ -224,8 +332,11 @@ while true; do
 
     # Only RATE_LIMITED retries (resuming the same conversation) until it goes through.
     while [ "$LAST_STATUS" = "RATE_LIMITED" ]; do
-        notify.sh "PRD 12 — limite de uso" "Cota atingida na issue #$ISSUE. Pausando ${RATE_LIMIT_BACKOFF_SECONDS}s e retomando a mesma sessão." "default"
-        sleep "$RATE_LIMIT_BACKOFF_SECONDS"
+        backoff=$(rate_limit_backoff_seconds)
+        resume_at=$(date -u -d "+${backoff} seconds" +%H:%MZ 2>/dev/null || echo '?')
+        notify.sh "PRD 12 — limite de uso" "Cota atingida na issue #$ISSUE. Dormindo ${backoff}s (retomo ~${resume_at}, 1 min após o reset informado) e resumo a mesma sessão." "default"
+        echo "[ralph_loop] #$ISSUE rate-limited — sleeping ${backoff}s, resume ~${resume_at} (log: $LAST_OUTPUT_FILE)"
+        sleep "$backoff"
         run_claude_turn "$PROMPT" "$CURRENT_SESSION_ID"
         [ -n "$LAST_SESSION_ID" ] && CURRENT_SESSION_ID="$LAST_SESSION_ID"
         echo "[ralph_loop] issue #$ISSUE retry finished — STATUS=$LAST_STATUS (log: $LAST_OUTPUT_FILE)"
@@ -233,14 +344,24 @@ while true; do
 
     case "$LAST_STATUS" in
         DONE|DONE_AND_PUSHED)
+            # Trust-but-verify: never accept the agent's DONE blind.
+            if ! verify_turn; then
+                gh issue edit "$ISSUE" --repo "$REPO" --add-label "$TODO_LABEL" --remove-label "$PROGRESS_LABEL" >/dev/null 2>&1 || true
+                board_set_status "$ISSUE" "$PROJECT_OPT_TODO"
+                notify.sh "PRD 12 — verificação falhou" "Agente reportou DONE na #$ISSUE mas pytest/ruff falharam. O commit local NÃO foi enviado. Parando. Veja $LOG_DIR/verify_${ISSUE}.log" "urgent"
+                echo "[ralph_loop] verification failed for #$ISSUE — not pushing/closing. Stopping for a human."
+                break
+            fi
             # The loop owns the outward/stateful steps so the agent can't half-do them.
             if git push -u origin "$WORK_BRANCH" 2>&1 | tail -2; then
                 ensure_pr
                 gh issue edit "$ISSUE" --repo "$REPO" --add-label "$DONE_LABEL" --remove-label "$PROGRESS_LABEL" >/dev/null 2>&1 || true
                 gh issue close "$ISSUE" --repo "$REPO" --reason completed >/dev/null 2>&1 || true
+                board_set_status "$ISSUE" "$PROJECT_OPT_DONE"
                 notify.sh "Issue #$ISSUE concluída" "Slice implementada, commitada e empurrada para $WORK_BRANCH. Seguindo." "default"
             else
                 gh issue edit "$ISSUE" --repo "$REPO" --add-label "$TODO_LABEL" --remove-label "$PROGRESS_LABEL" >/dev/null 2>&1 || true
+                board_set_status "$ISSUE" "$PROJECT_OPT_TODO"
                 notify.sh "PRD 12 — falha no push" "Issue #$ISSUE foi implementada mas o push falhou. Parando para você olhar." "urgent"
                 echo "[ralph_loop] push failed for #$ISSUE — stopping."
                 break
@@ -249,6 +370,7 @@ while true; do
 
         BLOCKED)
             gh issue edit "$ISSUE" --repo "$REPO" --add-label "$TODO_LABEL" --remove-label "$PROGRESS_LABEL" >/dev/null 2>&1 || true
+            board_set_status "$ISSUE" "$PROJECT_OPT_TODO"
             notify.sh "PRD 12 — issue bloqueada" "Issue #$ISSUE precisa de uma decisão sua. Veja: $LAST_OUTPUT_FILE" "urgent"
             echo "[ralph_loop] #$ISSUE BLOCKED — stopping for a human."
             break
@@ -256,6 +378,7 @@ while true; do
 
         ERROR|CLI_ERROR|*)
             gh issue edit "$ISSUE" --repo "$REPO" --add-label "$TODO_LABEL" --remove-label "$PROGRESS_LABEL" >/dev/null 2>&1 || true
+            board_set_status "$ISSUE" "$PROJECT_OPT_TODO"
             notify.sh "PRD 12 — ERRO" "Falha inesperada na issue #$ISSUE (STATUS=$LAST_STATUS). Veja: $LAST_OUTPUT_FILE" "urgent"
             echo "[ralph_loop] unrecoverable status '$LAST_STATUS' on #$ISSUE — stopping."
             break

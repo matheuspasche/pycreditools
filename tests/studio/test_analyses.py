@@ -11,7 +11,6 @@ from pycreditools import (
     compare_policies,
     fit_pairwise_risk_groups,
     fit_risk_groups,
-    fit_risk_segments,
     optimize_cutoffs,
     summarize_results,
 )
@@ -28,10 +27,10 @@ from pycreditools.studio.analyses import (
     deployment_mocked_columns,
     effective_n,
     evaluate_scores,
-    existing_rating_columns,
     find_equivalent,
     fit_groups,
     fit_pairwise_groups,
+    get_shortlisted_scores,
     groups_table,
     ks_table,
     label_ratings_by_pd,
@@ -45,13 +44,7 @@ from pycreditools.studio.analyses import (
     run_tradeoff,
     score_batch,
     scoring_kpis,
-    screen_segments,
-    screening_boundaries_table,
-    screening_candidate_columns,
-    screening_detail_table,
-    screening_heatmap_table,
-    screening_iv_table,
-    screening_low_coverage_variables,
+    select_shortlisted_scores,
     stability_table,
     strip_cutoff,
     swap_in_by_rating,
@@ -60,6 +53,7 @@ from pycreditools.studio.analyses import (
     vintage_stability_table,
 )
 from pycreditools.studio.data import population_filter
+from pycreditools.studio.models import StudioState
 from pycreditools.studio.policy_builder import (
     build_policy,
     legacy_cutoff_policy,
@@ -135,6 +129,36 @@ def test_ks_table_bad_rate_trends_up_with_risk(hired_df, roles):
     table = ks_table(hired_df, "score_5", roles.actual_default_col, bins=10).sort_values("Bucket")
     assert table["Bad_Rate"].corr(table["Bucket"]) > 0.8
     assert table["Bad_Rate"].iloc[0] < table["Bad_Rate"].iloc[-1]
+
+
+def test_select_shortlisted_scores_caps_at_three_and_warns():
+    selection, warning = select_shortlisted_scores(
+        ["score_1", "score_2", "score_3", "score_4"],
+        available=["score_1", "score_2", "score_3", "score_4"],
+    )
+    assert selection == ["score_1", "score_2", "score_3"]
+    assert warning is not None
+
+
+def test_select_shortlisted_scores_within_cap_has_no_warning():
+    selection, warning = select_shortlisted_scores(
+        ["score_1", "score_2"], available=["score_1", "score_2", "score_3"]
+    )
+    assert selection == ["score_1", "score_2"]
+    assert warning is None
+
+
+def test_select_shortlisted_scores_dedupes_and_drops_unknown_scores():
+    selection, warning = select_shortlisted_scores(
+        ["score_1", "score_1", "not_a_candidate"], available=["score_1", "score_2"]
+    )
+    assert selection == ["score_1"]
+    assert warning is None
+
+
+def test_get_shortlisted_scores_filters_to_scores_still_in_roles(roles):
+    state = StudioState(roles=roles, shortlisted_scores=[roles.score_cols[0], "stale"])
+    assert get_shortlisted_scores(state) == [roles.score_cols[0]]
 
 
 def test_quadrant_table_matches_summarize_results_directly(v14_sim):
@@ -562,154 +586,6 @@ def test_fitted_recipe_round_trips_via_to_dict_from_dict(fitted_result):
     recipe = fitted_result.recipe
     restored = GroupingRecipe.from_dict(recipe.to_dict())
     assert restored.to_dict() == recipe.to_dict()
-
-
-# --- Risk Screening (PRD 09) ---------------------------------------------------
-
-
-def test_screening_candidate_columns_excludes_ids_scores_and_role_columns(sample_df, roles):
-    candidates = screening_candidate_columns(sample_df, roles)
-    assert roles.applicant_id_col not in candidates
-    assert roles.actual_default_col not in candidates
-    assert roles.current_approval_col not in candidates
-    assert roles.current_hired_col not in candidates
-    assert roles.time_col not in candidates
-    assert roles.estimated_default_col not in candidates
-    for score_col in roles.score_cols:
-        assert score_col not in candidates
-    assert "age" in candidates
-    assert "income" in candidates
-
-
-def test_existing_rating_columns_returns_low_cardinality_non_float_columns(sample_df):
-    columns = existing_rating_columns(sample_df)
-    assert "region" in columns
-    assert "applicant_id" not in columns  # unique id, too high cardinality
-    assert "income" not in columns  # high-cardinality numeric
-    assert "true_pd" not in columns  # float dtype is excluded outright
-
-
-@pytest.fixture(scope="module")
-def screening_population(fitted_result, roles):
-    """`fitted_result`'s population with A..E `Rating` attached (already has `risk_rating`)."""
-    labels = label_ratings_by_pd(fitted_result, roles.actual_default_col)
-    tagged = fitted_result.data.copy()
-    tagged["Rating"] = tagged["risk_rating"].map(labels)
-    return tagged.dropna(subset=[roles.actual_default_col, "Rating"])
-
-
-def test_screen_segments_matches_a_direct_fit_risk_segments_call(screening_population, roles):
-    result = screen_segments(
-        screening_population, "Rating", ["age", "income"], roles.actual_default_col, n_bins=10
-    )
-    expected = fit_risk_segments(
-        screening_population, "Rating", ["age", "income"], roles.actual_default_col, n_bins=10
-    )
-    pd.testing.assert_frame_equal(result.metrics, expected.metrics)
-    assert result.recipes.keys() == expected.recipes.keys()
-
-
-@pytest.fixture(scope="module")
-def screening_result(screening_population, roles):
-    return screen_segments(
-        screening_population, "Rating", ["age", "income"], roles.actual_default_col, n_bins=10
-    )
-
-
-def test_screening_iv_table_sums_iv_across_tiers_and_sorts_descending(screening_result):
-    table = screening_iv_table(screening_result)
-    assert list(table.columns) == ["variable", "iv", "volume"]
-    assert set(table["variable"]) == {"age", "income"}
-    assert (table["iv"].diff().dropna() <= 0).all()
-
-    expected_age_iv = screening_result.metrics.loc[
-        screening_result.metrics["variable"] == "age", "iv"
-    ].sum()
-    assert np.isclose(table.loc[table["variable"] == "age", "iv"].iloc[0], expected_age_iv)
-
-
-def test_screening_iv_table_empty_metrics_returns_empty_with_expected_columns():
-    empty = type(
-        "EmptyResult",
-        (),
-        {"metrics": pd.DataFrame(columns=["variable", "iv", "tier_vol"])},
-    )()
-    table = screening_iv_table(empty)
-    assert table.empty
-    assert list(table.columns) == ["variable", "iv", "volume"]
-
-
-def test_screening_low_coverage_variables_flags_a_variable_with_too_few_unique_values(
-    screening_population, roles
-):
-    constant_population = screening_population.copy()
-    constant_population["constant_col"] = 1.0
-    result = screen_segments(
-        constant_population,
-        "Rating",
-        ["age", "constant_col"],
-        roles.actual_default_col,
-        n_bins=10,
-    )
-    flagged = screening_low_coverage_variables(result, ["age", "constant_col"])
-    assert flagged == ["constant_col"]
-
-
-def test_screening_detail_table_matches_a_direct_predict_groupby(
-    screening_result, screening_population, roles
-):
-    detail = screening_detail_table(
-        screening_result, screening_population, "income", "Rating", roles.actual_default_col
-    )
-    assert list(detail.columns) == ["Rating", "Subsegmento", "bad_rate", "volume"]
-    assert detail["volume"].sum() <= len(screening_population)
-
-    predicted = screening_result.predict(screening_population, "income", "Rating")
-    expected = (
-        predicted.dropna(subset=[roles.actual_default_col, "income_sub"])
-        .groupby(["Rating", "income_sub"])[roles.actual_default_col]
-        .mean()
-    )
-    assert np.isclose(detail["bad_rate"].sum(), expected.sum())
-
-
-def test_screening_heatmap_table_pivots_to_tier_by_subsegment_matrix(
-    screening_result, screening_population, roles
-):
-    detail = screening_detail_table(
-        screening_result, screening_population, "income", "Rating", roles.actual_default_col
-    )
-    pivoted = screening_heatmap_table(detail, "Rating")
-    assert pivoted.index.name == "Rating"
-    assert pivoted.columns.name == "Subsegmento"
-    assert set(pivoted.index) == set(detail["Rating"])
-
-
-def test_screening_heatmap_table_empty_detail_returns_empty_frame():
-    assert screening_heatmap_table(pd.DataFrame(), "Rating").empty
-
-
-def test_screening_boundaries_table_ranges_cover_the_full_variable_span(
-    screening_result, screening_population
-):
-    boundaries = screening_boundaries_table(screening_result, "income")
-    assert list(boundaries.columns) == ["Tier", "Subsegmento", "Min", "Max"]
-    for tier, group in boundaries.groupby("Tier"):
-        ordered = group.sort_values("Subsegmento")
-        assert (ordered["Min"].values[1:] >= ordered["Min"].values[:-1]).all()
-        tier_values = screening_population.loc[
-            screening_population["Rating"] == tier, "income"
-        ]
-        assert ordered["Min"].min() <= tier_values.min()
-        assert ordered["Max"].max() >= tier_values.max()
-
-
-def test_screening_boundaries_table_unknown_variable_returns_empty_with_expected_columns(
-    screening_result,
-):
-    table = screening_boundaries_table(screening_result, "not_a_real_variable")
-    assert table.empty
-    assert list(table.columns) == ["Tier", "Subsegmento", "Min", "Max"]
 
 
 def test_breakeven_aggravation_factor_interpolates_between_bracketing_rows():

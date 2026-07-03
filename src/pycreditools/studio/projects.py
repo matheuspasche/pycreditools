@@ -11,7 +11,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from pycreditools import CreditPolicy
+from pycreditools.grouping import GroupingRecipe, RiskGroupResult
 
 from .models import ColumnRoles, PolicyEntry, ProjectBundle, StudioState
 
@@ -37,6 +40,7 @@ def bundle_from_state(
         active_policy=state.active_policy,
         rating_recipe=rating_recipe,
         rating_labels=state.rating_labels,
+        shortlisted_scores=list(state.shortlisted_scores),
         created_at=datetime.now(timezone.utc).isoformat(),
         dataset=dataset,
     )
@@ -66,6 +70,7 @@ def to_json_dict(bundle: ProjectBundle) -> dict[str, Any]:
         "rating_labels": ({str(k): v for k, v in bundle.rating_labels.items()} or None)
         if bundle.rating_labels
         else None,
+        "shortlisted_scores": bundle.shortlisted_scores,
     }
 
 
@@ -82,6 +87,7 @@ def from_json_dict(data: dict[str, Any]) -> ProjectBundle:
         active_policy=data.get("active_policy"),
         rating_recipe=data.get("rating_recipe"),
         rating_labels=rating_labels,
+        shortlisted_scores=data.get("shortlisted_scores") or data.get("scores_em_jogo") or [],
         created_at=data.get("created_at"),
         dataset=data.get("dataset"),
     )
@@ -111,3 +117,23 @@ def load_project(name: str, directory: Path | str | None = None) -> ProjectBundl
     path = target_dir / f"{name}.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     return from_json_dict(data)
+
+
+def restore_rating_result(bundle: ProjectBundle) -> RiskGroupResult | None:
+    """Reconstruct a recipe-only `RiskGroupResult` from the bundle's `rating_recipe`.
+
+    Returns None when the bundle carries no recipe (session was saved without a
+    fitted rating). The restored object exposes `.recipe` and `.predict()` — the
+    two things Bancada and Deployment need after a load — but `.data` and `.groups`
+    are empty DataFrames because the original fitting data is not serialized.
+    """
+    if bundle.rating_recipe is None:
+        return None
+    recipe = GroupingRecipe.from_dict(bundle.rating_recipe)
+    return RiskGroupResult(
+        data=pd.DataFrame(),
+        groups=pd.DataFrame(),
+        recipe=recipe,
+        n_groups=0,
+        params={},
+    )

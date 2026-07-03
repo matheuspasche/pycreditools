@@ -85,3 +85,31 @@ def test_pairwise_tab_runs_and_renders_per_challenger_expanders(studio_state_wit
 
     expanders = [e for e in at.get("expander")]
     assert expanders, "expected at least one pairwise result expander"
+
+
+def test_matrix_tab_renders_open_grid_and_supports_algorithm_seed(studio_state_with_roles):
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_roles
+    at.run(timeout=30)
+    assert not at.exception
+
+    algo_buttons = [b for b in at.button if b.key == "rg_matrix_algo"]
+    assert algo_buttons, "expected the 'rodar algoritmo' button on the matrix tab"
+    algo_buttons[0].click().run(timeout=30)
+    assert not at.exception
+
+
+def test_matrix_tab_apply_manual_grouping_feeds_state_rating_result(studio_state_with_roles):
+    at = AppTest.from_file(PAGE)
+    at.session_state["studio"] = studio_state_with_roles
+    at.run(timeout=30)
+    assert not at.exception
+
+    apply_buttons = [b for b in at.button if b.key == "rg_matrix_apply"]
+    assert apply_buttons, "expected the 'aplicar agrupamento manual' button on the matrix tab"
+    apply_buttons[0].click().run(timeout=30)
+    assert not at.exception
+
+    state = at.session_state["studio"]
+    assert state.rating_result is not None
+    assert state.rating_labels is not None

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import pandas as pd
 
-    from pycreditools import CreditPolicy, CreditSimResults, RiskGroupResult, ScreeningResult
+    from pycreditools import CreditPolicy, CreditSimResults, RiskGroupResult
 
 
 @dataclass
@@ -20,7 +20,6 @@ class ColumnRoles:
 
     applicant_id_col: str | None = None
     score_cols: list[str] = field(default_factory=list)
-    primary_score_col: str | None = None
     current_approval_col: str | None = None
     actual_default_col: str | None = None
     current_hired_col: str | None = None
@@ -28,6 +27,41 @@ class ColumnRoles:
     segment_col: str | None = None
     estimated_default_col: str | None = None
     oot_date: str | None = None
+    vigente_score: str | None = None
+
+
+@dataclass
+class OpenMatrix:
+    """Open (unclustered) score x score quantile grid — critique 2.5 / ADR 0004.
+
+    `cells` has one row per `(bin1, bin2)` combination of the full `bins1 x bins2`
+    grid (even cells with zero volume), with columns `bin1`, `bin2`, `volume`, `pd`.
+    """
+
+    score1: str
+    score2: str
+    breaks1: list[float]
+    breaks2: list[float]
+    cells: pd.DataFrame
+
+
+@dataclass
+class TierDetection:
+    """The auto-detected comparison tier (ADR 0002) plus its pt-BR rationale."""
+
+    tier: str
+    rationale: str
+
+
+@dataclass
+class PolicyScenario:
+    """One suggested Bancada scenario (ADR 0005): a named cutoff spec plus its
+    resulting approval/default rate from the optimization grid search."""
+
+    name: str
+    cutoffs: dict[str, float]
+    approval_rate: float
+    default_rate: float
 
 
 @dataclass
@@ -51,6 +85,7 @@ class ProjectBundle:
     active_policy: str | None = None
     rating_recipe: dict[str, Any] | None = None
     rating_labels: dict[int, str] | None = None
+    shortlisted_scores: list[str] = field(default_factory=list)
     created_at: str | None = None
     dataset: dict[str, Any] | None = None
 
@@ -67,6 +102,6 @@ class StudioState:
     active_policy: str | None = None
     rating_result: RiskGroupResult | None = None
     rating_labels: dict[int, str] | None = None
-    screening_result: ScreeningResult | None = None
     last_sim: CreditSimResults | None = None
     legacy_sim: CreditSimResults | None = None
+    shortlisted_scores: list[str] = field(default_factory=list)

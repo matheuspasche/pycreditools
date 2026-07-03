@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 import streamlit as st
 
@@ -11,12 +13,18 @@ from pycreditools import (
     DeploymentPolicy,
     OptimizationResult,
     RiskGroupResult,
-    ScreeningResult,
 )
 from pycreditools.studio import analyses
-from pycreditools.studio.models import PolicyEntry, StudioState
+from pycreditools.studio.models import (
+    ColumnRoles,
+    OpenMatrix,
+    PolicyEntry,
+    PolicyScenario,
+    StudioState,
+)
 
 _KEY = "studio"
+DATASET_SOURCE_KEY = "studio_dataset_source"
 
 
 def init_state() -> None:
@@ -54,7 +62,7 @@ def require_policy() -> PolicyEntry:
     guard_dataset()
     state = get_state()
     if not state.active_policy or state.active_policy not in state.policies:
-        st.warning("Construa uma política na página Policy Studio.")
+        st.warning("Construa uma política na página Bancada.")
         st.stop()
     return state.policies[state.active_policy]
 
@@ -82,6 +90,19 @@ def compute_ks_table(
 ) -> pd.DataFrame:
     """Cached per-bucket KS table; `df_hash`/`population` are cache-key-only."""
     return analyses.ks_table(_df, score_col, target_col, bins)
+
+
+@st.cache_data(show_spinner="Calculando complementaridade...")
+def compute_complementarity_table(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    candidate_scores: tuple[str, ...],
+    reference_score: str,
+    target_col: str,
+) -> pd.DataFrame:
+    """Cached complementarity table (ADR 0004); `df_hash`/`population` are cache-key-only."""
+    return analyses.complementarity_table(_df, list(candidate_scores), reference_score, target_col)
 
 
 @st.cache_data(show_spinner="Simulando política...")
@@ -138,6 +159,36 @@ def run_crash_test(
     return analyses.run_crash_test(_df, _policy, list(factors), parallel=parallel)
 
 
+@st.cache_data(show_spinner="Calculando trade-off do corte...")
+def bancada_tradeoff_curve(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    _policy: CreditPolicy,
+    policy_key: str,
+    score_col: str,
+    steps: int = 25,
+) -> pd.DataFrame:
+    """Cached drag-the-cutoff curve (ADR 0001, critique 2.3); `df_hash`/`population`/
+    `policy_key` are cache-key-only."""
+    return analyses.tradeoff_curve_for_score_in_use(_df, _policy, score_col, steps=steps)
+
+
+@st.cache_data(show_spinner="Calculando jogo de agravamento...")
+def aggravation_game(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    _policy: CreditPolicy,
+    policy_key: str,
+    current_factor: float,
+    base_bad_rate: float | None,
+) -> dict[str, Any]:
+    """Cached aggravation game (ADR 0001, critique 2.7); `df_hash`/`population`/
+    `policy_key` are cache-key-only."""
+    return analyses.aggravation_game(_df, _policy, current_factor, base_bad_rate)
+
+
 @st.cache_data(show_spinner="Otimizando cortes...")
 def run_optimization(
     _df: pd.DataFrame,
@@ -162,6 +213,30 @@ def run_optimization(
         method=method,
         parallel=parallel,
         percentiles=percentiles,
+    )
+
+
+@st.cache_data(show_spinner="Sugerindo cenários...")
+def suggest_scenarios(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    _roles: ColumnRoles,
+    roles_key: str,
+    shortlisted_scores: tuple[str, ...],
+    cutoff_steps: int = 8,
+    target_default_rate: float = 0.05,
+    min_approval_rate: float = 0.3,
+) -> list[PolicyScenario]:
+    """Cached suggested scenarios (ADR 0005); `df_hash`/`population`/`roles_key` are
+    cache-key-only."""
+    return analyses.suggest_scenarios(
+        _df,
+        _roles,
+        list(shortlisted_scores),
+        cutoff_steps=cutoff_steps,
+        target_default_rate=target_default_rate,
+        min_approval_rate=min_approval_rate,
     )
 
 
@@ -227,6 +302,20 @@ def fit_pairwise_risk_groups(
     )
 
 
+@st.cache_data(show_spinner="Construindo matriz aberta...")
+def build_open_matrix(
+    _df: pd.DataFrame,
+    df_hash: str,
+    population: str,
+    score1: str,
+    score2: str,
+    default_col: str,
+    bins: int = 5,
+) -> OpenMatrix:
+    """Cached open score x score matrix; `df_hash`/`population` are cache-key-only."""
+    return analyses.build_open_matrix(_df, score1, score2, default_col, bins=bins)
+
+
 @st.cache_data(show_spinner="Escorando arquivo...")
 def score_batch(
     _df: pd.DataFrame,
@@ -238,27 +327,3 @@ def score_batch(
 ) -> pd.DataFrame:
     """Cached batch scoring; `file_hash`/`dep_key` are cache-key-only."""
     return analyses.score_batch(_df, _dep, simple=simple, method=method)
-
-
-@st.cache_data(show_spinner="Rodando screening de sub-segmentos...")
-def screen_segments(
-    _df: pd.DataFrame,
-    df_hash: str,
-    population: str,
-    base_risk_col: str,
-    candidate_cols: tuple[str, ...],
-    default_col: str,
-    n_bins: int = 10,
-    method: str = "quantiles",
-    parallel: bool = False,
-) -> ScreeningResult:
-    """Cached risk screening; `df_hash`/`population` are cache-key-only."""
-    return analyses.screen_segments(
-        _df,
-        base_risk_col,
-        list(candidate_cols),
-        default_col,
-        n_bins=n_bins,
-        method=method,
-        parallel=parallel,
-    )

@@ -17,6 +17,9 @@ from .models import ColumnRoles
 
 POPULATION_CHOICES = ("Todos", "Aprovados", "Contratados", "DEV", "OOT", "Custom")
 
+PERIODO_CHOICES = ("Tudo", "Dev", "OOT")
+QUEM_CHOICES = ("Todos", "Aprovados", "Contratados")
+
 
 def hash_bytes(content: bytes) -> str:
     """Short, stable hash of raw file bytes (used as `df_hash` for uploads)."""
@@ -74,3 +77,25 @@ def population_filter(
             raise ValueError("Forneça uma máscara para o filtro customizado.")
         return df[custom_mask]
     raise ValueError(f"Opção de população desconhecida: {choice}")
+
+
+def population_filter_two_axes(
+    df: pd.DataFrame,
+    roles: ColumnRoles,
+    periodo: str,
+    quem: str,
+) -> pd.DataFrame:
+    """Subset `df` by combining two independent axes (critiques 1.7 + 2.0).
+
+    `periodo` is one of PERIODO_CHOICES; `quem` is one of QUEM_CHOICES.
+    The two filters are AND-ed: temporal slice first, then funnel-stage slice.
+    Delegates to `population_filter` so the operator logic lives in one place.
+    """
+    _periodo_to_choice = {"Tudo": "Todos", "Dev": "DEV", "OOT": "OOT"}
+    if periodo not in _periodo_to_choice:
+        raise ValueError(f"Período desconhecido: {periodo}")
+    _quem_to_choice = {"Todos": "Todos", "Aprovados": "Aprovados", "Contratados": "Contratados"}
+    if quem not in _quem_to_choice:
+        raise ValueError(f"Quem desconhecido: {quem}")
+    subset = population_filter(df, roles, _periodo_to_choice[periodo])
+    return population_filter(subset, roles, _quem_to_choice[quem])
