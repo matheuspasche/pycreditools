@@ -240,11 +240,11 @@ def ks_table(df: pd.DataFrame, score_col: str, target_col: str, bins: int = 10) 
 
 # Owner rule (ADR 0005): after KS, only 2-3 of the candidate scores are worth the
 # downstream compute (Bancada suggestions, complementarity); the rest stay out.
-MAX_SCORES_EM_JOGO = 3
+MAX_SHORTLISTED_SCORES = 3
 
 
-def select_scores_em_jogo(
-    candidates: list[str], available: list[str], max_count: int = MAX_SCORES_EM_JOGO
+def select_shortlisted_scores(
+    candidates: list[str], available: list[str], max_count: int = MAX_SHORTLISTED_SCORES
 ) -> tuple[list[str], str | None]:
     """Apply the "scores em jogo" short-list rule (ADR 0005) to a raw selection.
 
@@ -263,12 +263,12 @@ def select_scores_em_jogo(
     return valid, None
 
 
-def get_scores_em_jogo(state: StudioState) -> list[str]:
-    """The persisted "scores em jogo" short-list (ADR 0005), filtered to scores still
+def get_shortlisted_scores(state: StudioState) -> list[str]:
+    """The persisted shortlisted scores (ADR 0005), filtered to scores still
     present in the current roles — the set downstream slices (Bancada, suggestions,
     complementarity) should read.
     """
-    return [s for s in state.scores_em_jogo if s in state.roles.score_cols]
+    return [s for s in state.shortlisted_scores if s in state.roles.score_cols]
 
 
 # ADR 0004: a new score usually enters matriciated with the vigente score, so the
@@ -899,7 +899,7 @@ def run_optimization(
 def suggest_scenarios(
     df: pd.DataFrame,
     roles: ColumnRoles,
-    scores_em_jogo: list[str],
+    shortlisted_scores: list[str],
     *,
     cutoff_steps: int = 8,
     target_default_rate: float = 0.05,
@@ -908,13 +908,13 @@ def suggest_scenarios(
 ) -> list[PolicyScenario]:
     """Suggest-first Bancada entry point (ADR 0005): 3 scenarios — conservador /
     neutro / agressivo — picked off an `optimize_cutoffs` grid run **only** on
-    `scores_em_jogo`, so heavy compute never touches the other candidate scores.
+    `shortlisted_scores`, so heavy compute never touches the other candidate scores.
     """
-    if not scores_em_jogo:
-        raise ValueError("scores_em_jogo não pode ser vazio.")
+    if not shortlisted_scores:
+        raise ValueError("shortlisted_scores não pode ser vazio.")
     base_policy = CreditPolicy(
         applicant_id_col=roles.applicant_id_col,
-        score_cols=tuple(scores_em_jogo),
+        score_cols=tuple(shortlisted_scores),
         current_approval_col=roles.current_approval_col,
         actual_default_col=roles.actual_default_col,
         time_col=roles.time_col,
@@ -945,7 +945,7 @@ def suggest_scenarios(
     return [
         PolicyScenario(
             name=name,
-            cutoffs={score: float(row[score]) for score in scores_em_jogo},
+            cutoffs={score: float(row[score]) for score in shortlisted_scores},
             approval_rate=float(row["overall_approval_rate"]),
             default_rate=float(row["overall_default_rate"]),
         )

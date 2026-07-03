@@ -14,10 +14,10 @@ from pycreditools.gui.components.population import (
 from pycreditools.gui.session import get_state, guard_roles
 from pycreditools.studio import charts
 from pycreditools.studio.analyses import (
-    MAX_SCORES_EM_JOGO,
+    MAX_SHORTLISTED_SCORES,
     effective_n,
     resolve_reference_score,
-    select_scores_em_jogo,
+    select_shortlisted_scores,
 )
 
 st.title("Avaliação de Score")
@@ -115,29 +115,29 @@ st.plotly_chart(
 with st.container(border=True):
     st.caption(
         f"Marque os 2-3 scores em jogo: somente eles seguem para a Bancada "
-        f"(máx. {MAX_SCORES_EM_JOGO})."
+        f"(máx. {MAX_SHORTLISTED_SCORES})."
     )
-    em_jogo_default = [s for s in state.scores_em_jogo if s in selected_scores]
+    em_jogo_default = [s for s in state.shortlisted_scores if s in selected_scores]
     em_jogo_input = st.multiselect(
         "Scores em jogo",
         selected_scores,
         default=em_jogo_default,
-        max_selections=MAX_SCORES_EM_JOGO,
+        max_selections=MAX_SHORTLISTED_SCORES,
         key="score_eval_em_jogo",
     )
-    scores_em_jogo, em_jogo_warning = select_scores_em_jogo(em_jogo_input, selected_scores)
-    state.scores_em_jogo = scores_em_jogo
+    shortlisted, em_jogo_warning = select_shortlisted_scores(em_jogo_input, selected_scores)
+    state.shortlisted_scores = shortlisted
     if em_jogo_warning:
         st.warning(em_jogo_warning)
-    elif scores_em_jogo:
-        st.caption(f"Scores em jogo: {', '.join(scores_em_jogo)}.")
+    elif shortlisted:
+        st.caption(f"Scores em jogo: {', '.join(shortlisted)}.")
     else:
         st.caption("Nenhum score em jogo marcado ainda.")
 
 with st.container(border=True):
     st.subheader("Complementaridade vs. score vigente/em uso")
     reference_score = resolve_reference_score(roles, ks_series)
-    candidates = [s for s in scores_em_jogo if s != reference_score] if reference_score else []
+    candidates = [s for s in shortlisted if s != reference_score] if reference_score else []
     if reference_score is None:
         st.info("Calcule o KS de ao menos um score para ver a complementaridade.")
     elif not candidates:

@@ -60,7 +60,7 @@ def test_marking_scores_em_jogo_persists_to_state(studio_state_with_roles):
     multiselects[0].set_value(["score_5", "legacy_score"])
     at.run()
     assert not at.exception
-    assert at.session_state["studio"].scores_em_jogo == ["score_5", "legacy_score"]
+    assert at.session_state["studio"].shortlisted_scores == ["score_5", "legacy_score"]
 
 
 def test_per_bucket_ks_table_tab_names_the_selected_score(studio_state_with_roles):

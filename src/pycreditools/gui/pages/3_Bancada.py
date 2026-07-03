@@ -18,7 +18,7 @@ from pycreditools.studio.analyses import (
     current_cutoff_value,
     derive_survivor_rating,
     exposure_kpis,
-    get_scores_em_jogo,
+    get_shortlisted_scores,
     label_ratings_by_pd,
     policy_kpis,
     policy_vintage_comparison,
@@ -61,14 +61,14 @@ def _render_suggested_scenarios(state: StudioState, entry: PolicyEntry) -> None:
     """Suggestion-first entry (ADR 0005, issue #30): opens with 2-3 scenarios from
     the optimization engine, run only on the scores em jogo. Picking one applies its
     cutoffs to the live policy; every knob stays freely editable afterwards."""
-    scores_em_jogo = get_scores_em_jogo(state)
-    if not scores_em_jogo:
+    shortlisted = get_shortlisted_scores(state)
+    if not shortlisted:
         return
 
     st.subheader("Cenários sugeridos")
     st.caption(
         "Sugestões do motor de otimização sobre os scores em jogo "
-        f"({', '.join(scores_em_jogo)}) — escolha uma para começar e ajuste livremente."
+        f"({', '.join(shortlisted)}) — escolha uma para começar e ajuste livremente."
     )
     subset = population_filter(state.df, state.roles, "DEV")
     if subset.empty:
@@ -81,7 +81,7 @@ def _render_suggested_scenarios(state: StudioState, entry: PolicyEntry) -> None:
             "DEV",
             state.roles,
             roles_cache_key(state.roles),
-            tuple(scores_em_jogo),
+            tuple(shortlisted),
         )
     except Exception as exc:  # noqa: BLE001 - surfaced as a friendly error
         st.error(f"Não foi possível sugerir cenários: {exc}")

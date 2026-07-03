@@ -223,7 +223,7 @@ def suggest_scenarios(
     population: str,
     _roles: ColumnRoles,
     roles_key: str,
-    scores_em_jogo: tuple[str, ...],
+    shortlisted_scores: tuple[str, ...],
     cutoff_steps: int = 8,
     target_default_rate: float = 0.05,
     min_approval_rate: float = 0.3,
@@ -233,7 +233,7 @@ def suggest_scenarios(
     return analyses.suggest_scenarios(
         _df,
         _roles,
-        list(scores_em_jogo),
+        list(shortlisted_scores),
         cutoff_steps=cutoff_steps,
         target_default_rate=target_default_rate,
         min_approval_rate=min_approval_rate,

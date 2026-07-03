@@ -57,7 +57,7 @@ def test_studio_state_defaults():
     assert isinstance(state.roles, ColumnRoles)
     assert state.policies == {}
     assert state.active_policy is None
-    assert state.scores_em_jogo == []
+    assert state.shortlisted_scores == []
 
 
 def test_studio_state_matches_fixture(studio_state, sample_df):

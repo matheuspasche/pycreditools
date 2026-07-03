@@ -125,7 +125,7 @@ def render_session_actions() -> None:
             state.active_policy = bundle.active_policy
             state.rating_result = studio_projects.restore_rating_result(bundle)
             state.rating_labels = bundle.rating_labels
-            state.scores_em_jogo = list(bundle.scores_em_jogo)
+            state.shortlisted_scores = list(bundle.shortlisted_scores)
             dataset = bundle.dataset or {}
             sample = dataset.get("sample")
             if sample:

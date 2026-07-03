@@ -40,7 +40,7 @@ def bundle_from_state(
         active_policy=state.active_policy,
         rating_recipe=rating_recipe,
         rating_labels=state.rating_labels,
-        scores_em_jogo=list(state.scores_em_jogo),
+        shortlisted_scores=list(state.shortlisted_scores),
         created_at=datetime.now(timezone.utc).isoformat(),
         dataset=dataset,
     )
@@ -70,7 +70,7 @@ def to_json_dict(bundle: ProjectBundle) -> dict[str, Any]:
         "rating_labels": ({str(k): v for k, v in bundle.rating_labels.items()} or None)
         if bundle.rating_labels
         else None,
-        "scores_em_jogo": bundle.scores_em_jogo,
+        "shortlisted_scores": bundle.shortlisted_scores,
     }
 
 
@@ -87,7 +87,7 @@ def from_json_dict(data: dict[str, Any]) -> ProjectBundle:
         active_policy=data.get("active_policy"),
         rating_recipe=data.get("rating_recipe"),
         rating_labels=rating_labels,
-        scores_em_jogo=data.get("scores_em_jogo") or [],
+        shortlisted_scores=data.get("shortlisted_scores") or data.get("scores_em_jogo") or [],
         created_at=data.get("created_at"),
         dataset=data.get("dataset"),
     )

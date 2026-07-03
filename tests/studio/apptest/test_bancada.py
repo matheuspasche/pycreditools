@@ -26,10 +26,10 @@ def studio_state_with_cutoff(studio_state_with_policy):
 
 @pytest.fixture
 def studio_state_with_scores_em_jogo(studio_state_with_policy):
-    """`StudioState` with 2 scores em jogo marked (#29) — gates the Bancada's
+    """`StudioState` with 2 shortlisted scores marked (#29) — gates the Bancada's
     suggested-scenarios entry point (ADR 0005, #30)."""
     return dataclasses.replace(
-        studio_state_with_policy, scores_em_jogo=["score_4", "score_5"]
+        studio_state_with_policy, shortlisted_scores=["score_4", "score_5"]
     )
 
 
