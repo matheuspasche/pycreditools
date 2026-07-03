@@ -347,6 +347,12 @@ def _render_aggravation_game(
         st.error(f"Não foi possível rodar o jogo de agravamento: {exc}")
         return
 
+    if result.get("has_estimated_pd"):
+        st.info(
+            "Esta base usa PD estimada como verdade. O agravamento escala essa PD pelo fator "
+            "antes da simulação — a curva responde ao slider, mas o número reflete uma PD "
+            "ajustada, não um stress sobre inadimplência observada."
+        )
     breakeven = result["breakeven_factor"]
     kpi_items = [
         {

@@ -818,6 +818,32 @@ def tradeoff_curve_for_score_in_use(
     return result
 
 
+def _run_estimated_pd_stress_sweep(
+    df: pd.DataFrame,
+    policy: CreditPolicy,
+    sweep: list[float],
+) -> pd.DataFrame:
+    """Custom aggravation sweep for when estimated_default_col is set.
+
+    The engine ignores stress scenarios when estimated_default_col is present
+    (treats it as ground truth). Instead we pre-scale the column by each factor
+    so the curve responds to the slider (issue #49).
+    """
+    estimated_col = policy.estimated_default_col
+    rows = []
+    for factor in sweep:
+        df_stressed = df.copy()
+        df_stressed[estimated_col] = (df_stressed[estimated_col] * factor).clip(0.0, 1.0)
+        sim = run_policy_sim(df_stressed, policy)
+        kpis = policy_kpis(sim)
+        rows.append({
+            "aggravation_factor": factor,
+            "approval_rate": kpis["approval_rate"],
+            "default_rate": kpis["bad_rate"] if kpis["bad_rate"] is not None else float("nan"),
+        })
+    return pd.DataFrame(rows, columns=["aggravation_factor", "approval_rate", "default_rate"])
+
+
 def aggravation_game(
     df: pd.DataFrame,
     policy: CreditPolicy,
@@ -828,10 +854,14 @@ def aggravation_game(
     max_factor: float = 10.0,
 ) -> dict[str, Any]:
     """The Bancada's aggravation game (ADR 0001, critique 2.7): "even so, can I still
-    approve?". Sweeps the flat stress factor via `run_crash_test`, reads off the
-    candidate's default rate at `current_factor`, and finds the break-even factor
-    (`breakeven_aggravation_factor`) at which it reaches `base_bad_rate` — absorbing
-    the Crash Test page rather than reimplementing its sweep.
+    approve?". Sweeps the flat stress factor, reads off the candidate's default rate at
+    `current_factor`, and finds the break-even factor (`breakeven_aggravation_factor`)
+    at which it reaches `base_bad_rate` — absorbing the Crash Test page rather than
+    reimplementing its sweep.
+
+    When `policy.estimated_default_col` is set the engine ignores stress scenarios, so
+    the sweep pre-scales that column by each factor instead (issue #49). The result
+    carries `has_estimated_pd=True` in that case so the UI can surface a note.
 
     `base_bad_rate=None` (Tier C, no comparison base) yields no breakeven factor;
     the standalone curve + current default rate are still returned.
@@ -840,7 +870,13 @@ def aggravation_game(
     Ignored when `factors` is supplied explicitly.
     """
     sweep = sorted({*(factors or np.linspace(1.0, max_factor, 25).tolist()), current_factor})
-    curve = run_crash_test(df, policy, sweep)
+    has_estimated_pd = bool(
+        policy.estimated_default_col and policy.estimated_default_col in df.columns
+    )
+    if has_estimated_pd:
+        curve = _run_estimated_pd_stress_sweep(df, policy, sweep)
+    else:
+        curve = run_crash_test(df, policy, sweep)
     idx = (curve["aggravation_factor"] - current_factor).abs().idxmin()
     breakeven = (
         breakeven_aggravation_factor(curve, base_bad_rate) if base_bad_rate is not None else None
@@ -851,6 +887,7 @@ def aggravation_game(
         "current_default_rate": float(curve.loc[idx, "default_rate"]),
         "base_bad_rate": base_bad_rate,
         "breakeven_factor": breakeven,
+        "has_estimated_pd": has_estimated_pd,
     }
 
 
