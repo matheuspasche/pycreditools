@@ -57,9 +57,21 @@ def _find_id_col(df: pd.DataFrame, cols: list[str]) -> str | None:
         if c.lower() in _ID_NAMES:
             return c
     for c in cols:
+        if _col_looks_like_score(df, c):
+            continue
         if df[c].is_unique:
             return c
     return None
+
+
+def _col_looks_like_score(df: pd.DataFrame, col: str) -> bool:
+    """True when `col` matches the same criteria as `_find_score_cols` — used to
+    avoid electing a score column as an applicant-id fallback."""
+    if "score" not in col.lower():
+        return False
+    if not pd.api.types.is_numeric_dtype(df[col]):
+        return False
+    return df[col].nunique(dropna=True) > _MIN_SCORE_NUNIQUE
 
 
 def _find_score_cols(df: pd.DataFrame, cols: list[str]) -> list[str]:
@@ -122,7 +134,16 @@ def _find_estimated_default_col(df: pd.DataFrame, cols: list[str]) -> str | None
         if c.lower() not in _ESTIMATED_NAMES:
             continue
         series = df[c]
-        if pd.api.types.is_float_dtype(series) and series.min() >= 0 and series.max() <= 1:
+        if pd.api.types.is_integer_dtype(series):
+            continue  # int-only is indistinguishable from a binary flag
+        if pd.api.types.is_float_dtype(series):
+            numeric = series
+        else:
+            numeric = pd.to_numeric(series, errors="coerce")
+            if numeric.isna().sum() > series.isna().sum():
+                continue  # some values could not be coerced — not a numeric PD column
+        values = numeric.dropna()
+        if len(values) and values.min() >= 0 and values.max() <= 1:
             return c
     return None
 
