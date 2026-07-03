@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pycreditools"
-version = "0.4.0"
+version = "0.4.1"
 description = "Credit Risk Simulation and Policy Optimization — Python edition of creditools"
 readme = "README.md"
 license = {text = "MIT"}
@@ -38,6 +38,8 @@ classifiers = [
 dependencies = [
     "pandas>=2.0",
     "numpy>=1.24",
+    "matplotlib>=3.7",
+    "seaborn>=0.12",
 ]
 
 [project.optional-dependencies]
