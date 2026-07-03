@@ -1,0 +1,17 @@
+services:
+  ralph_loop:
+    build:
+      context: ./docker
+    env_file:
+      - .env
+    volumes:
+      - .:/workspace
+      - claude_home:/home/ralph/.claude
+    # on-failure (not unless-stopped): the loop exits 0 when it cleanly stops for a
+    # human (all done / blocked / BLOCKED / ERROR). unless-stopped would relaunch it
+    # on that clean exit -> an infinite restart cycle. on-failure only relaunches on a
+    # real crash (non-zero exit); a clean stop stays stopped for the human.
+    restart: on-failure
+
+volumes:
+  claude_home:

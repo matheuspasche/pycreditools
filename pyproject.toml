@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pycreditools"
-version = "0.3.1"
+version = "0.4.0"
 description = "Credit Risk Simulation and Policy Optimization — Python edition of creditools"
 readme = "README.md"
 license = {text = "MIT"}
@@ -49,6 +49,12 @@ all = [
     "joblib>=1.3",
     "numba>=0.58",
 ]
+studio = [
+    "streamlit>=1.36",
+    "plotly>=5.0",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
@@ -59,6 +65,9 @@ dev = [
 Homepage = "https://github.com/matheuspasche/pycreditools"
 Repository = "https://github.com/matheuspasche/pycreditools"
 Issues = "https://github.com/matheuspasche/pycreditools/issues"
+
+[project.scripts]
+pycreditools-studio = "pycreditools.gui:run_studio"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pycreditools"]

@@ -27,6 +27,7 @@ wheels/
 # Virtual Environments
 venv/
 .venv/
+.venv-linux/
 env/
 ENV/
 env.bak/
@@ -37,9 +38,17 @@ venv.bak/
 .vscode/
 *.swp
 
+# Claude Code — local-only settings (project skills/commands may be committed)
+.claude/settings.local.json
+
 # Generated deployment files
 politica_final_producao.json
 
 # Project custom directories
 roadmap/
 scratch/
+
+# Ralph loop (docker/) — secrets and runtime state, never committed
+.env
+docker/.env
+.ralph/

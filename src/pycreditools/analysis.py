@@ -16,9 +16,11 @@ class TradeoffAnalyzer:
     def __init__(self, base_policy: CreditPolicy):
         self.base_policy = base_policy
         self.vary_params: dict[str, list[Any]] = {}
+        self.vary_directions: dict[str, str] = {}
 
-    def vary_cutoff(self, col_name: str, values: list[float]) -> "TradeoffAnalyzer":
+    def vary_cutoff(self, col_name: str, values: list[float], direction: str = ">=") -> "TradeoffAnalyzer":
         self.vary_params[f"{col_name}_cutoff"] = values
+        self.vary_directions[col_name] = direction
         return self
 
     def vary_base_rate(self, stage_name: str, values: list[float]) -> "TradeoffAnalyzer":
@@ -34,13 +36,14 @@ class TradeoffAnalyzer:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            return run_tradeoff_analysis(data, self.base_policy, self.vary_params, parallel)
+            return run_tradeoff_analysis(data, self.base_policy, self.vary_params, self.vary_directions, parallel)
 
 
 def run_tradeoff_analysis(
     data: pd.DataFrame,
     base_policy: CreditPolicy,
     vary_params: dict[str, list[Any]],
+    vary_directions: dict[str, str] = None,
     parallel: bool = False,
 ) -> pd.DataFrame:
     """Run a trade-off analysis simulation over a grid of parameters.
@@ -77,7 +80,7 @@ def run_tradeoff_analysis(
 
             if actual_cutoffs:
                 stages_list = list(temp_policy.stages)
-                unmatched_cutoffs = {}
+                vd = vary_directions or {}
                 for col_name, val in actual_cutoffs.items():
                     matched = False
                     for i, stage in enumerate(stages_list):
@@ -90,12 +93,10 @@ def run_tradeoff_analysis(
                             matched = True
                             break
                     if not matched:
-                        unmatched_cutoffs[col_name] = val
-
-                if unmatched_cutoffs:
-                    stages_list.append(
-                        CutoffStage(name="dynamic_cutoffs", cutoffs=unmatched_cutoffs)
-                    )
+                        direction = vd.get(col_name, ">=")
+                        stages_list.append(
+                            CutoffStage(name=f"dynamic_cutoff_{col_name}", cutoffs={col_name: val}, direction=direction)
+                        )
 
                 import dataclasses
 
