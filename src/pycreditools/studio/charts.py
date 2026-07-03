@@ -48,12 +48,14 @@ pio.templates["pct_dark"] = _TEMPLATE
 
 def _apply_layout(fig: go.Figure, title: str = "", height: int = 380) -> go.Figure:
     """Apply the shared dark layout (template, title, height, tight margins)."""
-    fig.update_layout(
+    layout: dict = dict(
         template="pct_dark",
-        title=title or None,
         height=height,
         margin={"l": 40, "r": 20, "t": 40 if title else 20, "b": 40},
     )
+    if title:
+        layout["title"] = title
+    fig.update_layout(**layout)
     return fig
 
 
@@ -173,6 +175,7 @@ def funnel(df: pd.DataFrame, *, stage_col: str = "stage", count_col: str = "n") 
 def bars(
     series: pd.Series,
     *,
+    title: str = "",
     percent: bool = True,
     highlight: str | None = None,
     risk_colors: bool = False,
@@ -202,7 +205,7 @@ def bars(
                 textposition="outside",
             )
         )
-    return _apply_layout(fig, "", height=max(220, 40 * len(series) + 80))
+    return _apply_layout(fig, title, height=max(220, 40 * len(series) + 80))
 
 
 def ks_curve(table_df: pd.DataFrame) -> go.Figure:

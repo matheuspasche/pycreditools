@@ -139,3 +139,42 @@ def test_session_aggravation_game_matches_the_studio_analyses_wrapper_directly(s
     pd.testing.assert_frame_equal(cached["curve"], expected["curve"])
     assert cached["breakeven_factor"] == pytest.approx(expected["breakeven_factor"])
     assert cached["current_default_rate"] == pytest.approx(expected["current_default_rate"])
+
+
+# ── Aggravation game: estimated_default_col path (issue #49) ────────────────
+
+
+def test_aggravation_game_with_estimated_pd_produces_non_flat_curve(sample_df, roles):
+    """When estimated_default_col is set the curve must respond to the factor (#49)."""
+    assert roles.estimated_default_col is not None, "fixture must have estimated_default_col set"
+    subset = population_filter(sample_df, roles, "Todos").head(1000)
+    policy = build_policy(roles, v14_quickfill_rows(subset.columns))
+
+    result = analyses.aggravation_game(subset, policy, current_factor=1.0, base_bad_rate=None)
+
+    curve = result["curve"]
+    assert curve["default_rate"].max() > curve["default_rate"].min(), (
+        "aggravation game with estimated PD produced a flat curve — factor must scale the PD"
+    )
+
+
+def test_aggravation_game_with_estimated_pd_sets_flag(sample_df, roles):
+    """Result must have has_estimated_pd=True when policy uses estimated_default_col (#49)."""
+    assert roles.estimated_default_col is not None
+    subset = population_filter(sample_df, roles, "Todos").head(500)
+    policy = build_policy(roles, v14_quickfill_rows(subset.columns))
+
+    result = analyses.aggravation_game(subset, policy, current_factor=1.0, base_bad_rate=None)
+
+    assert result["has_estimated_pd"] is True
+
+
+def test_aggravation_game_without_estimated_pd_has_flag_false(sample_df, roles):
+    """Result must have has_estimated_pd=False when estimated_default_col is cleared (#49)."""
+    stress_roles = dataclasses.replace(roles, estimated_default_col=None)
+    subset = population_filter(sample_df, stress_roles, "Todos").head(500)
+    policy = build_policy(stress_roles, v14_quickfill_rows(subset.columns))
+
+    result = analyses.aggravation_game(subset, policy, current_factor=1.0, base_bad_rate=None)
+
+    assert result["has_estimated_pd"] is False
