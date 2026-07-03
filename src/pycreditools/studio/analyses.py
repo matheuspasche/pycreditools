@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import string
+import warnings
 from typing import Any
 
 import numpy as np
@@ -186,7 +187,16 @@ def aggregate_funnel(funnels: list[pd.DataFrame]) -> pd.DataFrame:
         .reindex(stage_order)
         .reset_index()
     )
-    n_total = float(summed.loc[summed["Stage"] == "Total", "Candidates"].iloc[0])
+    total_candidates = summed.loc[summed["Stage"] == "Total", "Candidates"]
+    if total_candidates.empty:
+        warnings.warn(
+            "Etapa 'Total' ausente do funil agregado — provavelmente um segmento sem dados. "
+            "Funil agregado não disponível.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return pd.DataFrame(columns=columns)
+    n_total = float(total_candidates.iloc[0])
     summed["Stage_Pass_Rate"] = summed["Passed"] / summed["Candidates"]
     summed["Stage_Rej_Rate"] = summed["Rejections"] / summed["Candidates"]
     no_stage_rate = summed["Stage"].isin(["Total", "Approved"])
@@ -434,7 +444,16 @@ def _base_outcome(data: pd.DataFrame, roles: ColumnRoles) -> dict[str, float | N
     """
     if not roles.current_approval_col or roles.current_approval_col not in data.columns:
         return None
-    approval_col = data[roles.current_approval_col].fillna(0)
+    raw = data[roles.current_approval_col]
+    if raw.dtype == object or not raw.dropna().isin([0, 1]).all():
+        warnings.warn(
+            f"Coluna de aprovação '{roles.current_approval_col}' contém valores fora de {{0, 1}}. "
+            "Taxa da base não calculada — revise o encoding da coluna de aprovação.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return None
+    approval_col = raw.fillna(0)
     approval_rate = float(approval_col.mean())
     bad_rate = None
     if roles.actual_default_col and roles.actual_default_col in data.columns:
@@ -477,6 +496,14 @@ def compare_vs_base(
         }
 
     base = base_outcome(sim, roles)
+    if base is None:
+        return {
+            "tier": tier,
+            "candidate": candidate,
+            "base": None,
+            "delta": None,
+            "quadrants": quadrant_table(sim),
+        }
     bad_delta = (
         candidate["bad_rate"] - base["bad_rate"]
         if candidate["bad_rate"] is not None and base["bad_rate"] is not None
