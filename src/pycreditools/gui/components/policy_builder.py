@@ -119,6 +119,13 @@ def _render_value_input(df: pd.DataFrame, column: str, current: Any, *, key: str
     return st.selectbox("Valor", options, index=index, key=key)
 
 
+def _format_pass_drop_caption(stats: dict) -> str:
+    return (
+        f"**Passa:** {stats['pass_count']:,} ({stats['pass_frac']:.1%}) · "
+        f"**Cai:** {stats['drop_count']:,} ({stats['drop_frac']:.1%})"
+    )
+
+
 def _render_filter_histogram(df: pd.DataFrame, clause: dict[str, Any]) -> None:
     """Show pass/drop stats for the current clause value (critique 1.9)."""
     col = clause.get("column")
@@ -129,10 +136,7 @@ def _render_filter_histogram(df: pd.DataFrame, clause: dict[str, Any]) -> None:
     stats = filter_pass_drop_stats(df, col, op, val)
     if stats["total"] == 0:
         return
-    st.caption(
-        f"**Passa:** {stats['pass_count']:,} ({stats['pass_frac']:.1%}) · "
-        f"**Cai:** {stats['drop_count']:,} ({stats['drop_frac']:.1%})"
-    )
+    st.caption(_format_pass_drop_caption(stats))
 
 
 def _render_filter_row(df: pd.DataFrame, row: dict[str, Any]) -> None:
@@ -209,10 +213,7 @@ def _render_cutoff_row(df: pd.DataFrame, roles: ColumnRoles, row: dict[str, Any]
         op = ">=" if direction == "gte" else "<="
         stats = filter_pass_drop_stats(df, score, op, cut_val)
         if stats["total"] > 0:
-            st.caption(
-                f"**Passa:** {stats['pass_count']:,} ({stats['pass_frac']:.1%}) · "
-                f"**Cai:** {stats['drop_count']:,} ({stats['drop_frac']:.1%})"
-            )
+            st.caption(_format_pass_drop_caption(stats))
     row["cutoffs"] = new_cutoffs
     row["direction"] = direction
 

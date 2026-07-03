@@ -590,14 +590,27 @@ def policy_vintage_comparison(sim: CreditSimResults, roles: ColumnRoles) -> pd.D
 
 
 def exposure_kpis(
-    sim: CreditSimResults, roles: ColumnRoles, tier: str
+    sim: CreditSimResults,
+    roles: ColumnRoles,
+    tier: str,
+    *,
+    comparison: dict[str, Any] | None = None,
 ) -> dict[str, float | None]:
     """Risk-exposure KPI (issue #33 depth): the candidate's expected bad volume
     (`bad_rate x approved_volume`, already computed by `policy_kpis` — no new math),
     plus the base's for Tier A/B so the delta reads as one clear exposure number
     instead of two separate rates. `base_bad_volume`/`delta` stay `None` in Tier C.
+
+    Pass `comparison` (the result of `compare_vs_base`) to reuse already-computed
+    candidate/base KPIs and avoid a redundant `policy_kpis`/`base_outcome` call.
     """
-    candidate = policy_kpis(sim)
+    if comparison is not None:
+        candidate = comparison["candidate"]
+        precomputed_base = comparison.get("base")
+    else:
+        candidate = policy_kpis(sim)
+        precomputed_base = None
+
     candidate_bad_volume = (
         candidate["bad_rate"] * candidate["approved_volume"]
         if candidate["bad_rate"] is not None
@@ -611,7 +624,7 @@ def exposure_kpis(
     if tier == "C":
         return result
 
-    base = base_outcome(sim, roles)
+    base = precomputed_base if comparison is not None else base_outcome(sim, roles)
     if base is None or base["bad_rate"] is None or not roles.current_approval_col:
         return result
     base_volume = float(sim.data[roles.current_approval_col].fillna(0).sum())

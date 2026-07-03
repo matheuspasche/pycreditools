@@ -89,28 +89,13 @@ def population_filter_two_axes(
 
     `periodo` is one of PERIODO_CHOICES; `quem` is one of QUEM_CHOICES.
     The two filters are AND-ed: temporal slice first, then funnel-stage slice.
+    Delegates to `population_filter` so the operator logic lives in one place.
     """
-    if periodo == "Tudo":
-        subset = df
-    elif periodo == "Dev":
-        if not roles.time_col or not roles.oot_date:
-            raise ValueError("Defina a safra e a data OOT para filtrar Dev.")
-        subset = df[df[roles.time_col] < roles.oot_date]
-    elif periodo == "OOT":
-        if not roles.time_col or not roles.oot_date:
-            raise ValueError("Defina a safra e a data OOT para filtrar OOT.")
-        subset = df[df[roles.time_col] >= roles.oot_date]
-    else:
+    _periodo_to_choice = {"Tudo": "Todos", "Dev": "DEV", "OOT": "OOT"}
+    if periodo not in _periodo_to_choice:
         raise ValueError(f"Período desconhecido: {periodo}")
-
-    if quem == "Todos":
-        return subset
-    if quem == "Aprovados":
-        if not roles.current_approval_col:
-            raise ValueError("Defina a coluna de aprovação para filtrar Aprovados.")
-        return subset[subset[roles.current_approval_col] == 1]
-    if quem == "Contratados":
-        if not roles.current_hired_col:
-            raise ValueError("Defina a coluna de contratação para filtrar Contratados.")
-        return subset[subset[roles.current_hired_col] == 1]
-    raise ValueError(f"Quem desconhecido: {quem}")
+    _quem_to_choice = {"Todos": "Todos", "Aprovados": "Aprovados", "Contratados": "Contratados"}
+    if quem not in _quem_to_choice:
+        raise ValueError(f"Quem desconhecido: {quem}")
+    subset = population_filter(df, roles, _periodo_to_choice[periodo])
+    return population_filter(subset, roles, _quem_to_choice[quem])

@@ -84,18 +84,18 @@ ks_series = pd.Series(ks_scores).sort_values(ascending=False)
 top_score = ks_series.index[0]
 top_ks = ks_series.iloc[0]
 
-legacy_col = "legacy_score" if "legacy_score" in ks_series.index else None
+reference_score = resolve_reference_score(roles, ks_series)
 kpi_items = [
     {"label": "Score campeão", "value": top_score},
     {"label": "KS do campeão", "value": tables.pct(top_ks)},
 ]
-if legacy_col and legacy_col != top_score:
-    legacy_ks = ks_series[legacy_col]
-    delta = top_ks - legacy_ks
+if reference_score and reference_score != top_score:
+    ref_ks = ks_series[reference_score]
+    delta = top_ks - ref_ks
     kpi_items.append(
         {
-            "label": "KS do legacy_score",
-            "value": tables.pct(legacy_ks),
+            "label": "KS do score de referência",
+            "value": tables.pct(ref_ks),
             "delta": ("+" if delta >= 0 else "") + tables.pct(delta),
             "delta_good": delta >= 0,
         }
@@ -107,7 +107,7 @@ if zero_variance:
     st.caption(f"Sem variância suficiente para: {', '.join(zero_variance)}.")
 
 st.plotly_chart(
-    charts.bars(ks_series, percent=True, highlight=legacy_col),
+    charts.bars(ks_series, percent=True, highlight=reference_score),
     use_container_width=True,
     config={"displayModeBar": False},
 )
@@ -136,7 +136,6 @@ with st.container(border=True):
 
 with st.container(border=True):
     st.subheader("Complementaridade vs. score vigente/em uso")
-    reference_score = resolve_reference_score(roles, ks_series)
     candidates = [s for s in shortlisted if s != reference_score] if reference_score else []
     if reference_score is None:
         st.info("Calcule o KS de ao menos um score para ver a complementaridade.")

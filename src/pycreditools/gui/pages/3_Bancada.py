@@ -386,10 +386,16 @@ def _render_aggravation_game(
     )
 
 
-def _render_depth_section(sim, tier: str) -> None:
+def _render_depth_section(
+    sim, tier: str, comparison: dict | None = None
+) -> None:
     """Risk/time/exposure depth (ADR 0001, 0004, 0007; issue #33, #39): risk-tier
     distribution of the swap groups re-fitted on current survivors, candidate-vs-base
-    behaviour over vintages, and a risk-exposure KPI."""
+    behaviour over vintages, and a risk-exposure KPI.
+
+    Pass `comparison` (from `compare_vs_base`) to avoid redundant recomputation of
+    `policy_kpis`/`base_outcome` inside `exposure_kpis`.
+    """
     st.divider()
     st.subheader("Profundidade: risco, tempo e exposição")
 
@@ -430,7 +436,7 @@ def _render_depth_section(sim, tier: str) -> None:
             config={"displayModeBar": False},
         )
 
-    exposure = exposure_kpis(sim, roles, tier)
+    exposure = exposure_kpis(sim, roles, tier, comparison=comparison)
     kpi_items = []
     if exposure["candidate_bad_volume"] is not None:
         item = {
@@ -470,7 +476,7 @@ def _render_comparison_vs_base(sim, subset: pd.DataFrame, population: str) -> No
             "nesta base): os quadrantes de swap não estão disponíveis. O resultado "
             "acima é standalone, com a PD vindo da coluna de PD estimada."
         )
-        _render_depth_section(sim, tier)
+        _render_depth_section(sim, tier, comparison=comparison)
         _render_aggravation_game(subset, population, None)
         return
 
@@ -507,7 +513,7 @@ def _render_comparison_vs_base(sim, subset: pd.DataFrame, population: str) -> No
     with st.expander("Tabela de quadrantes"):
         tables.dataframe(quad, percent_cols=("Bad_Rate",))
 
-    _render_depth_section(sim, tier)
+    _render_depth_section(sim, tier, comparison=comparison)
     _render_aggravation_game(subset, population, base["bad_rate"])
 
 

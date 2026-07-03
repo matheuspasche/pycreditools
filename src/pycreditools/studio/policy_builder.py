@@ -131,6 +131,23 @@ def v14_quickfill_rows(columns: Iterable[str]) -> list[dict[str, Any]]:
     ]
 
 
+def _mask_for_operator(series: pd.Series, operator: str, value: object) -> pd.Series:
+    """Apply a comparison operator to a pandas Series; raises on unknown operator."""
+    if operator == ">=":
+        return series >= value
+    if operator == ">":
+        return series > value
+    if operator == "<=":
+        return series <= value
+    if operator == "<":
+        return series < value
+    if operator == "==":
+        return series == value
+    if operator == "!=":
+        return series != value
+    raise ValueError(f"Operador desconhecido: {operator}")
+
+
 def build_clause_expression(clause: dict[str, Any]) -> Expression:
     """Build a single `col(column) <op> value` `Expression` from one clause."""
     column, operator, value = clause["column"], clause["operator"], clause["value"]
@@ -238,10 +255,7 @@ def legacy_cutoff_policy(
 def apply_cutoff_to_rows(
     rows: list[dict[str, Any]], score_col: str, value: float, direction: str = "gte"
 ) -> list[dict[str, Any]]:
-    """Update the existing `Cutoff` row on `score_col`, or append a new one if none exists.
-
-    Used by `apply_cutoffs_to_rows` to carry a chosen cutoff back to the Bancada.
-    """
+    """Update the existing `Cutoff` row on `score_col`, or append a new one if none exists."""
     rows = copy.deepcopy(rows)
     for row in rows:
         if row["type"] == "cutoff" and score_col in row["cutoffs"]:
@@ -316,20 +330,7 @@ def filter_pass_drop_stats(
     """
     series = df[column] if column in df.columns else pd.Series([], dtype=float)
     total = len(df)
-    if operator == ">=":
-        mask = series >= value
-    elif operator == ">":
-        mask = series > value
-    elif operator == "<=":
-        mask = series <= value
-    elif operator == "<":
-        mask = series < value
-    elif operator == "==":
-        mask = series == value
-    elif operator == "!=":
-        mask = series != value
-    else:
-        raise ValueError(f"Operador desconhecido: {operator}")
+    mask = _mask_for_operator(series, operator, value)
     pass_count = int(mask.sum())
     drop_count = total - pass_count
     return {
