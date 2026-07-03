@@ -146,7 +146,12 @@ with tab_single:
     tab_charts, tab_tables = st.tabs(["Gráficos", "Tabelas"])
     with tab_charts:
         st.plotly_chart(
-            charts.bars(groups.set_index("Rating")["pd"], percent=True, risk_colors=True),
+            charts.bars(
+                groups.set_index("Rating")["pd"],
+                title="Inadimplência por rating",
+                percent=True,
+                risk_colors=True,
+            ),
             use_container_width=True,
             config={"displayModeBar": False},
         )

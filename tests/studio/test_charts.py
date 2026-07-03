@@ -167,6 +167,18 @@ def test_bars_risk_colors_colors_each_bar_by_rating():
     assert colors_by_label["C"] == charts.RISK_COLORS["C"]
 
 
+def test_bars_without_title_does_not_produce_undefined():
+    series = pd.Series({"A": 0.02, "B": 0.05, "C": 0.10})
+    fig = charts.bars(series, percent=True, risk_colors=True)
+    assert fig.layout.title.text is None
+
+
+def test_bars_accepts_title_parameter():
+    series = pd.Series({"A": 0.02, "B": 0.05, "C": 0.10})
+    fig = charts.bars(series, title="Inadimplência por rating")
+    assert fig.layout.title.text == "Inadimplência por rating"
+
+
 def test_vintage_stability_draws_one_line_per_rating_and_oot_vline():
     df = pd.DataFrame(
         {
