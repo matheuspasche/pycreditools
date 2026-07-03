@@ -32,6 +32,12 @@ pip install git+https://github.com/matheuspasche/pycreditools.git
 
 ---
 
+## 🖥️ Visual Studio — low-code *(in development)*
+
+Beyond the Python API, a browser-based **Studio** is under construction to do everything below — assembling policies, tuning cutoffs and trade-offs, comparing against a base, clustering risk ratings, and exporting to production — visually, with no code, on top of the same engine. It ships with the package (`pip install "pycreditools[studio]"`, launched via `pycreditools-studio`) and is an early work in progress.
+
+---
+
 ## 📖 Use Case: Replacing a Legacy Policy (Showcase V14)
 
 This section demonstrates the real-world usage of the library to simulate and validate the replacement of a legacy policy (`legacy_score` with a single p78 cutoff) with a new champion model (`score_5`) regionalized by store/region.
