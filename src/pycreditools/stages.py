@@ -364,10 +364,13 @@ class RateStage(Stage):
 
         # calibrate_by == "score": bin the Keep Ins by score, same knobs as the PD imputation.
         reason: str | None = None
+        score_col = resolve_calibration_score_col(df, policy)
         if not has_keep_ins:
             reason = "the approval column is not available in the data"
-        elif resolve_calibration_score_col(df, policy) is None:
+        elif score_col is None:
             reason = "no usable score column was found"
+        elif score_col not in df.columns:
+            reason = f"the configured calibration score column '{score_col}' is not in the data"
         else:
             # Same floor as the swap-in PD imputation (simulation.py).
             min_keep_ins = 5 if policy.calibration_bins is not None else 50

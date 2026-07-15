@@ -15,13 +15,18 @@ def resolve_calibration_score_col(df: pd.DataFrame, policy: Any) -> str | None:
     2. the score of the last `CutoffStage` in the policy that exists in `df`;
     3. the last entry of `policy.score_cols` that exists in `df`.
 
-    Returns `None` when no usable score column can be found.
+    An explicitly configured `calibration_score_col` short-circuits the fallbacks even
+    when it is absent from `df`: asking for a specific score and silently binning on a
+    different one is worse than the caller handling the absence. Callers must therefore
+    check the result against `df.columns` themselves.
+
+    Returns `None` when no score column is configured or discoverable.
     """
     if policy is None:
         return None
 
     primary_score = policy.calibration_score_col
-    if primary_score is not None and primary_score in df.columns:
+    if primary_score is not None:
         return primary_score
 
     from .stages import CutoffStage
@@ -232,7 +237,7 @@ class CalibratedExpression(Expression):
         # 3. Determine score column to use for calibration
         primary_score = resolve_calibration_score_col(df, policy)
 
-        if primary_score is None:
+        if primary_score is None or primary_score not in df.columns:
             return pd.Series(global_mean, index=df.index)
 
         # 4. Group by score bins of Keep In
