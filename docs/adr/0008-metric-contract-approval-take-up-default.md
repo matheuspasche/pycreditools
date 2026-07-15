@@ -6,6 +6,12 @@
   `analysis.py`, `performance.py`) **and** `studio/`. The "MUST NOT touch the engine"
   constraint of ADR 0001 does **not** apply here (owner decision, wayfinder map #54).
 - **Ticket:** #55 (wayfinder map #54).
+- **Amended by:** ADR 0010, on the **simulation path only** — the bad marker there narrows
+  to a 0/1 flag (`market_default_col`), because a modelled PD as a simulation input is
+  circular. For **measurement** (#73's `bad_col`) the marker stays loose: any column whose
+  mean is the bad rate, with the suggester declaring which one it used. The narrowing
+  lands with the architecture refactor, not in v0.5 — see
+  `docs/refactor/00-architecture-refactor.md` (S4).
 
 ## Context
 
