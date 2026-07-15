@@ -64,6 +64,24 @@ assumes volume.
 gives such a column any candidates at all — and this is the *normal* shape for HF variables, not an
 edge case.
 
+## Amendment — findings 1 and the `max_cut` parameter are superseded
+
+`max_cut` (~5% per column) was invented by the agent, not grounded in #59, and the owner corrected it
+in the same session. **The budget belongs to the HF set and is relative to the target approval rate**:
+`budget = 1 - target_approval_rate - score_room`. A 20%-approval product spends ~60pp on all hard
+filters together, leaving the score the remaining ~20pp — the score must stay the dominant lever on
+the approval rate. So finding 1 above ("every column lands exactly on `max_cut`") is an artifact of an
+invented ceiling set far too tight, `target_approval_rate` comes back as the budget's source, and
+overlap becomes first-class: five sample rules cutting 67.2% by naive sum cut **51.6%** in union.
+
+The code in `suggester.py` therefore has the wrong parameter *and* the wrong algorithm — it re-masks
+the frame per threshold, which makes grid size a cost knob (6.5s at 380 candidates, 22.8s at 1,980,
+1M × 20). Sorting each column once and binary-searching a cumsum of the bad column makes the grid
+free: **3.16s at 380 candidates, 3.96s at 199,980**. Findings 2, 3, 4 and 5 stand unchanged.
+
+Full correction in [#60's amendment](https://github.com/matheuspasche/pycreditools/issues/60#issuecomment-4981301908);
+the spec is [#73](https://github.com/matheuspasche/pycreditools/issues/73).
+
 ## Files
 
 - `suggester.py` — the pure part, worth lifting: `strategy_table`, `suggest`, `near_misses`,
