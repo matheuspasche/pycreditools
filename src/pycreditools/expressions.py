@@ -5,6 +5,43 @@ from typing import Any
 import pandas as pd
 
 
+def resolve_calibration_score_col(df: pd.DataFrame, policy: Any) -> str | None:
+    """The score column to bin on when calibrating anything on the Keep In population.
+
+    Resolution order (single source of truth for every calibrated surface — the PD
+    imputation in `simulation.py`, `CalibratedExpression`, and `RateStage.observed_col`):
+
+    1. `policy.calibration_score_col`, when set;
+    2. the score of the last `CutoffStage` in the policy that exists in `df`;
+    3. the last entry of `policy.score_cols` that exists in `df`.
+
+    Returns `None` when no usable score column can be found.
+    """
+    if policy is None:
+        return None
+
+    primary_score = policy.calibration_score_col
+    if primary_score is not None and primary_score in df.columns:
+        return primary_score
+
+    from .stages import CutoffStage
+
+    cutoff_cols: list[str] = []
+    for stage in policy.stages:
+        if isinstance(stage, CutoffStage):
+            cutoff_cols.extend(stage.cutoffs.keys())
+    for sc in reversed(cutoff_cols):
+        if sc in df.columns:
+            return sc
+
+    if policy.score_cols:
+        for sc in reversed(policy.score_cols):
+            if sc in df.columns:
+                return sc
+
+    return None
+
+
 class Expression:
     """Base class for building logical column expressions."""
 
@@ -193,26 +230,9 @@ class CalibratedExpression(Expression):
             global_mean = 0.0
 
         # 3. Determine score column to use for calibration
-        primary_score = policy.calibration_score_col
+        primary_score = resolve_calibration_score_col(df, policy)
+
         if primary_score is None:
-            # Fallback to active cutoff score, or fallback to last score_cols
-            from .stages import CutoffStage
-            cutoff_cols = []
-            for stage in policy.stages:
-                if isinstance(stage, CutoffStage):
-                    cutoff_cols.extend(stage.cutoffs.keys())
-            for sc in reversed(cutoff_cols):
-                if sc in df.columns:
-                    primary_score = sc
-                    break
-
-        if primary_score is None and policy.score_cols:
-            for sc in reversed(policy.score_cols):
-                if sc in df.columns:
-                    primary_score = sc
-                    break
-
-        if primary_score is None or primary_score not in df.columns:
             return pd.Series(global_mean, index=df.index)
 
         # 4. Group by score bins of Keep In

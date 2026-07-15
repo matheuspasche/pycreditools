@@ -68,9 +68,15 @@ def make_rate_row(
     base_rate: float,
     variable: str | float | None = None,
     calibrate: bool = False,
+    observed_col: str | None = None,
+    calibrate_by: str | None = "score",
     row_id: str | None = None,
 ) -> dict[str, Any]:
-    """A `Taxa` row: base take-up rate, optional column/constant multiplier."""
+    """A `Taxa` row: base rate, optional column/constant multiplier.
+
+    `observed_col`/`calibrate_by` are `RateStage`'s real-outcome params (Keep Ins take
+    their value from the column; Swap Ins get their score bin's observed rate).
+    """
     return {
         "id": row_id or new_row_id(),
         "type": "rate",
@@ -78,6 +84,8 @@ def make_rate_row(
         "base_rate": base_rate,
         "variable": variable,
         "calibrate": calibrate,
+        "observed_col": observed_col,
+        "calibrate_by": calibrate_by,
     }
 
 
@@ -222,7 +230,12 @@ def build_policy(
                     direction=str(row.get("_angled_direction", "gte")),
                 )
             policy = policy.rate(
-                row["name"], row["base_rate"], variable, row.get("calibrate", False)
+                row["name"],
+                row["base_rate"],
+                variable,
+                row.get("calibrate", False),
+                observed_col=row.get("observed_col"),
+                calibrate_by=row.get("calibrate_by", "score"),
             )
         elif row_type == "stress":
             policy = policy.stress_aggravation(row["factor"])

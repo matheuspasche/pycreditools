@@ -218,6 +218,31 @@ def _render_cutoff_row(df: pd.DataFrame, roles: ColumnRoles, row: dict[str, Any]
     row["direction"] = direction
 
 
+def _render_observed_col_toggle(
+    df: pd.DataFrame, roles: ColumnRoles, row: dict[str, Any]
+) -> None:
+    """Offer the hired column as the rate's real outcome (`observed_col`, issue #68).
+
+    Off, the stage is a plain lottery: keep-ins pass at 100% and only swap-ins are
+    thinned. On, keep-ins take their real outcome from the column and swap-ins get the
+    rate observed in their own score bin.
+    """
+    hired_col = roles.current_hired_col
+    if not hired_col or hired_col not in df.columns:
+        row["observed_col"] = None
+        return
+    use_observed = st.checkbox(
+        f"Usar a contratação real dos aprovados (coluna `{hired_col}`)",
+        value=row.get("observed_col") == hired_col,
+        key=f"rate_observed_{row['id']}",
+        help=(
+            "Os keep-ins entram com o desfecho real; os swap-ins recebem a taxa "
+            "observada na faixa de score deles."
+        ),
+    )
+    row["observed_col"] = hired_col if use_observed else None
+
+
 def _render_rate_row(
     df: pd.DataFrame, roles: ColumnRoles, row: dict[str, Any]
 ) -> None:
@@ -241,6 +266,8 @@ def _render_rate_row(
     row["base_rate"] = st.slider(
         "Taxa base", 0.0, 1.0, value=float(row.get("base_rate", 0.5)), key=f"rate_base_{row['id']}"
     )
+
+    _render_observed_col_toggle(df, roles, row)
 
     current_variable = row.get("variable")
     is_angled = row.get("_angled_mode", False)

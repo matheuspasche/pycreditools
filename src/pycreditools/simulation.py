@@ -633,24 +633,9 @@ def _estimate_swap_in_baseline_pd(
 
     # 2. Score-based decile calibration (fallback)
     # Identify primary score column (explicitly configured, or fallback to active cutoff score, or last score_cols)
-    primary_score = policy.calibration_score_col
+    from .expressions import resolve_calibration_score_col
 
-    if primary_score is None:
-        from .stages import CutoffStage
-        cutoff_cols = []
-        for stage in policy.stages:
-            if isinstance(stage, CutoffStage):
-                cutoff_cols.extend(stage.cutoffs.keys())
-        for sc in reversed(cutoff_cols):
-            if sc in df.columns:
-                primary_score = sc
-                break
-
-    if primary_score is None and policy.score_cols:
-        for sc in reversed(policy.score_cols):
-            if sc in df.columns:
-                primary_score = sc
-                break
+    primary_score = resolve_calibration_score_col(df, policy)
 
     actual_default_col = policy.actual_default_col
 

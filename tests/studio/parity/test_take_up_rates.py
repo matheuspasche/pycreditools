@@ -6,6 +6,11 @@ Acceptance criteria:
   (c) two chained rate stages compose multiplicatively on the funnel.
   (d) angled_rate_variable respects lte direction (issue #47).
   (e) angled rate row representation is clean/serializable (issue #47).
+  (f) rate rows round-trip observed_col/calibrate_by into the engine (issue #68).
+
+`current_hired_col` appears here as a column *role* only: it is what
+`suggested_take_up_rate` reads, and the obvious value to hand to a rate row's
+`observed_col`. It elects nothing in the engine (issue #68).
 """
 
 import dataclasses
@@ -266,3 +271,50 @@ def test_build_policy_angled_row_lte_gives_more_approvals_to_high_score(sample_d
     assert high_score["lte_approval"].mean() > high_score["gte_approval"].mean(), (
         "lte angled: high-score rows (worse for lte) must get higher approval rate than gte"
     )
+
+
+# ---------------------------------------------------------------------------
+# (f) observed_col / calibrate_by round-trip — issue #68
+# ---------------------------------------------------------------------------
+
+
+def test_make_rate_row_defaults_to_no_observed_col(roles):
+    """A plain Taxa row reads no outcome: keep-ins bypass it at 1.0."""
+    row = make_rate_row(name="Contratação", base_rate=0.7)
+    assert row["observed_col"] is None
+    assert row["calibrate_by"] == "score"
+    json.dumps(row)  # must not raise
+
+
+def test_make_rate_row_carries_observed_col_into_the_stage(sample_df, roles):
+    """The hired role is the obvious value for observed_col, and it survives build_policy."""
+    row = make_rate_row(
+        name="Contratação", base_rate=1.0, observed_col=roles.current_hired_col
+    )
+    policy = build_policy(roles, [row])
+    stage = policy.stages[0]
+    assert stage.observed_col == roles.current_hired_col
+    assert stage.calibrate_by == "score"
+
+
+def test_build_policy_tolerates_a_pre_068_rate_row(sample_df, roles):
+    """Rows persisted before #68 have neither key: they build a plain multiplier."""
+    legacy_row = {"id": "x", "type": "rate", "name": "Conversao", "base_rate": 0.7}
+    policy = build_policy(roles, [legacy_row])
+    assert policy.stages[0].observed_col is None
+
+
+def test_observed_col_row_makes_keep_ins_take_their_real_outcome(sample_df, roles):
+    """End-to-end through the studio builder: keep-ins get `hired`, not 1.0."""
+    score_col = roles.score_cols[-1]
+    rows = [
+        make_cutoff_row(name="Corte", cutoffs={score_col: float(sample_df[score_col].quantile(0.3))}),
+        make_rate_row(name="Contratação", base_rate=1.0, observed_col=roles.current_hired_col),
+    ]
+    sim = build_policy(roles, rows).simulate(sample_df, method="analytical")
+
+    keep_ins = sample_df[roles.current_approval_col] == 1
+    passed_cutoff = sim.data.loc[keep_ins, "approved_pre_rate"] == 1.0
+    stage_col = [c for c in sim.data.columns if c.endswith("_Contratação")][0]
+    observed = sample_df.loc[keep_ins, roles.current_hired_col][passed_cutoff]
+    assert sim.data.loc[keep_ins, stage_col][passed_cutoff].tolist() == observed.tolist()

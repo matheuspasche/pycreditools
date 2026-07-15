@@ -320,8 +320,9 @@ def test_rate_calibrate_syntax(sample_df):
 
 
 def test_keep_in_rate_bypass():
-    # Keep-in applicants must bypass rate stages (have 1.0 in pre-approval rate stages
-    # and their actual hired value in conversion rate stages).
+    # Keep-in applicants bypass a plain rate stage (1.0 -- take-up of a keep-in is 1.0
+    # by construction of the data) and take their real outcome in a rate stage that
+    # declares an observed_col. Nothing is elected by name (issue #68).
     df = pd.DataFrame({
         "applicant_id": [1, 2, 3],
         "score": [800, 750, 600],
@@ -329,8 +330,8 @@ def test_keep_in_rate_bypass():
         "hired": [1.0, 0.0, 0.0],    # applicant 1 converted, applicant 2 did not, 3 is rejected
         "actual_default": [0, 0, 0]
     })
-    
-    # We define a policy with two rate stages: a pre-approval (Anti-fraude) and conversion (Conversao)
+
+    # Two rate stages: a plain one (Anti-fraude) and one reading the real outcome (Conversao).
     policy = CreditPolicy(
         applicant_id_col="applicant_id",
         score_cols=("score",),
@@ -340,9 +341,9 @@ def test_keep_in_rate_bypass():
     ).rate(
         "Anti-fraude", base_rate=0.85
     ).rate(
-        "Conversao", base_rate=1.0, variable=col("hired") / col("approved"), calibrate=True
+        "Conversao", base_rate=1.0, observed_col="hired", calibrate_by=None
     ).with_calibration(bins=2, base="keep_in")
-    
+
     # 1. Analytical simulation
     res_analytical = policy.simulate(df, method="analytical").data
     # For applicant 1 (keep-in, hired=1):

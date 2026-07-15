@@ -29,6 +29,9 @@ class CreditPolicy:
     calibration_score_col: str | None = None
     calibration_bins: int | tuple[float, ...] | list[float] | None = None
     calibration_base: str = "keep_in"
+    # A column role only: the 0/1 "actually contracted" column. It drives no engine
+    # branch — hand it to `RateStage(observed_col=...)` to make a rate stage read the
+    # real outcome. The studio uses it for `suggested_take_up_rate`.
     current_hired_col: str | None = None
     estimated_default_col: str | None = None
 
@@ -112,10 +115,19 @@ class CreditPolicy:
         base_rate: float,
         variable: str | float | None = None,
         calibrate: bool = False,
+        observed_col: str | None = None,
+        calibrate_by: str | None = "score",
     ) -> CreditPolicy:
-        """Add a RateStage to the policy."""
+        """Add a RateStage to the policy. See `RateStage` for the parameter semantics."""
         return self.add_stage(
-            RateStage(name=name, base_rate=base_rate, variable=variable, calibrate=calibrate)
+            RateStage(
+                name=name,
+                base_rate=base_rate,
+                variable=variable,
+                calibrate=calibrate,
+                observed_col=observed_col,
+                calibrate_by=calibrate_by,
+            )
         )
 
     def stress_aggravation(self, factor: float) -> CreditPolicy:
@@ -172,6 +184,8 @@ class CreditPolicy:
                 required_cols.extend(stage.cutoffs.keys())
             elif isinstance(stage, FilterStage) and isinstance(stage.condition, Expression):
                 required_cols.extend(stage.condition.get_columns())
+            elif isinstance(stage, RateStage) and stage.observed_col is not None:
+                required_cols.append(stage.observed_col)
 
         if self.time_col is not None:
             required_cols.append(self.time_col)
