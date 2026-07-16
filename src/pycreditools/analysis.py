@@ -1,13 +1,17 @@
-import copy
-import itertools
+"""Trade-off analysis: the raw-curve verdict over the single sweep engine.
+
+``TradeoffAnalyzer`` names grid dimensions; :func:`pycreditools.sweep.run_sweep`
+does all simulation and metric math (issue #71). Metrics follow ADR 0008
+(docs/adr/0008-metric-contract-approval-take-up-default.md): ``approval_rate``
+is pre take-up over the whole base; ``default_rate`` is contracted-weighted.
+"""
 from typing import Any
 
 import pandas as pd
 
 from .policy import CreditPolicy
-from .simulation import SimulationMethod, run_simulation
-from .stages import CutoffStage, RateStage
-from .stress import AggravationStress
+from .stages import VALID_CUTOFF_DIRECTIONS
+from .sweep import BASE_RATE_SUFFIX, STRESS_DIM, run_sweep
 
 
 class TradeoffAnalyzer:
@@ -18,25 +22,32 @@ class TradeoffAnalyzer:
         self.vary_params: dict[str, list[Any]] = {}
         self.vary_directions: dict[str, str] = {}
 
-    def vary_cutoff(self, col_name: str, values: list[float], direction: str = ">=") -> "TradeoffAnalyzer":
+    def vary_cutoff(
+        self, col_name: str, values: list[float], direction: str = "gte"
+    ) -> "TradeoffAnalyzer":
+        if direction not in VALID_CUTOFF_DIRECTIONS:
+            raise ValueError(
+                f"Unknown direction '{direction}' for cutoff sweep on '{col_name}': "
+                f"use 'gte' (>=) or 'lte' (<=)."
+            )
         self.vary_params[f"{col_name}_cutoff"] = values
         self.vary_directions[col_name] = direction
         return self
 
     def vary_base_rate(self, stage_name: str, values: list[float]) -> "TradeoffAnalyzer":
-        self.vary_params[f"{stage_name}_base_rate"] = values
+        self.vary_params[f"{stage_name}{BASE_RATE_SUFFIX}"] = values
         return self
 
     def vary_stress_aggravation(self, values: list[float]) -> "TradeoffAnalyzer":
-        self.vary_params["aggravation_factor"] = values
+        self.vary_params[STRESS_DIM] = values
         return self
 
     def run(self, data: pd.DataFrame, parallel: bool = False) -> pd.DataFrame:
-        import warnings
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            return run_tradeoff_analysis(data, self.base_policy, self.vary_params, self.vary_directions, parallel)
+        # Engine warnings (e.g. calibration reliability) must reach the caller:
+        # the warning suppression that used to live here hid them (issue #71).
+        return run_tradeoff_analysis(
+            data, self.base_policy, self.vary_params, self.vary_directions, parallel
+        )
 
 
 def run_tradeoff_analysis(
@@ -50,9 +61,12 @@ def run_tradeoff_analysis(
 
     Args:
         data: Applicant data.
-        base_policy: The template policy.
-        vary_params: Dictionary mapping parameter names to lists of values.
-        parallel: Whether to run in parallel using concurrent.futures.
+        base_policy: The template policy. Everything it declares binds at every
+            grid point except the swept dimensions.
+        vary_params: Dictionary mapping parameter names to lists of values:
+            ``"{col}_cutoff"``, ``"{stage}_base_rate"`` or ``"aggravation_factor"``.
+        vary_directions: Column -> "gte"/"lte" for swept cutoffs (default "gte").
+        parallel: Whether to run re-simulated grids in parallel.
 
     Returns:
         DataFrame containing results.
@@ -60,106 +74,34 @@ def run_tradeoff_analysis(
     Note:
         Consider using TradeoffAnalyzer for a cleaner, object-oriented API.
     """
-    keys = list(vary_params.keys())
-    values = list(vary_params.values())
+    cutoff_grid: dict[str, list[float]] = {}
+    base_rates: dict[str, list[float]] = {}
+    stress_factors: list[float] | None = None
 
-    # Create parameter grid
-    grid = [dict(zip(keys, v)) for v in itertools.product(*values)]
-
-    def _run_single(params: dict[str, Any]) -> dict[str, Any]:
-        temp_policy = copy.deepcopy(base_policy)
-
-        # 1. Handle Cutoffs
-        cutoff_params = {k: v for k, v in params.items() if k.endswith("_cutoff")}
-        if cutoff_params:
-            actual_cutoffs = {}
-            for k, v in cutoff_params.items():
-                col_name = k.replace("_cutoff", "")
-                if col_name in data.columns:
-                    actual_cutoffs[col_name] = v
-
-            if actual_cutoffs:
-                stages_list = list(temp_policy.stages)
-                vd = vary_directions or {}
-                for col_name, val in actual_cutoffs.items():
-                    matched = False
-                    for i, stage in enumerate(stages_list):
-                        if isinstance(stage, CutoffStage) and col_name in stage.cutoffs:
-                            new_cutoffs = dict(stage.cutoffs)
-                            new_cutoffs[col_name] = val
-                            stages_list[i] = CutoffStage(
-                                name=stage.name, cutoffs=new_cutoffs, direction=stage.direction
-                            )
-                            matched = True
-                            break
-                    if not matched:
-                        direction = vd.get(col_name, ">=")
-                        stages_list.append(
-                            CutoffStage(name=f"dynamic_cutoff_{col_name}", cutoffs={col_name: val}, direction=direction)
-                        )
-
-                import dataclasses
-
-                temp_policy = dataclasses.replace(temp_policy, stages=tuple(stages_list))
-
-        # 2. Handle Aggravation Factor
-        if "aggravation_factor" in params:
-            agg_stress = AggravationStress(factor=params["aggravation_factor"])
-            # Replace stress scenarios
-            import dataclasses
-
-            temp_policy = dataclasses.replace(temp_policy, stress_scenarios=(agg_stress,))
-
-        # 3. Handle Dynamic Base Rates
-        base_rate_params = {k: v for k, v in params.items() if k.endswith("_base_rate")}
-        if base_rate_params:
-            stages_list = list(temp_policy.stages)
-            for k, v in base_rate_params.items():
-                stage_name = k.replace("_base_rate", "")
-                for i, stage in enumerate(stages_list):
-                    if stage.name == stage_name and isinstance(stage, RateStage):
-                        stages_list[i] = RateStage(
-                            name=stage.name, base_rate=v, variable=stage.variable
-                        )
-
-            import dataclasses
-
-            temp_policy = dataclasses.replace(temp_policy, stages=tuple(stages_list))
-
-        # Run simulation
-        sim_results = run_simulation(data, temp_policy, method=SimulationMethod.ANALYTICAL)
-        final_data = sim_results.data
-
-        # Use approved_pre_rate when available so metrics reflect the *approved* population,
-        # not the contracted one — avoids RateStage (take-up) distorting the tradeoff curve.
-        _aprov_col = (
-            "approved_pre_rate"
-            if "approved_pre_rate" in final_data.columns
-            else "new_approval"
-        )
-
-        app_sum = final_data[_aprov_col].sum()
-        total = len(final_data)
-        approval_rate = app_sum / total if total > 0 else 0.0
-
-        if app_sum > 0:
-            bad_rate = (
-                final_data["simulated_default"] * final_data[_aprov_col]
-            ).sum() / app_sum
+    for key, values in vary_params.items():
+        if key == STRESS_DIM:
+            stress_factors = list(values)
+        elif key.endswith("_cutoff"):
+            cutoff_grid[key[: -len("_cutoff")]] = list(values)
+        elif key.endswith(BASE_RATE_SUFFIX):
+            base_rates[key[: -len(BASE_RATE_SUFFIX)]] = list(values)
         else:
-            bad_rate = 0.0
+            raise ValueError(
+                f"Unknown sweep parameter '{key}': expected '{{col}}_cutoff', "
+                f"'{{stage}}{BASE_RATE_SUFFIX}' or '{STRESS_DIM}'."
+            )
 
-        result = dict(params)
-        result["approval_rate"] = approval_rate
-        result["default_rate"] = bad_rate
-        return result
+    results = run_sweep(
+        data,
+        base_policy,
+        cutoff_grid=cutoff_grid,
+        directions=vary_directions,
+        stress_factors=stress_factors,
+        base_rates=base_rates,
+        parallel=parallel,
+    )
 
-    if parallel:
-        import concurrent.futures
-
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            results = list(executor.map(_run_single, grid))
-    else:
-        results = [_run_single(p) for p in grid]
-
-    return pd.DataFrame(results)
+    renames = {col: f"{col}_cutoff" for col in cutoff_grid}
+    renames["overall_approval_rate"] = "approval_rate"
+    renames["overall_default_rate"] = "default_rate"
+    return results.rename(columns=renames)

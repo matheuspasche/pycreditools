@@ -46,7 +46,6 @@ from pycreditools.studio.analyses import (
     scoring_kpis,
     select_shortlisted_scores,
     stability_table,
-    strip_cutoff,
     swap_in_by_rating,
     swap_in_by_segment,
     tradeoff_scenarios,
@@ -270,28 +269,6 @@ def test_cutoff_range_low_variance_falls_back_to_a_single_median_point():
     assert cutoff_range(df, "score", steps=10) == [500]
 
 
-def test_strip_cutoff_removes_only_the_matching_score_keeps_others(roles):
-    rows = [make_cutoff_row(name="Corte", cutoffs={"score_3": 400, "score_5": 600})]
-    policy = build_policy(roles, rows)
-    stripped = strip_cutoff(policy, "score_5")
-    assert len(stripped.stages) == 1
-    assert stripped.stages[0].cutoffs == {"score_3": 400}
-
-
-def test_strip_cutoff_drops_the_stage_entirely_when_no_columns_remain(roles):
-    rows = [make_cutoff_row(name="Corte", cutoffs={"score_5": 600})]
-    policy = build_policy(roles, rows)
-    stripped = strip_cutoff(policy, "score_5")
-    assert stripped.stages == ()
-
-
-def test_strip_cutoff_is_a_noop_when_the_score_has_no_cutoff_stage(roles):
-    rows = v14_quickfill_rows(["cpf_valido"])
-    policy = build_policy(roles, rows)
-    stripped = strip_cutoff(policy, "score_5")
-    assert [s.name for s in stripped.stages] == [s.name for s in policy.stages]
-
-
 def test_tradeoff_scenarios_matches_v14_cell12_selection_logic():
     res = pd.DataFrame(
         {
@@ -325,7 +302,7 @@ def test_run_tradeoff_tags_score_model_and_a_unified_cutoff_column(hf_policy, sm
     assert {"approval_rate", "default_rate"}.issubset(res.columns)
 
 
-def test_run_tradeoff_strips_the_swept_scores_existing_cutoff(roles, small_df):
+def test_run_tradeoff_replaces_the_swept_scores_existing_cutoff(roles, small_df):
     rows = v14_quickfill_rows(small_df.columns)
     policy_without = build_policy(roles, rows)
     policy_with = build_policy(
@@ -356,13 +333,11 @@ def test_run_tradeoff_with_rate_stage_builds_a_grid(roles, small_df):
     assert len(res) == 2 * 2
 
 
-def test_run_tradeoff_matches_a_direct_tradeoffanalyzer_call_on_the_stripped_policy(
-    hf_policy, small_df
-):
+def test_run_tradeoff_matches_a_direct_tradeoffanalyzer_call(hf_policy, small_df):
     values = [400, 500, 600]
     res = run_tradeoff(small_df, hf_policy, "score_5", values)
     expected = (
-        TradeoffAnalyzer(strip_cutoff(hf_policy, "score_5"))
+        TradeoffAnalyzer(hf_policy)
         .vary_cutoff("score_5", values)
         .run(small_df, parallel=False)
     )
