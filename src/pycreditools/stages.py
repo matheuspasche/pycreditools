@@ -93,6 +93,21 @@ from ._types import StageDirection
 
 VALID_CUTOFF_DIRECTIONS = tuple(d.value for d in StageDirection)
 
+
+def validate_direction(direction: str, context: str) -> str:
+    """Raise on any direction outside gte/lte; return it otherwise.
+
+    No silent fallback: the permissive else-means-lte branch this replaces
+    inverted every ">="-spelled cutoff (issue #71, Bug 1). Single source of
+    the rule for stages, sweeps and analyzers.
+    """
+    if direction not in VALID_CUTOFF_DIRECTIONS:
+        raise ValueError(
+            f"Unknown direction '{direction}' for {context}: use 'gte' (>=) or 'lte' (<=)."
+        )
+    return direction
+
+
 class CutoffStage(Stage):
     """A stage that requires specific columns to meet or exceed a cutoff value."""
 
@@ -105,14 +120,7 @@ class CutoffStage(Stage):
         """
         super().__init__(name)
         self.cutoffs = cutoffs
-        if direction not in VALID_CUTOFF_DIRECTIONS:
-            # No silent fallback: the permissive else-means-lte branch this
-            # replaces inverted every ">="-spelled cutoff (issue #71, Bug 1).
-            raise ValueError(
-                f"Unknown direction '{direction}' for cutoff stage '{name}': "
-                f"use 'gte' (>=) or 'lte' (<=)."
-            )
-        self.direction = direction
+        self.direction = validate_direction(direction, f"cutoff stage '{name}'")
 
     def apply(self, df: pd.DataFrame, method: str = "analytical", policy: Any | None = None) -> pd.Series:
         # Start with all Trues

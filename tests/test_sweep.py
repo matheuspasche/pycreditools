@@ -299,6 +299,23 @@ class TestOneEngine:
             check_names=False,
         )
 
+    def test_fast_and_slow_paths_bind_the_same_stages(self, risk_df, base_policy):
+        """Decision 5: fast path (cutoffs only -> one baseline sim + masks) vs
+        re-simulation is a performance boundary, never a semantic one. Adding a
+        neutral stress dimension forces the slow path on the same grid; the
+        off-grid cutoff must bind identically and the metrics must agree."""
+        policy = base_policy.cutoff("corte_other", {"score_other": 600})
+        cuts = [400.0, 600.0, 800.0]
+
+        fast = run_sweep(risk_df, policy, cutoff_grid={"score_main": cuts})
+        slow = run_sweep(
+            risk_df, policy, cutoff_grid={"score_main": cuts}, stress_factors=[1.0]
+        )
+
+        for col in ("overall_approval_rate", "overall_default_rate"):
+            diff = (fast[col] - slow[col]).abs()
+            assert (diff < 1e-9).all(), f"{col}: fast and slow paths diverged"
+
     def test_tradeoff_run_does_not_swallow_engine_warnings(self, risk_df, base_policy):
         """analysis.py used to wrap the run in simplefilter('ignore'), which
         would have hidden the calibration warnings #72 adds."""

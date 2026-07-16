@@ -10,8 +10,8 @@ from typing import Any
 import pandas as pd
 
 from .policy import CreditPolicy
-from .stages import VALID_CUTOFF_DIRECTIONS
-from .sweep import BASE_RATE_SUFFIX, STRESS_DIM, run_sweep
+from .stages import validate_direction
+from .sweep import BASE_RATE_SUFFIX, CUTOFF_SUFFIX, STRESS_DIM, run_sweep
 
 
 class TradeoffAnalyzer:
@@ -32,13 +32,10 @@ class TradeoffAnalyzer:
         Passing it explicitly always overrides.
         """
         if direction is not None:
-            if direction not in VALID_CUTOFF_DIRECTIONS:
-                raise ValueError(
-                    f"Unknown direction '{direction}' for cutoff sweep on '{col_name}': "
-                    f"use 'gte' (>=) or 'lte' (<=)."
-                )
-            self.vary_directions[col_name] = direction
-        self.vary_params[f"{col_name}_cutoff"] = values
+            self.vary_directions[col_name] = validate_direction(
+                direction, f"cutoff sweep on '{col_name}'"
+            )
+        self.vary_params[f"{col_name}{CUTOFF_SUFFIX}"] = values
         return self
 
     def vary_base_rate(self, stage_name: str, values: list[float]) -> "TradeoffAnalyzer":
@@ -88,8 +85,8 @@ def run_tradeoff_analysis(
     for key, values in vary_params.items():
         if key == STRESS_DIM:
             stress_factors = list(values)
-        elif key.endswith("_cutoff"):
-            cutoff_grid[key[: -len("_cutoff")]] = list(values)
+        elif key.endswith(CUTOFF_SUFFIX):
+            cutoff_grid[key[: -len(CUTOFF_SUFFIX)]] = list(values)
         elif key.endswith(BASE_RATE_SUFFIX):
             base_rates[key[: -len(BASE_RATE_SUFFIX)]] = list(values)
         else:
@@ -108,7 +105,7 @@ def run_tradeoff_analysis(
         parallel=parallel,
     )
 
-    renames = {col: f"{col}_cutoff" for col in cutoff_grid}
+    renames = {col: f"{col}{CUTOFF_SUFFIX}" for col in cutoff_grid}
     renames["overall_approval_rate"] = "approval_rate"
     renames["overall_default_rate"] = "default_rate"
     return results.rename(columns=renames)

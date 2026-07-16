@@ -34,11 +34,12 @@ import numpy as np
 import pandas as pd
 
 from .policy import CreditPolicy
-from .stages import VALID_CUTOFF_DIRECTIONS, CutoffStage, RateStage
+from .stages import CutoffStage, RateStage, validate_direction
 from .stress import AggravationStress
 
 STRESS_DIM = "aggravation_factor"
 BASE_RATE_SUFFIX = "_base_rate"
+CUTOFF_SUFFIX = "_cutoff"
 
 
 def resolve_direction(
@@ -54,12 +55,7 @@ def resolve_direction(
             if isinstance(stage, CutoffStage) and col in stage.cutoffs:
                 direction = stage.direction
                 break
-    if direction not in VALID_CUTOFF_DIRECTIONS:
-        raise ValueError(
-            f"Unknown sweep direction '{direction}' for column '{col}': "
-            f"use 'gte' (>=) or 'lte' (<=)."
-        )
-    return direction
+    return validate_direction(direction, f"cutoff sweep on '{col}'")
 
 
 def _without_cutoff_entries(policy: CreditPolicy, cols: set[str]) -> CreditPolicy:
