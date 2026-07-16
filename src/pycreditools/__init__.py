@@ -27,7 +27,6 @@ from .screening import ScreeningRecipe, ScreeningResult, fit_risk_segments, scre
 from .simulation import CreditSimResults, run_simulation
 from .stages import CutoffStage, FilterStage, RateStage, Stage, register_callable
 from .stress import AggravationStress, CustomStress, MonotonicStress, StressScenario
-from .sweep import run_sweep
 from .visualization import (
     plot_crash_test,
     plot_tradeoffs,
@@ -66,7 +65,6 @@ __all__ = [
     "plot_vintage_stability",
     "plot_crash_test",
     "run_tradeoff_analysis",
-    "run_sweep",
     "fit_risk_groups",
     "find_risk_groups",
     "RiskGroupResult",

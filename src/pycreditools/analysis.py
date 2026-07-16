@@ -23,15 +23,22 @@ class TradeoffAnalyzer:
         self.vary_directions: dict[str, str] = {}
 
     def vary_cutoff(
-        self, col_name: str, values: list[float], direction: str = "gte"
+        self, col_name: str, values: list[float], direction: str | None = None
     ) -> "TradeoffAnalyzer":
-        if direction not in VALID_CUTOFF_DIRECTIONS:
-            raise ValueError(
-                f"Unknown direction '{direction}' for cutoff sweep on '{col_name}': "
-                f"use 'gte' (>=) or 'lte' (<=)."
-            )
+        """Sweep ``col_name``'s cutoff over ``values``.
+
+        ``direction`` is "gte"/"lte". When omitted, a column whose existing
+        ``CutoffStage`` declares a direction inherits it; otherwise "gte".
+        Passing it explicitly always overrides.
+        """
+        if direction is not None:
+            if direction not in VALID_CUTOFF_DIRECTIONS:
+                raise ValueError(
+                    f"Unknown direction '{direction}' for cutoff sweep on '{col_name}': "
+                    f"use 'gte' (>=) or 'lte' (<=)."
+                )
+            self.vary_directions[col_name] = direction
         self.vary_params[f"{col_name}_cutoff"] = values
-        self.vary_directions[col_name] = direction
         return self
 
     def vary_base_rate(self, stage_name: str, values: list[float]) -> "TradeoffAnalyzer":

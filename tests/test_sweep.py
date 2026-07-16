@@ -12,8 +12,8 @@ from pycreditools import (
     CutoffStage,
     TradeoffAnalyzer,
     optimize_cutoffs,
-    run_sweep,
 )
+from pycreditools.sweep import run_sweep
 
 
 @pytest.fixture(scope="module")
@@ -89,6 +89,22 @@ class TestCutoffDirection:
     def test_cutoff_stage_raises_on_an_unknown_direction(self):
         with pytest.raises(ValueError, match="gte"):
             CutoffStage(name="bad", cutoffs={"x": 1.0}, direction=">=")
+
+    def test_vary_cutoff_inherits_the_existing_stages_direction_when_omitted(self, risk_df):
+        """A policy whose CutoffStage on the swept column declares lte keeps
+        sweeping lte when no direction is passed — the Bancada path must not
+        silently flip an lte policy back to gte."""
+        policy = CreditPolicy(
+            applicant_id_col="id",
+            score_cols=("fraud_score",),
+            current_approval_col="approved",
+            actual_default_col="inad",
+        ).cutoff("corte_fraude", {"fraud_score": 50}, direction="lte")
+
+        res = TradeoffAnalyzer(policy).vary_cutoff("fraud_score", [30.0, 60.0]).run(risk_df)
+        for _, row in res.iterrows():
+            truth = (risk_df["fraud_score"] <= row["fraud_score_cutoff"]).mean()
+            assert abs(row["approval_rate"] - truth) < 1e-9
 
     def test_optimize_cutoffs_sweeps_lte_when_declared(self, risk_df):
         """Scores where lower is better (fraud) are sweepable via directions=."""

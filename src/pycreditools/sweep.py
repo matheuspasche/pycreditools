@@ -235,6 +235,11 @@ def run_sweep(
             orthogonal to whether the sweep re-simulates per point.
         parallel: Parallelise the re-simulation path.
 
+    Note:
+        Rows whose ``simulated_default`` is NaN fall back to the policy's
+        ``actual_default_col`` in the default-rate weighting (they only carry
+        weight when contracted).
+
     Returns:
         DataFrame with one row per grid combination: the swept dimensions
         (cutoff columns by name, ``aggravation_factor``, ``{stage}_base_rate``)
