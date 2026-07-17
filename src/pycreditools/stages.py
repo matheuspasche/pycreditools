@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
-import pandas as pd
+from collections.abc import Callable
+from typing import Any
+
 import numpy as np
-from typing import Any, Callable
+import pandas as pd
 
 _CALLABLE_REGISTRY: dict[str, Callable] = {}
 
@@ -14,7 +17,7 @@ def _resolve_callable(name: str) -> Callable:
     # Resolve solely via explicit registry
     if name in _CALLABLE_REGISTRY:
         return _CALLABLE_REGISTRY[name]
-        
+
     # If not found, raise an informative error with registration instructions
     raise ValueError(
         f"Custom function '{name}' has not been registered in the local environment.\n"
@@ -24,10 +27,10 @@ def _resolve_callable(name: str) -> Callable:
 
 class Stage(ABC):
     """Base class for credit policy stages."""
-    
+
     def __init__(self, name: str):
         self.name = name
-        
+
     @abstractmethod
     def apply(self, df: pd.DataFrame, method: str = "analytical", policy: Any | None = None) -> pd.Series:
         """Apply the stage rule to the DataFrame.
@@ -41,23 +44,23 @@ class Stage(ABC):
             pd.Series containing the pass status for each row (0.0/1.0 or 0/1).
         """
         pass
-        
+
     @abstractmethod
     def to_dict(self) -> dict[str, Any]:
         """Serialize the stage to a dictionary."""
         pass
-        
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Stage:
         """Deserialize a dictionary to a Stage object."""
         if "type" not in d:
             raise ValueError("Dictionary must contain a 'type' key.")
-            
+
         t = d["type"]
         if t == "cutoff":
             return CutoffStage(
-                name=d["name"], 
-                cutoffs=d["cutoffs"], 
+                name=d["name"],
+                cutoffs=d["cutoffs"],
                 direction=d.get("direction", "gte")
             )
         elif t == "filter":
@@ -78,17 +81,36 @@ class Stage(ABC):
                     from .expressions import deserialize_expression
                     var_data = deserialize_expression(var_data)
             return RateStage(
-                name=d["name"], 
-                base_rate=d["base_rate"], 
+                name=d["name"],
+                base_rate=d["base_rate"],
                 variable=var_data,
                 calibrate=d.get("calibrate", False)
             )
         else:
             raise ValueError(f"Unknown stage type: {t}")
 
+from ._types import StageDirection
+
+VALID_CUTOFF_DIRECTIONS = tuple(d.value for d in StageDirection)
+
+
+def validate_direction(direction: str, context: str) -> str:
+    """Raise on any direction outside gte/lte; return it otherwise.
+
+    No silent fallback: the permissive else-means-lte branch this replaces
+    inverted every ">="-spelled cutoff (issue #71, Bug 1). Single source of
+    the rule for stages, sweeps and analyzers.
+    """
+    if direction not in VALID_CUTOFF_DIRECTIONS:
+        raise ValueError(
+            f"Unknown direction '{direction}' for {context}: use 'gte' (>=) or 'lte' (<=)."
+        )
+    return direction
+
+
 class CutoffStage(Stage):
     """A stage that requires specific columns to meet or exceed a cutoff value."""
-    
+
     def __init__(self, name: str, cutoffs: dict[str, float], direction: str = "gte"):
         """
         Args:
@@ -98,29 +120,29 @@ class CutoffStage(Stage):
         """
         super().__init__(name)
         self.cutoffs = cutoffs
-        self.direction = direction
-        
+        self.direction = validate_direction(direction, f"cutoff stage '{name}'")
+
     def apply(self, df: pd.DataFrame, method: str = "analytical", policy: Any | None = None) -> pd.Series:
         # Start with all Trues
         result = pd.Series(True, index=df.index)
-        
+
         for col, val in self.cutoffs.items():
             if col not in df.columns:
                 raise ValueError(f"Column '{col}' not found in data for cutoff stage '{self.name}'.")
-                
+
             if self.direction == "gte":
                 result &= (df[col] >= val)
             else:
                 result &= (df[col] <= val)
-                
+
         # Fill NAs with False
         result = result.fillna(False)
-        
+
         if method == "stochastic":
             return result.astype(int)
         else:
             return result.astype(float)
-            
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "type": "cutoff",
@@ -131,9 +153,10 @@ class CutoffStage(Stage):
 
 from .expressions import Expression
 
+
 class FilterStage(Stage):
     """A stage that filters based on an expression, a callable, or a string condition."""
-    
+
     def __init__(self, name: str, condition: str | callable | Expression):
         """
         Args:
@@ -145,7 +168,7 @@ class FilterStage(Stage):
         """
         super().__init__(name)
         self.condition = condition
-        
+
     def apply(self, df: pd.DataFrame, method: str = "analytical", policy: Any | None = None) -> pd.Series:
         try:
             if isinstance(self.condition, Expression):
@@ -155,20 +178,20 @@ class FilterStage(Stage):
             else:
                 # Fallback to string evaluation
                 result = df.eval(self.condition)
-                
+
             if not isinstance(result, pd.Series):
                 result = pd.Series(result, index=df.index)
         except Exception as e:
             cond_repr = repr(self.condition)
             raise ValueError(f"Failed to evaluate filter condition {cond_repr}: {e}")
-            
+
         result = result.fillna(False)
-        
+
         if method == "stochastic":
             return result.astype(int)
         else:
             return result.astype(float)
-            
+
     def to_dict(self) -> dict[str, Any]:
         if isinstance(self.condition, Expression):
             from .expressions import serialize_expression
@@ -180,7 +203,7 @@ class FilterStage(Stage):
             }
         else:
             cond_data = str(self.condition)
-            
+
         return {
             "type": "filter",
             "name": self.name,
@@ -189,7 +212,7 @@ class FilterStage(Stage):
 
 class RateStage(Stage):
     """A stage that applies a probability of passing."""
-    
+
     def __init__(
         self,
         name: str,
@@ -207,7 +230,7 @@ class RateStage(Stage):
         super().__init__(name)
         self.base_rate = base_rate
         self.calibrate = calibrate
-        
+
         from .expressions import CalibratedExpression, Expression
         if calibrate and variable is not None:
             if isinstance(variable, Expression) and not isinstance(variable, CalibratedExpression):
@@ -216,10 +239,10 @@ class RateStage(Stage):
                 self.variable = variable
         else:
             self.variable = variable
-            
+
     def apply(self, df: pd.DataFrame, method: str = "analytical", policy: Any | None = None) -> pd.Series:
         from .expressions import CalibratedExpression, Expression
-        
+
         # 1. Compute probabilities based on self.variable
         if self.variable is not None:
             if isinstance(self.variable, Expression):
@@ -241,18 +264,18 @@ class RateStage(Stage):
                     )
         else:
             probs = pd.Series(self.base_rate, index=df.index)
-            
+
         if not isinstance(probs, pd.Series):
             probs = pd.Series(probs, index=df.index)
-            
+
         probs = probs.fillna(0.0)
-        
+
         # 2. Determine if this is the conversion stage
         is_conversion_stage = False
         hired_col = policy.current_hired_col if policy is not None else None
         if hired_col is None and "hired" in df.columns:
             hired_col = "hired"
-            
+
         if hired_col is not None and hired_col in df.columns:
             if self.calibrate:
                 is_conversion_stage = True
@@ -262,7 +285,7 @@ class RateStage(Stage):
                 rate_stages = [s for s in (policy.stages if policy is not None else []) if isinstance(s, RateStage)]
                 if rate_stages and rate_stages[-1] is self:
                     is_conversion_stage = True
-                    
+
         # 3. Apply Keep In bypass / deterministic behavior if policy is provided
         if policy is not None and policy.current_approval_col in df.columns:
             keep_ins_mask = df[policy.current_approval_col] == 1
@@ -272,17 +295,17 @@ class RateStage(Stage):
                     probs.loc[keep_ins_mask] = df.loc[keep_ins_mask, hired_col].fillna(0.0)
                 else:
                     probs.loc[keep_ins_mask] = 1.0
-                    
+
         if method == "stochastic":
             if policy is not None and policy.current_approval_col in df.columns:
                 keep_ins_mask = df[policy.current_approval_col] == 1
                 outcomes = pd.Series(0, index=df.index, dtype=int)
-                
+
                 swap_ins_mask = ~keep_ins_mask
                 if swap_ins_mask.any():
                     random_draws = np.random.random(swap_ins_mask.sum())
                     outcomes.loc[swap_ins_mask] = (random_draws < probs.loc[swap_ins_mask]).astype(int)
-                    
+
                 if keep_ins_mask.any():
                     if is_conversion_stage:
                         outcomes.loc[keep_ins_mask] = df.loc[keep_ins_mask, hired_col].fillna(0.0).astype(int)
@@ -294,7 +317,7 @@ class RateStage(Stage):
                 return (random_draws < probs).astype(int)
         else:
             return probs.astype(float)
-            
+
     def to_dict(self) -> dict[str, Any]:
         from .expressions import Expression, serialize_expression
         var_data = self.variable

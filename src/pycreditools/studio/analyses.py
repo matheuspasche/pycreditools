@@ -705,25 +705,6 @@ def cutoff_range(df: pd.DataFrame, score_col: str, steps: int = 35) -> list[int]
     return np.linspace(p5, p95, steps).astype(int).tolist()
 
 
-def strip_cutoff(policy: CreditPolicy, score_col: str) -> CreditPolicy:
-    """Drop `score_col` from any `CutoffStage`, so a swept trade-off cutoff isn't double-applied.
-
-    A stage cutting on multiple columns keeps its other columns; a stage left
-    with none is dropped entirely.
-    """
-    kept = []
-    for stage in policy.stages:
-        if isinstance(stage, CutoffStage) and score_col in stage.cutoffs:
-            remaining = {col: val for col, val in stage.cutoffs.items() if col != score_col}
-            if remaining:
-                kept.append(
-                    CutoffStage(name=stage.name, cutoffs=remaining, direction=stage.direction)
-                )
-            continue
-        kept.append(stage)
-    return dataclasses.replace(policy, stages=tuple(kept))
-
-
 def run_tradeoff(
     df: pd.DataFrame,
     base_policy: CreditPolicy,
@@ -737,10 +718,11 @@ def run_tradeoff(
     """Sweep `score_col`'s cutoff (optionally x stress factor / a rate stage's base rate).
 
     Reproduces v14 Cell 10: tags `Score_Model` and a unified `Cutoff` column from
-    the analyzer's `{score_col}_cutoff` output, via `TradeoffAnalyzer`.
+    the analyzer's `{score_col}_cutoff` output, via `TradeoffAnalyzer`. The sweep
+    engine's own convention replaces any existing cutoff on `score_col` per grid
+    point (issue #71), so no hand-rolled stripping is needed here.
     """
-    stripped = strip_cutoff(base_policy, score_col)
-    analyzer = TradeoffAnalyzer(stripped).vary_cutoff(score_col, cutoff_values)
+    analyzer = TradeoffAnalyzer(base_policy).vary_cutoff(score_col, cutoff_values)
     if stress_values:
         analyzer = analyzer.vary_stress_aggravation(stress_values)
     if rate_stage:
