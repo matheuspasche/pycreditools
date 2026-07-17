@@ -151,6 +151,38 @@ class CutoffStage(Stage):
             "direction": self.direction,
         }
 
+
+def resolve_calibration_score_col(policy: Any, df: pd.DataFrame) -> str | None:
+    """Resolve which column drives score-bin calibration for ``policy`` over ``df``.
+
+    Precedence: explicit ``calibration_score_col`` → the last ``CutoffStage``
+    cutoff column present in ``df`` → the last ``score_cols`` entry present in
+    ``df``. Returns ``None`` when nothing resolves.
+
+    Lives here (not in the calibration primitive or in ``expressions``) because
+    it is the only piece that needs ``CutoffStage``; keeping it here is what
+    closes the ``stages ↔ expressions`` import cycle.
+    """
+    primary_score = policy.calibration_score_col
+    if primary_score is None:
+        cutoff_cols = []
+        for stage in policy.stages:
+            if isinstance(stage, CutoffStage):
+                cutoff_cols.extend(stage.cutoffs.keys())
+        for sc in reversed(cutoff_cols):
+            if sc in df.columns:
+                primary_score = sc
+                break
+
+    if primary_score is None and policy.score_cols:
+        for sc in reversed(policy.score_cols):
+            if sc in df.columns:
+                primary_score = sc
+                break
+
+    return primary_score
+
+
 from .expressions import Expression
 
 
@@ -247,7 +279,13 @@ class RateStage(Stage):
         if self.variable is not None:
             if isinstance(self.variable, Expression):
                 if isinstance(self.variable, CalibratedExpression):
-                    probs = (self.base_rate * self.variable.calibrate_and_eval(df, policy)).clip(0.0, 1.0)
+                    primary_score = (
+                        resolve_calibration_score_col(policy, df) if policy is not None else None
+                    )
+                    probs = (
+                        self.base_rate
+                        * self.variable.calibrate_and_eval(df, policy, primary_score)
+                    ).clip(0.0, 1.0)
                 else:
                     probs = (self.base_rate * self.variable.eval(df)).clip(0.0, 1.0)
             elif callable(self.variable):
