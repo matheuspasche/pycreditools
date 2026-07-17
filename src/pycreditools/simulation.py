@@ -7,9 +7,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ._kernels import calibrate_by_score_bins
 from ._types import Quadrant, SimulationMethod
 from .policy import CreditPolicy
-from .stages import RateStage
+from .stages import RateStage, resolve_calibration_score_col
 
 
 @dataclass
@@ -633,24 +634,7 @@ def _estimate_swap_in_baseline_pd(
 
     # 2. Score-based decile calibration (fallback)
     # Identify primary score column (explicitly configured, or fallback to active cutoff score, or last score_cols)
-    primary_score = policy.calibration_score_col
-
-    if primary_score is None:
-        from .stages import CutoffStage
-        cutoff_cols = []
-        for stage in policy.stages:
-            if isinstance(stage, CutoffStage):
-                cutoff_cols.extend(stage.cutoffs.keys())
-        for sc in reversed(cutoff_cols):
-            if sc in df.columns:
-                primary_score = sc
-                break
-
-    if primary_score is None and policy.score_cols:
-        for sc in reversed(policy.score_cols):
-            if sc in df.columns:
-                primary_score = sc
-                break
+    primary_score = resolve_calibration_score_col(policy, df)
 
     actual_default_col = policy.actual_default_col
 
@@ -687,37 +671,12 @@ def _estimate_swap_in_baseline_pd(
     else:
         n_bins = cal_bins
 
-    try:
-        if isinstance(n_bins, int):
-            _, bin_edges = pd.qcut(reference_scores, q=n_bins, retbins=True, duplicates="drop")
-            # Extend edges slightly so that out-of-range values are clipped to nearest bin
-            bin_edges[0] = -np.inf
-            bin_edges[-1] = np.inf
-        else:
-            # It's a sequence of bin edges (list or tuple or numpy array)
-            # Ensure outer boundaries are infinite to handle out of bounds values
-            edges = list(n_bins)
-            if edges[0] > -np.inf:
-                edges.insert(0, -np.inf)
-            if edges[-1] < np.inf:
-                edges.append(np.inf)
-            bin_edges = np.array(edges)
-
-        keep_in_bins = pd.cut(keep_in_scores, bins=bin_edges, labels=False, include_lowest=True)
-        # Group defaults by score bin
-        bin_pd = keep_in_defaults.groupby(keep_in_bins).mean()
-
-        # Ensure all bin indices are represented in the mapping (fill missing ones with global_pd)
-        all_bin_indices = range(len(bin_edges) - 1)
-        bin_pd = bin_pd.reindex(all_bin_indices).fillna(global_pd)
-
-        swap_in_bins = pd.cut(
-            swap_ins[primary_score], bins=bin_edges, labels=False, include_lowest=True
-        )
-        baseline = swap_in_bins.map(bin_pd)
-        # Any remaining NaN → global_pd
-        baseline = baseline.fillna(global_pd)
-    except Exception:
-        baseline = pd.Series(global_pd, index=swap_ins.index)
-
-    return pd.Series(baseline.values, index=swap_ins.index).clip(0.0, 1.0)
+    baseline = calibrate_by_score_bins(
+        cal_scores=keep_in_scores,
+        cal_values=keep_in_defaults,
+        ref_scores=reference_scores,
+        target_scores=swap_ins[primary_score],
+        bins=n_bins,
+        global_fallback=global_pd,
+    )
+    return baseline.clip(0.0, 1.0)

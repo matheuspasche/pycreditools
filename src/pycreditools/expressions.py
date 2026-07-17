@@ -4,6 +4,8 @@ from typing import Any
 
 import pandas as pd
 
+from ._kernels import calibrate_by_score_bins
+
 
 class Expression:
     """Base class for building logical column expressions."""
@@ -174,14 +176,15 @@ class CalibratedExpression(Expression):
     def get_columns(self) -> list[str]:
         return self.expression.get_columns()
 
-    def calibrate_and_eval(self, df: pd.DataFrame, policy: Any) -> pd.Series:
-        import numpy as np
-
+    def calibrate_and_eval(
+        self, df: pd.DataFrame, policy: Any, primary_score: str | None = None
+    ) -> pd.Series:
         # Se for simulação standalone ou sem a coluna necessária, pula a calibração
         if policy is None or policy.current_approval_col is None or policy.current_approval_col not in df.columns:
             return self.expression.eval(df)
 
-        # 1. Identify approved mask
+        # 1. Identify approved mask. The population is resolved by the caller
+        #    (new_approval does not exist yet), never inside the primitive.
         approved_mask = df[policy.current_approval_col] == 1
         if not approved_mask.any():
             return pd.Series(0.0, index=df.index)
@@ -192,30 +195,11 @@ class CalibratedExpression(Expression):
         if pd.isna(global_mean):
             global_mean = 0.0
 
-        # 3. Determine score column to use for calibration
-        primary_score = policy.calibration_score_col
-        if primary_score is None:
-            # Fallback to active cutoff score, or fallback to last score_cols
-            from .stages import CutoffStage
-            cutoff_cols = []
-            for stage in policy.stages:
-                if isinstance(stage, CutoffStage):
-                    cutoff_cols.extend(stage.cutoffs.keys())
-            for sc in reversed(cutoff_cols):
-                if sc in df.columns:
-                    primary_score = sc
-                    break
-
-        if primary_score is None and policy.score_cols:
-            for sc in reversed(policy.score_cols):
-                if sc in df.columns:
-                    primary_score = sc
-                    break
-
+        # 3. Score column is resolved by the caller (which owns CutoffStage)
         if primary_score is None or primary_score not in df.columns:
             return pd.Series(global_mean, index=df.index)
 
-        # 4. Group by score bins of Keep In
+        # 4. Calibrate the approved population's values onto the whole df by score bin
         keep_in_scores = df.loc[approved_mask, primary_score]
 
         if policy.calibration_base in ("global", "all", "dataset"):
@@ -230,31 +214,14 @@ class CalibratedExpression(Expression):
         else:
             n_bins = cal_bins
 
-        try:
-            if isinstance(n_bins, int):
-                _, bin_edges = pd.qcut(reference_scores, q=n_bins, retbins=True, duplicates="drop")
-                bin_edges[0] = -np.inf
-                bin_edges[-1] = np.inf
-            else:
-                edges = list(n_bins)
-                if edges[0] > -np.inf:
-                    edges.insert(0, -np.inf)
-                if edges[-1] < np.inf:
-                    edges.append(np.inf)
-                bin_edges = np.array(edges)
-
-            keep_in_bins = pd.cut(keep_in_scores, bins=bin_edges, labels=False, include_lowest=True)
-            bin_means = keep_in_vals.groupby(keep_in_bins).mean()
-
-            all_bin_indices = range(len(bin_edges) - 1)
-            bin_means = bin_means.reindex(all_bin_indices).fillna(global_mean)
-
-            df_bins = pd.cut(df[primary_score], bins=bin_edges, labels=False, include_lowest=True)
-            probs = df_bins.map(bin_means).fillna(global_mean)
-        except Exception:
-            probs = pd.Series(global_mean, index=df.index)
-
-        return pd.Series(probs.values, index=df.index)
+        return calibrate_by_score_bins(
+            cal_scores=keep_in_scores,
+            cal_values=keep_in_vals,
+            ref_scores=reference_scores,
+            target_scores=df[primary_score],
+            bins=n_bins,
+            global_fallback=global_mean,
+        )
 
     def __repr__(self) -> str:
         return f"{self.expression}.calibrated()"
