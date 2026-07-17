@@ -177,7 +177,7 @@ class CalibratedExpression(Expression):
         return self.expression.get_columns()
 
     def calibrate_and_eval(
-        self, df: pd.DataFrame, policy: Any, primary_score: str | None = None
+        self, df: pd.DataFrame, policy: Any, primary_score: str | None
     ) -> pd.Series:
         # Se for simulação standalone ou sem a coluna necessária, pula a calibração
         if policy is None or policy.current_approval_col is None or policy.current_approval_col not in df.columns:
