@@ -3,8 +3,11 @@
 import pandas as pd
 import pytest
 
-from pycreditools import generate_sample_data, generate_standalone_sample_data
-from pycreditools.sample_data import LEGACY_APPROVAL_QUANTILE
+from pycreditools import (
+    LEGACY_APPROVAL_QUANTILE,
+    generate_sample_data,
+    generate_standalone_sample_data,
+)
 
 FORBIDDEN_COLS = {"take_up_rate", "conversion_rate", "score_decile"}
 INCUMBENT_COLS = {"approved", "legacy_score", "hired", "passed_antifraud", "sample"}
@@ -65,6 +68,16 @@ def test_contracted_outcomes_are_zero_or_one(incumbent):
 def test_market_default_is_observed_and_binary_for_every_row(incumbent):
     assert incumbent["market_default"].notna().all()
     assert set(incumbent["market_default"].unique()) == {0, 1}
+
+
+def test_market_default_is_wider_than_the_book_but_tracks_the_same_risk(incumbent):
+    contracted = incumbent[incumbent["hired"] == 1]
+    book_rate = contracted["actual_default"].mean()
+    market_rate = contracted["market_default"].mean()
+    # The market is wider than one lender's product, so a contracted client defaults
+    # somewhere in the market more often than on this book — but not implausibly so.
+    assert book_rate < market_rate < 4 * book_rate
+    assert incumbent["market_default"].corr(incumbent["true_pd"]) > 0.5
 
 
 def test_no_propensity_or_take_up_column(incumbent):
@@ -141,10 +154,17 @@ def test_standalone_keeps_features_scores_and_the_oracle(standalone):
         "score_5",
         "true_pd",
         "actual_default",
-        "market_default",
     }
     assert set(standalone.columns) == expected
 
 
-def test_standalone_market_default_is_binary(standalone):
-    assert set(standalone["market_default"].unique()) == {0, 1}
+def test_standalone_has_no_market_default(standalone):
+    # The bureau flag exists to see the outcome of applicants you rejected. This base
+    # rejected nobody, so the column would be answering a question it cannot be asked.
+    assert "market_default" not in standalone.columns
+
+
+def test_standalone_seed_makes_it_reproducible():
+    a = generate_standalone_sample_data(n_applicants=500, seed=7)
+    b = generate_standalone_sample_data(n_applicants=500, seed=7)
+    pd.testing.assert_frame_equal(a, b)

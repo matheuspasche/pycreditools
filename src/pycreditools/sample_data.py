@@ -48,8 +48,11 @@ _REGION_BIAS = {
 #: Take-up by `score_5` decile (worst decile first): adverse selection. The best-scoring
 #: applicants shop around and contract least, so default over *approved* and default over
 #: *contracted* genuinely diverge — which is why ADR 0008's denominators matter.
-_TAKE_UP_BEST = 0.95
+_TAKE_UP_AT_WORST_DECILE = 0.95
 _TAKE_UP_DECILE_STEP = 0.06
+
+#: The 18 monthly vintages both generators draw `safra` from.
+_VINTAGES = pd.date_range("2024-01-01", periods=18, freq="MS").strftime("%Y-%m").tolist()
 
 
 def _rng(seed: int | None) -> np.random.Generator:
@@ -58,12 +61,10 @@ def _rng(seed: int | None) -> np.random.Generator:
 
 def _applicants(rng: np.random.Generator, n: int) -> pd.DataFrame:
     """Identity, demographics and the bureau hard-filter candidates."""
-    vintages = pd.date_range("2024-01-01", periods=18, freq="MS").strftime("%Y-%m").tolist()
-
     df = pd.DataFrame(
         {
             "applicant_id": range(1, n + 1),
-            "safra": rng.choice(vintages, n),
+            "safra": rng.choice(_VINTAGES, n),
             "region": rng.choice(_REGIONS, n, p=_REGION_PROBS),
             "age": rng.normal(38, 14, n).clip(16, 90).astype(int),
             "income": rng.lognormal(7.8, 0.6, n).astype(int),
@@ -87,10 +88,9 @@ def _applicants(rng: np.random.Generator, n: int) -> pd.DataFrame:
     return df
 
 
-def _risk_logit(rng: np.random.Generator, df: pd.DataFrame, n: int) -> np.ndarray:
+def _risk_logit(rng: np.random.Generator, df: pd.DataFrame, n: int) -> pd.Series:
     """Latent log-odds of default, driven by the features plus a high-variance factor."""
-    vintages = pd.date_range("2024-01-01", periods=18, freq="MS").strftime("%Y-%m").tolist()
-    v_pen = {v: (i / 17) * 0.3 for i, v in enumerate(vintages)}
+    v_pen = {v: (i / 17) * 0.3 for i, v in enumerate(_VINTAGES)}
 
     u = rng.normal(0, 3.0, n)
     return (
@@ -108,7 +108,7 @@ def _risk_logit(rng: np.random.Generator, df: pd.DataFrame, n: int) -> np.ndarra
         + (df["vl_protestos"] > 500).astype(float) * 2.0
         + df["safra"].map(v_pen).astype(float)
         + u
-    ).to_numpy()
+    )
 
 
 def _norm_cdf(x: np.ndarray) -> np.ndarray:
@@ -118,7 +118,7 @@ def _norm_cdf(x: np.ndarray) -> np.ndarray:
 def _score_ladder(
     rng: np.random.Generator,
     df: pd.DataFrame,
-    y: np.ndarray,
+    y: pd.Series,
     n: int,
     *,
     with_legacy: bool,
@@ -148,7 +148,7 @@ def _score_ladder(
         df[name] = np.round(_norm_cdf(z) * 1000).astype(int)
 
 
-def _market_default(rng: np.random.Generator, y: np.ndarray, n: int) -> np.ndarray:
+def _market_default(rng: np.random.Generator, y: pd.Series, n: int) -> np.ndarray:
     """A 0/1 bureau flag: did this person default *anywhere in the market*.
 
     Observed for every row, contracted or not — that is the whole point. It correlates
@@ -215,7 +215,7 @@ def generate_sample_data(
     # Adverse selection: take-up falls as score rises. The decile is local to this
     # generator — no propensity column survives it (ADR 0008).
     decile = pd.qcut(df["score_5"], q=10, labels=False, duplicates="drop")
-    take_up = _TAKE_UP_BEST - decile * _TAKE_UP_DECILE_STEP
+    take_up = _TAKE_UP_AT_WORST_DECILE - decile * _TAKE_UP_DECILE_STEP
     df["hired"] = df["approved"] * (rng.random(n) < take_up).astype(int)
 
     # The mask *is* the contract: no contract, no outcome.
@@ -242,8 +242,9 @@ def generate_standalone_sample_data(
     being a separate function rather than a flag.
 
     Columns: the same features, the same bureau columns, the same `score_2` ... `score_5`
-    ladder, `true_pd` as oracle, `market_default` as the 0/1 bureau flag, and a fully
-    observed `actual_default`.
+    ladder, `true_pd` as oracle, and a fully observed `actual_default`. There is no
+    `market_default`: the bureau flag exists so a lender can see the outcome of the
+    applicants it *rejected*, and this base rejected nobody.
 
     Args:
         n_applicants: Number of rows to generate.
@@ -258,8 +259,9 @@ def generate_standalone_sample_data(
     df = _applicants(rng, n)
     y = _risk_logit(rng, df, n)
     df["true_pd"] = 1.0 / (1.0 + np.exp(-y))
-    df["actual_default"] = (rng.random(n) < df["true_pd"]).astype(int)
+    # float, not int, so the two bases agree on the outcome dtype even though only the
+    # incumbent one ever holds NaN.
+    df["actual_default"] = (rng.random(n) < df["true_pd"]).astype(float)
     _score_ladder(rng, df, y, n, with_legacy=False)
-    df["market_default"] = _market_default(rng, y, n)
 
     return df
