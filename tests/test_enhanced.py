@@ -330,7 +330,8 @@ def test_keep_in_rate_bypass():
         "actual_default": [0, 0, 0]
     })
     
-    # We define a policy with two rate stages: a pre-approval (Anti-fraude) and conversion (Conversao)
+    # Two rate stages: a pre-approval lottery (Anti-fraude) and an observed
+    # conversion stage that reads real take-up from the `hired` column.
     policy = CreditPolicy(
         applicant_id_col="applicant_id",
         score_cols=("score",),
@@ -340,7 +341,7 @@ def test_keep_in_rate_bypass():
     ).rate(
         "Anti-fraude", base_rate=0.85
     ).rate(
-        "Conversao", base_rate=1.0, variable=col("hired") / col("approved"), calibrate=True
+        "Conversao", base_rate=1.0, observed_col="hired"
     ).with_calibration(bins=2, base="keep_in")
     
     # 1. Analytical simulation
