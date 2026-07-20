@@ -113,6 +113,6 @@ def test_generate_sample_data():
         "applicant_id", "safra", "region", "age", "income", "employment",
         "cpf_valido", "vl_negativacao", "vl_vencido_scr", "vl_protestos",
         "true_pd", "actual_default", "score_2", "score_3", "score_4", "score_5",
-        "legacy_score", "approved", "conversion_rate", "hired"
+        "legacy_score", "approved", "hired", "market_default"
     }
     assert expected_cols.issubset(df.columns)
