@@ -7,10 +7,28 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from ._kernels import calibrate_by_score_bins
+from ._kernels import (
+    CalibrationDiagnostics,
+    calibrate_by_score_bins,
+    diagnose_score_bin_calibration,
+)
 from ._types import Quadrant, SimulationMethod
 from .policy import CreditPolicy
-from .stages import RateStage, resolve_calibration_score_col
+from .stages import (
+    RateStage,
+    resolve_calibration_direction,
+    resolve_calibration_score_col,
+)
+
+
+class CalibrationReliabilityWarning(UserWarning):
+    """Raised when a swap-in PD calibration is not measuring what it claims (#72).
+
+    A dedicated category so the Studio can catch it by type (not by matching the
+    message text) and a caller can mute the whole class with one line:
+    ``warnings.filterwarnings("ignore", category=CalibrationReliabilityWarning)``.
+    Advisory only — it never blocks a run.
+    """
 
 
 @dataclass
@@ -128,10 +146,10 @@ class CreditSimResults:
         for _, r in df_funnel.iterrows():
             pass_rate_val = r['Stage_Pass_Rate']
             rej_rate_val = r['Stage_Rej_Rate']
-            
+
             pass_rate_str = "-" if pd.isna(pass_rate_val) else f"{pass_rate_val:.1%}"
             rej_rate_str = "-" if pd.isna(rej_rate_val) else f"{rej_rate_val:.1%}"
-            
+
             print(
                 f"{r['Stage']:<25} {r['Candidates']:>12,}  {r['Passed']:>12,}  "
                 f"{pass_rate_str:>10}  {r['Cum_Pass_Rate']:>10.1%}  "
@@ -503,13 +521,13 @@ def _assign_simulated_defaults_standalone(
     approved_mask = df["new_approval"] > 0
     if approved_mask.any():
         sim_defaults = pd.Series(np.nan, index=df.index)
-        
+
         known_mask = approved_mask & known_outcome.notna()
         unknown_mask = approved_mask & known_outcome.isna()
-        
+
         if known_mask.any():
             sim_defaults.loc[known_mask] = known_outcome.loc[known_mask]
-            
+
         if unknown_mask.any():
             if method == SimulationMethod.STOCHASTIC and use_stochastic_draw:
                 probs = final_probs.loc[unknown_mask]
@@ -520,7 +538,7 @@ def _assign_simulated_defaults_standalone(
                     sim_defaults.loc[not_na_mask[not_na_mask].index] = outcomes
             else:
                 sim_defaults.loc[unknown_mask] = final_probs.loc[unknown_mask]
-                
+
         df["simulated_default"] = sim_defaults
 
     return df
@@ -625,7 +643,7 @@ def _estimate_swap_in_baseline_pd(
             keep_in_ratings = ratings.loc[keep_ins_mask]
             keep_in_defaults = df.loc[keep_ins_mask, actual_default_col]
             rating_pd = keep_in_defaults.groupby(keep_in_ratings).mean().fillna(global_pd)
-            
+
             swap_in_ratings = ratings.loc[swap_ins.index]
             baseline = swap_in_ratings.map(rating_pd).fillna(global_pd)
             return pd.Series(baseline.values, index=swap_ins.index).clip(0.0, 1.0)
@@ -660,16 +678,7 @@ def _estimate_swap_in_baseline_pd(
 
     # Determine bins configuration
     cal_bins = policy.calibration_bins
-    if cal_bins is None:
-        # Default: 10 score bins (deciles). Override via CreditPolicy(calibration_bins=...).
-        n_bins = 10
-        warnings.warn(
-            "Swap-in PD imputation is using the default of 10 score bins (deciles). "
-            "Pass CreditPolicy(calibration_bins=...) to set a different granularity.",
-            stacklevel=2,
-        )
-    else:
-        n_bins = cal_bins
+    n_bins = 10 if cal_bins is None else cal_bins
 
     baseline = calibrate_by_score_bins(
         cal_scores=keep_in_scores,
@@ -679,4 +688,65 @@ def _estimate_swap_in_baseline_pd(
         bins=n_bins,
         global_fallback=global_pd,
     )
+
+    diag = diagnose_score_bin_calibration(
+        cal_scores=keep_in_scores,
+        cal_values=keep_in_defaults,
+        ref_scores=reference_scores,
+        target_scores=swap_ins[primary_score],
+        bins=n_bins,
+        direction=resolve_calibration_direction(policy, primary_score),
+    )
+    _emit_calibration_warnings(diag, using_default_bins=cal_bins is None)
+
     return baseline.clip(0.0, 1.0)
+
+
+def _emit_calibration_warnings(
+    diag: CalibrationDiagnostics, *, using_default_bins: bool
+) -> None:
+    """Surface the two ways swap-in PD imputation silently lies (#72).
+
+    One concept — "this calibration is not measuring what it claims" — with two
+    triggers, each with its own remediation, both raised under
+    :class:`CalibrationReliabilityWarning` so the Studio can catch them by
+    category and a user can mute them with a single ``filterwarnings``.
+
+    Scope is the **PD path only** (see ADR 0010's correction note): the shared
+    ``calibrate_by_score_bins`` primitive is value-agnostic, and only this caller
+    knows it is calibrating risk — so detection lives here, not in the primitive.
+    """
+    no_overlap = diag.no_overlap_fraction > 0.05
+
+    if diag.n_inversions >= 1:
+        warnings.warn(
+            f"Swap-in PD calibration is unreliable: {diag.n_inversions} adjacent "
+            "score bin(s) invert — PD moves against the score's declared "
+            "direction, so lowering a gate can read as reducing default rate. "
+            "Reduce CreditPolicy(calibration_bins=...), or calibrate by rating "
+            "via calibration_score_col.",
+            CalibrationReliabilityWarning,
+            stacklevel=3,
+        )
+
+    if no_overlap:
+        pct = diag.no_overlap_fraction * 100
+        warnings.warn(
+            f"Swap-in PD calibration is unreliable: {pct:.0f}% of swap-ins score "
+            "outside the keep-ins' observed range, so their imputed PD is "
+            "edge-clamp extrapolation, not measurement. No bin count fixes this "
+            "— the score range has no observed defaults to measure. Pass an "
+            "estimated_default_col with a model PD.",
+            CalibrationReliabilityWarning,
+            stacklevel=3,
+        )
+
+    # The default-bins granularity nudge only helps when bins are the lever. When
+    # no-overlap fires, bins are moot ("no bin count fixes this") — suppress it so
+    # the two do not read contradictorily on the same run (#72).
+    if using_default_bins and not no_overlap:
+        warnings.warn(
+            "Swap-in PD imputation is using the default of 10 score bins (deciles). "
+            "Pass CreditPolicy(calibration_bins=...) to set a different granularity.",
+            stacklevel=3,
+        )

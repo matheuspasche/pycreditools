@@ -183,3 +183,33 @@ def test_aggregate_segment_kpis_equals_the_combined_population_outcome(
 
     assert aggregate["approval_rate"] == pytest.approx(expected_approval_rate)
     assert aggregate["contracted_volume"] == pytest.approx(expected_volume)
+
+
+def test_run_segmented_sim_stashes_calibration_warnings_per_segment(segmented_roles):
+    """#72 Sp3: segmented runs go through `.simulate()` too, so the calibration
+    reliability warning must be captured into each segment's metadata — otherwise
+    the Bancada segmented banner silently drops it.
+
+    Uses a larger base so each segment slice clears the keep-in support floor and
+    the calibration actually runs (and trips). ``estimated_default_col`` is cleared
+    so the inference-column escape hatch does not short-circuit calibration."""
+    from pycreditools.sample_data import generate_sample_data
+
+    roles = dataclasses.replace(segmented_roles, estimated_default_col=None)
+    df = generate_sample_data(n_applicants=3000, seed=42)
+    score_col = "score_5"
+    subset = population_filter(df, roles, "Todos")
+    rows = v14_quickfill_rows(df.columns)
+    cutoff = float(subset[score_col].quantile(0.9))
+    segment_cutoffs = {"Sudeste": cutoff, "Nordeste": cutoff}
+
+    sims = run_segmented_sim(subset, roles, rows, score_col, segment_cutoffs)
+
+    stashed = [
+        m
+        for s in sims.values()
+        for m in s.metadata.get("calibration_warnings", [])
+    ]
+    # The capture mechanism is what's under test — any reliability trigger proves
+    # the segmented path no longer drops the warning.
+    assert any("calibration is unreliable" in m for m in stashed)

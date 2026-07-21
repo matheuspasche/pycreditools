@@ -87,6 +87,29 @@ Shipped in two steps (decided on #63): #79 extracts the pure primitive in v0.5 a
 #68; #72 then puts both triggers inside it, so #68 inherits the warning without being
 reopened.
 
+> **Correction (2026-07, #72).** #79 shipped the pure primitive as planned, but #72
+> deliberately did **not** move both triggers inside it. The primitive is
+> **value-agnostic** — `cal_values` is an anonymous `float64` Series; a PD (0/1
+> default) and a take-up/antifraud rate (0/1 outcome) are structurally identical, and
+> the primitive reads no `policy`, so it cannot tell them apart. The two triggers do
+> not generalise equally:
+>
+> - **No-overlap** is universal — extrapolating beyond the observed score range is
+>   unmeasured for *any* calibrated quantity — so it *could* live inside the primitive
+>   and cover the other callers "for free".
+> - **Inversion** is PD-specific: it means "risk moves against the score's declared
+>   direction". A rate has no canonical risk direction (approval-propensity rises with
+>   risk; conversion falls, because of credit-seekers), so running it on a rate is a
+>   false alarm.
+>
+> Decided on #72: detection stays in the **PD caller** (`_estimate_swap_in_baseline_pd`),
+> which is the only site that *knows* it is calibrating risk and can declare a direction.
+> Rate paths (`CalibratedExpression`, #68's `calibrate_by`) are left unwarned by choice —
+> the ADR's original goal was to avoid **class proliferation** (one primitive, not three),
+> which #79 already achieved; forcing the reliability warning onto every calibrated rate
+> was never the goal. The warning is raised under `CalibrationReliabilityWarning` so a
+> caller can mute it with one `filterwarnings`.
+
 **The calibration population is a parameter and must stay one.** `simulation.py:598`
 calibrates on `scenario == KEEP_IN`; `expressions.py:186` calibrates on
 `current_approval_col == 1`, which is `KEEP_IN ∪ SWAP_OUT`. This is not a bug and cannot
