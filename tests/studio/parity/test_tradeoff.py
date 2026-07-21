@@ -120,12 +120,14 @@ def test_tradeoff_scenarios_match_a_hand_picked_selection_on_real_data(sample_df
     legacy_kpis = analyses.policy_kpis(legacy_sim)
 
     scenarios = analyses.tradeoff_scenarios(
-        res, legacy_kpis["approval_rate"], legacy_kpis["bad_rate"]
+        res, legacy_kpis["approval_rate"], legacy_kpis["default_rate"]
     )
 
     expected_conservative = res.loc[
         (res["approval_rate"] - legacy_kpis["approval_rate"]).abs().idxmin()
     ]
-    expected_aggressive = res.loc[(res["default_rate"] - legacy_kpis["bad_rate"]).abs().idxmin()]
+    expected_aggressive = res.loc[
+        (res["default_rate"] - legacy_kpis["default_rate"]).abs().idxmin()
+    ]
     assert scenarios["conservador"]["Cutoff"] == expected_conservative["Cutoff"]
     assert scenarios["agressivo"]["Cutoff"] == expected_aggressive["Cutoff"]

@@ -114,28 +114,43 @@ def derive_survivor_rating(
 
 
 def _candidate_outcome(data: pd.DataFrame) -> dict[str, float | None]:
-    """Candidate approval rate + (if observed) simulated bad rate over `data`'s rows."""
-    approved_volume = float(data["new_approval"].sum())
-    approval_rate = float(data["new_approval"].mean()) if len(data) else 0.0
-    bad_rate = None
+    """Candidate KPIs over `data`'s rows, per the ADR 0008 metric contract:
+
+    - ``approval_rate``      = approved ÷ total  (pre-take-up; measures the rule)
+    - ``take_up_rate``       = contracted ÷ approved  (a conversion, denominated in
+      *approved* — matches `suggested_take_up_rate`'s `hired / approved`)
+    - ``contracted_volume``  = contracted count (`new_approval` survivors)
+    - ``default_rate``       = simulated default over the *contracted* population,
+      or ``None`` when no `simulated_default` is observed
+
+    Falls back to `new_approval` for the approval numerator when `approved_pre_rate`
+    is absent (no rate stage ran), which makes `take_up_rate` exactly 1.0.
+    """
+    n = len(data)
+    contracted_volume = float(data["new_approval"].sum())
+    approved_volume = (
+        float(data["approved_pre_rate"].sum())
+        if "approved_pre_rate" in data.columns
+        else contracted_volume
+    )
+    approval_rate = approved_volume / n if n else 0.0
+    take_up_rate = contracted_volume / approved_volume if approved_volume > 0 else None
+    default_rate = None
     if "simulated_default" in data.columns and data["simulated_default"].notna().any():
         weighted = (data["simulated_default"] * data["new_approval"]).sum()
-        bad_rate = float(weighted / approved_volume) if approved_volume > 0 else None
+        default_rate = float(weighted / contracted_volume) if contracted_volume > 0 else None
     return {
         "approval_rate": approval_rate,
-        "approved_volume": approved_volume,
-        "bad_rate": bad_rate,
+        "take_up_rate": take_up_rate,
+        "contracted_volume": contracted_volume,
+        "default_rate": default_rate,
     }
 
 
 def policy_kpis(sim: CreditSimResults) -> dict[str, float | None]:
-    """Final approval rate, approved/hired volume, and (if observed) the simulated bad rate."""
-    data = sim.data
-    outcome = _candidate_outcome(data)
-    pre_rate_volume = (
-        float(data["approved_pre_rate"].sum()) if "approved_pre_rate" in data.columns else None
-    )
-    return {**outcome, "pre_rate_volume": pre_rate_volume}
+    """The candidate KPIs (ADR 0008 contract): approval rate (pre-take-up), take-up
+    rate, contracted volume, and (if observed) the simulated default rate."""
+    return _candidate_outcome(sim.data)
 
 
 # ── Light business segmentation — cutoffs per segment (ADR 0006, issue #34) ────
@@ -210,7 +225,7 @@ def segment_kpi_table(sims: dict[str, CreditSimResults]) -> pd.DataFrame:
     each segment's own `policy_kpis` over its own cutoff variant and data slice.
     """
     rows = [{"segment": segment, **policy_kpis(sim)} for segment, sim in sims.items()]
-    columns = ["segment", "approval_rate", "approved_volume", "bad_rate", "pre_rate_volume"]
+    columns = ["segment", "approval_rate", "take_up_rate", "contracted_volume", "default_rate"]
     return pd.DataFrame(rows, columns=columns)
 
 
@@ -219,13 +234,7 @@ def aggregate_segment_kpis(sims: dict[str, CreditSimResults]) -> dict[str, float
     Bancada's "aggregate total" companion to `segment_kpi_table`'s breakout.
     """
     combined = pd.concat([sim.data for sim in sims.values()], ignore_index=True)
-    outcome = _candidate_outcome(combined)
-    pre_rate_volume = (
-        float(combined["approved_pre_rate"].sum())
-        if "approved_pre_rate" in combined.columns
-        else None
-    )
-    return {**outcome, "pre_rate_volume": pre_rate_volume}
+    return _candidate_outcome(combined)
 
 
 def evaluate_scores(df: pd.DataFrame, score_cols: list[str], target_col: str) -> dict[str, float]:
@@ -439,8 +448,13 @@ def swap_in_by_segment(
 
 
 def _base_outcome(data: pd.DataFrame, roles: ColumnRoles) -> dict[str, float | None] | None:
-    """Vigente (historical) approval rate + observed bad rate over `data`'s rows.
+    """Vigente (historical) approval rate + observed default rate over `data`'s rows.
     `None` when no base is mapped (Tier C) or the mapped column is absent from `data`.
+
+    Only `approval_rate` (approved ÷ total, commensurable with the candidate's
+    pre-take-up rate) and `default_rate` (observed default over the approved
+    population) — the base is a decision column and does not know who contracted, so
+    it carries no take-up or contracted-volume figure (ADR 0008).
     """
     if not roles.current_approval_col or roles.current_approval_col not in data.columns:
         return None
@@ -455,16 +469,16 @@ def _base_outcome(data: pd.DataFrame, roles: ColumnRoles) -> dict[str, float | N
         return None
     approval_col = raw.fillna(0)
     approval_rate = float(approval_col.mean())
-    bad_rate = None
+    default_rate = None
     if roles.actual_default_col and roles.actual_default_col in data.columns:
         observed = data.loc[approval_col == 1, roles.actual_default_col]
         if observed.notna().any():
-            bad_rate = float(observed.mean())
-    return {"approval_rate": approval_rate, "bad_rate": bad_rate}
+            default_rate = float(observed.mean())
+    return {"approval_rate": approval_rate, "default_rate": default_rate}
 
 
 def base_outcome(sim: CreditSimResults, roles: ColumnRoles) -> dict[str, float | None] | None:
-    """Vigente (historical) approval rate + observed bad rate, read straight off
+    """Vigente (historical) approval rate + observed default rate, read straight off
     `sim.data`'s approval flag and actual default (ADR 0002 Tier A/B) — no rule
     reconstruction, no second simulation. `None` when no base is mapped (Tier C),
     signalling the caller to hide the comparison-vs-base readout entirely.
@@ -504,14 +518,18 @@ def compare_vs_base(
             "delta": None,
             "quadrants": quadrant_table(sim),
         }
-    bad_delta = (
-        candidate["bad_rate"] - base["bad_rate"]
-        if candidate["bad_rate"] is not None and base["bad_rate"] is not None
+    default_delta = (
+        candidate["default_rate"] - base["default_rate"]
+        if candidate["default_rate"] is not None and base["default_rate"] is not None
         else None
     )
+    # Only approval_rate (approved-vs-approved, commensurable) and default_rate get a
+    # delta. take_up_rate and contracted_volume are candidate-only figures: the base is
+    # a decision column and does not know who contracted, so no delta is ever shown for
+    # them (ADR 0008).
     delta = {
         "approval_rate": candidate["approval_rate"] - base["approval_rate"],
-        "bad_rate": bad_delta,
+        "default_rate": default_delta,
     }
     return {
         "tier": tier,
@@ -559,7 +577,7 @@ def policy_vintage_comparison(sim: CreditSimResults, roles: ColumnRoles) -> pd.D
     """
     time_col = roles.time_col
     data = sim.data
-    columns = [time_col or "period", "series", "approval_rate", "bad_rate"]
+    columns = [time_col or "period", "series", "approval_rate", "default_rate"]
     if not time_col or time_col not in data.columns:
         return pd.DataFrame(columns=columns)
 
@@ -571,7 +589,7 @@ def policy_vintage_comparison(sim: CreditSimResults, roles: ColumnRoles) -> pd.D
                 time_col: period,
                 "series": "candidate",
                 "approval_rate": candidate["approval_rate"],
-                "bad_rate": candidate["bad_rate"],
+                "default_rate": candidate["default_rate"],
             }
         )
         base = _base_outcome(group, roles)
@@ -581,7 +599,7 @@ def policy_vintage_comparison(sim: CreditSimResults, roles: ColumnRoles) -> pd.D
                     time_col: period,
                     "series": "base",
                     "approval_rate": base["approval_rate"],
-                    "bad_rate": base["bad_rate"],
+                    "default_rate": base["default_rate"],
                 }
             )
     return pd.DataFrame(rows, columns=columns).sort_values([time_col, "series"]).reset_index(
@@ -597,8 +615,8 @@ def exposure_kpis(
     comparison: dict[str, Any] | None = None,
 ) -> dict[str, float | None]:
     """Risk-exposure KPI (issue #33 depth): the candidate's expected bad volume
-    (`bad_rate x approved_volume`, already computed by `policy_kpis` — no new math),
-    plus the base's for Tier A/B so the delta reads as one clear exposure number
+    (`default_rate x contracted_volume`, already computed by `policy_kpis` — no new
+    math), plus the base's for Tier A/B so the delta reads as one clear exposure number
     instead of two separate rates. `base_bad_volume`/`delta` stay `None` in Tier C.
 
     Pass `comparison` (the result of `compare_vs_base`) to reuse already-computed
@@ -612,8 +630,8 @@ def exposure_kpis(
         precomputed_base = None
 
     candidate_bad_volume = (
-        candidate["bad_rate"] * candidate["approved_volume"]
-        if candidate["bad_rate"] is not None
+        candidate["default_rate"] * candidate["contracted_volume"]
+        if candidate["default_rate"] is not None
         else None
     )
     result: dict[str, float | None] = {
@@ -625,10 +643,10 @@ def exposure_kpis(
         return result
 
     base = precomputed_base if comparison is not None else base_outcome(sim, roles)
-    if base is None or base["bad_rate"] is None or not roles.current_approval_col:
+    if base is None or base["default_rate"] is None or not roles.current_approval_col:
         return result
     base_volume = float(sim.data[roles.current_approval_col].fillna(0).sum())
-    base_bad_volume = base["bad_rate"] * base_volume
+    base_bad_volume = base["default_rate"] * base_volume
     result["base_bad_volume"] = base_bad_volume
     if candidate_bad_volume is not None:
         result["delta"] = candidate_bad_volume - base_bad_volume
@@ -821,7 +839,9 @@ def _run_estimated_pd_stress_sweep(
         rows.append({
             "aggravation_factor": factor,
             "approval_rate": kpis["approval_rate"],
-            "default_rate": kpis["bad_rate"] if kpis["bad_rate"] is not None else float("nan"),
+            "default_rate": (
+                kpis["default_rate"] if kpis["default_rate"] is not None else float("nan")
+            ),
         })
     return pd.DataFrame(rows, columns=["aggravation_factor", "approval_rate", "default_rate"])
 
