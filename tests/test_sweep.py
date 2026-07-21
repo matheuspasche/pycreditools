@@ -318,15 +318,17 @@ class TestOneEngine:
 
     def test_tradeoff_run_does_not_swallow_engine_warnings(self, risk_df, base_policy):
         """analysis.py used to wrap the run in simplefilter('ignore'), which
-        would have hidden the calibration warnings #72 adds."""
+        would have hidden the calibration warnings #72 adds. The rejected band
+        scores below every keep-in, so the swap-in calibration is 100% no-overlap
+        — its reliability warning must reach the TradeoffAnalyzer caller."""
         import warnings
 
-        policy = base_policy  # keep-in flow triggers the default-bins warning
+        policy = base_policy
         risk_df2 = risk_df.copy()
         risk_df2.loc[risk_df2["score_main"] < 500, "approved"] = 0
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             TradeoffAnalyzer(policy).vary_cutoff("score_main", [400.0]).run(risk_df2)
-        assert any("bins" in str(w.message) for w in caught), (
+        assert any("calibration is unreliable" in str(w.message) for w in caught), (
             "engine warnings must reach the TradeoffAnalyzer caller"
         )

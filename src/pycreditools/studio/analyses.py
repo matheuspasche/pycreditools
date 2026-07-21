@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from pycreditools import (
+    CalibrationReliabilityWarning,
     CreditPolicy,
     CreditSimResults,
     CutoffStage,
@@ -44,11 +45,36 @@ def effective_n(df: pd.DataFrame, target_col: str) -> int:
     return int(df[target_col].notna().sum())
 
 
+def _simulate_capturing_reliability(
+    df: pd.DataFrame, policy: CreditPolicy, method: str
+) -> CreditSimResults:
+    """Run a simulation and stash any `CalibrationReliabilityWarning` (#72) in
+    ``result.metadata["calibration_warnings"]``.
+
+    Matching is by warning **category**, not message text, so a copy edit to the
+    engine's wording never silently drops the banner. The messages ride the
+    ``@st.cache_data`` result, so the banner renders even on a cache hit.
+    """
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = policy.simulate(df, method=method)
+
+    messages = [
+        str(w.message)
+        for w in caught
+        if issubclass(w.category, CalibrationReliabilityWarning)
+    ]
+    if messages:
+        result.metadata["calibration_warnings"] = messages
+    return result
+
+
 def run_policy_sim(
     df: pd.DataFrame, policy: CreditPolicy, method: str = "analytical"
 ) -> CreditSimResults:
-    """Run `policy` on `df`, via `CreditPolicy.simulate()`."""
-    return policy.simulate(df, method=method)
+    """Run `policy` on `df`, via `CreditPolicy.simulate()` — capturing the
+    swap-in calibration-reliability warnings (#72) for the Bancada banner."""
+    return _simulate_capturing_reliability(df, policy, method)
 
 
 def survivor_population(sim: CreditSimResults) -> pd.DataFrame:
@@ -174,8 +200,10 @@ def run_segmented_sim(
         raise ValueError("roles.segment_col não está mapeado.")
     variants = segment_cutoff_rows(rows, score_col, segment_cutoffs, direction)
     return {
-        segment_value: build_policy(roles, segment_rows).simulate(
-            df[df[roles.segment_col] == segment_value], method=method
+        segment_value: _simulate_capturing_reliability(
+            df[df[roles.segment_col] == segment_value],
+            build_policy(roles, segment_rows),
+            method,
         )
         for segment_value, segment_rows in variants.items()
     }

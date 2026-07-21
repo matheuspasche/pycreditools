@@ -186,6 +186,22 @@ def resolve_calibration_score_col(policy: Any, df: pd.DataFrame) -> str | None:
     return primary_score
 
 
+def resolve_calibration_direction(policy: Any, primary_score: str | None) -> str:
+    """Resolve the **declared** direction of ``primary_score`` for calibration.
+
+    Reads it off the last ``CutoffStage`` that gates ``primary_score``. Direction
+    is declared, never inferred from the data (precedent #59, #57): when no cutoff
+    declares one — an explicit ``calibration_score_col`` with no matching gate —
+    fall back to the package convention ``"gte"`` (higher score is better).
+    """
+    if primary_score is None:
+        return "gte"
+    for stage in reversed(policy.stages):
+        if isinstance(stage, CutoffStage) and primary_score in stage.cutoffs:
+            return stage.direction
+    return "gte"
+
+
 from .expressions import Expression
 
 

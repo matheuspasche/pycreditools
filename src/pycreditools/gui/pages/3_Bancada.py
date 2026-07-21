@@ -146,6 +146,8 @@ def _render_live_funnel() -> None:
         return
 
     state.last_sim = sim
+    for _msg in sim.metadata.get("calibration_warnings", []):
+        st.warning(_msg)
     funnel_df = sim.to_funnel_dataframe()
     kpis = policy_kpis(sim)
     survivors = survivor_population(sim)
@@ -241,6 +243,11 @@ def _render_segmentation(subset: pd.DataFrame) -> None:
     except Exception as exc:  # noqa: BLE001 - surfaced as a friendly error
         st.error(f"Não foi possível simular a segmentação: {exc}")
         return
+
+    for _msg in dict.fromkeys(
+        m for s in sims.values() for m in s.metadata.get("calibration_warnings", [])
+    ):
+        st.warning(_msg)
 
     aggregate = aggregate_funnel([s.to_funnel_dataframe() for s in sims.values()])
     aggregate_kpis = aggregate_segment_kpis(sims)

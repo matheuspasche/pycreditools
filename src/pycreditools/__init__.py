@@ -41,7 +41,11 @@ from .screening import (
     screen_risk_segments,
     suggest_hard_filters,
 )
-from .simulation import CreditSimResults, run_simulation
+from .simulation import (
+    CalibrationReliabilityWarning,
+    CreditSimResults,
+    run_simulation,
+)
 from .stages import CutoffStage, FilterStage, RateStage, Stage, register_callable
 from .stress import AggravationStress, CustomStress, MonotonicStress, StressScenario
 from .visualization import (
@@ -71,6 +75,7 @@ __all__ = [
     "CreditPolicy",
     "CreditSimResults",
     "run_simulation",
+    "CalibrationReliabilityWarning",
     "DeploymentPolicy",
     "summarize_results",
     "compare_policies",

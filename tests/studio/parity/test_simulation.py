@@ -144,3 +144,35 @@ def test_swap_in_by_rating_volumes_match_a_hand_rebuilt_raio_x_table(sample_df, 
         row = table[table["Rating"] == tier].iloc[0]
         assert abs(row["Vol_Esperado"] - expected_vol) < 1e-9
         assert abs(row["Inad_Stressed"] - expected_bad) < 1e-9
+
+
+def test_run_policy_sim_stashes_calibration_warning_in_metadata():
+    """#72: the engine calibration-reliability warning rides the cached result
+    as `metadata["calibration_warnings"]`, so the Bancada banner survives a
+    cache hit. Clean cutoff → every swap-in below the keep-in range (no-overlap).
+    """
+    import numpy as np
+
+    keep = np.arange(750, 950)
+    swap = np.arange(600, 700)
+    score = np.concatenate([keep, swap])
+    df = pd.DataFrame(
+        {
+            "applicant_id": np.arange(len(score)),
+            "score": score,
+            "approved": np.concatenate([np.ones(len(keep)), np.zeros(len(swap))]),
+            "actual_default": ((score < 800) & (np.arange(len(score)) % 3 == 0)).astype(float),
+        }
+    )
+    policy = CreditPolicy(
+        applicant_id_col="applicant_id",
+        score_cols=("score",),
+        current_approval_col="approved",
+        actual_default_col="actual_default",
+        calibration_bins=4,
+    ).cutoff("Cut", {"score": 600})
+
+    sim = analyses.run_policy_sim(df, policy)
+
+    msgs = sim.metadata.get("calibration_warnings", [])
+    assert any("outside the keep-ins' observed range" in m for m in msgs)
