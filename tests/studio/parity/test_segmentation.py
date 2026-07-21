@@ -161,7 +161,7 @@ def test_segment_kpi_table_has_one_row_per_segment_matching_policy_kpis(
         expected = policy_kpis(sim)
         row = table[table["segment"] == segment].iloc[0]
         assert row["approval_rate"] == pytest.approx(expected["approval_rate"])
-        assert row["approved_volume"] == pytest.approx(expected["approved_volume"])
+        assert row["contracted_volume"] == pytest.approx(expected["contracted_volume"])
 
 
 def test_aggregate_segment_kpis_equals_the_combined_population_outcome(
@@ -182,4 +182,4 @@ def test_aggregate_segment_kpis_equals_the_combined_population_outcome(
     expected_volume = float(combined["new_approval"].sum())
 
     assert aggregate["approval_rate"] == pytest.approx(expected_approval_rate)
-    assert aggregate["approved_volume"] == pytest.approx(expected_volume)
+    assert aggregate["contracted_volume"] == pytest.approx(expected_volume)

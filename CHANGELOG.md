@@ -33,3 +33,18 @@ versions may carry breaking changes.
   behaviour. `policy.current_hired_col` survives as a column role only (it is
   the obvious value to hand to `observed_col`) and no longer drives any engine
   branch.
+
+- **`studio.analyses.policy_kpis()["approval_rate"]` changes meaning** (#67, ADR
+  0008). It is now the **pre-take-up** approval rate (`approved ÷ total`), which
+  measures the underwriting rule, instead of the contracted rate
+  (`new_approval.mean()`). The candidate KPI dict returned by `policy_kpis` /
+  `_candidate_outcome` now follows the ADR 0008 contract:
+  `approval_rate`, `take_up_rate` (`contracted ÷ approved`), `contracted_volume`,
+  and `default_rate`. The old `approved_volume`, `bad_rate`, and `pre_rate_volume`
+  keys are gone (`approved_volume` → `contracted_volume`, `bad_rate` →
+  `default_rate`; `pre_rate_volume` is subsumed). `compare_vs_base` now deltas
+  only `approval_rate` (approved-vs-approved, commensurable) and `default_rate`;
+  `take_up_rate` and `contracted_volume` are candidate-only with no delta, because
+  the comparison base is a decision column and does not know who contracted. This
+  fixes the apples-to-oranges Bancada delta that penalised candidates for the
+  commercial take-up funnel rather than the rule being compared.
