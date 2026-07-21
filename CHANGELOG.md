@@ -63,3 +63,13 @@ versions may carry breaking changes.
   behaviour. `policy.current_hired_col` survives as a column role only (it is
   the obvious value to hand to `observed_col`) and no longer drives any engine
   branch.
+
+### Added
+
+- **A short quickstart notebook** (#75), `src/pycreditools/examples/quickstart.ipynb`.
+  English throughout, ~15 cells: it opens on the standalone base (one `CutoffStage`
+  with a declared `gte` direction, `take_up_rate` = 1.0), then moves to the incumbent
+  base (hard filters, the legacy cutoff, and a take-up `RateStage`) where `take_up_rate`
+  becomes a real number and `default_rate` moves — the one place ADR 0008's denominators
+  are shown to matter before they are named. Points at the masterclass (#76) for swap
+  analysis, rating, P&L, and the calibration problem.
