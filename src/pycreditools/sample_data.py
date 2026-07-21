@@ -55,8 +55,8 @@ _TAKE_UP_DECILE_STEP = 0.06
 _VINTAGES = pd.date_range("2024-01-01", periods=18, freq="MS").strftime("%Y-%m").tolist()
 
 
-def _rng(seed: int | None) -> np.random.Generator:
-    return np.random.default_rng(seed)
+def _sigmoid(x: np.ndarray | pd.Series) -> np.ndarray | pd.Series:
+    return 1.0 / (1.0 + np.exp(-x))
 
 
 def _applicants(rng: np.random.Generator, n: int) -> pd.DataFrame:
@@ -88,11 +88,11 @@ def _applicants(rng: np.random.Generator, n: int) -> pd.DataFrame:
     return df
 
 
-def _risk_logit(rng: np.random.Generator, df: pd.DataFrame, n: int) -> pd.Series:
+def _risk_logit(rng: np.random.Generator, df: pd.DataFrame) -> pd.Series:
     """Latent log-odds of default, driven by the features plus a high-variance factor."""
     v_pen = {v: (i / 17) * 0.3 for i, v in enumerate(_VINTAGES)}
 
-    u = rng.normal(0, 3.0, n)
+    u = rng.normal(0, 3.0, len(df))
     return (
         -2.5
         + df["region"].map(_REGION_BIAS).astype(float)
@@ -112,14 +112,13 @@ def _risk_logit(rng: np.random.Generator, df: pd.DataFrame, n: int) -> pd.Series
 
 
 def _norm_cdf(x: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-1.702 * x))
+    return _sigmoid(1.702 * x)
 
 
 def _score_ladder(
     rng: np.random.Generator,
     df: pd.DataFrame,
     y: pd.Series,
-    n: int,
     *,
     with_legacy: bool,
 ) -> None:
@@ -129,6 +128,7 @@ def _score_ladder(
     way real challenger models correlate with the incumbent. The per-score independent
     noise is calibrated to land legacy KS ~25% and `score_5` KS ~31%.
     """
+    n = len(df)
     s = -y
     c_noise = rng.normal(0, 2.5, n)
 
@@ -148,16 +148,31 @@ def _score_ladder(
         df[name] = np.round(_norm_cdf(z) * 1000).astype(int)
 
 
-def _market_default(rng: np.random.Generator, y: pd.Series, n: int) -> np.ndarray:
+def _market_default(rng: np.random.Generator, y: pd.Series) -> np.ndarray:
     """A 0/1 bureau flag: did this person default *anywhere in the market*.
 
     Observed for every row, contracted or not — that is the whole point. It correlates
     with `true_pd` without being it: the market is wider than this lender's product, so
     the flag is both more frequent and noisier than the lender's own outcome.
     """
-    market_logit = y + 0.4 + rng.normal(0, 1.0, n)
-    market_pd = 1.0 / (1.0 + np.exp(-market_logit))
-    return (rng.random(n) < market_pd).astype(int)
+    market_pd = _sigmoid(y + 0.4 + rng.normal(0, 1.0, len(y)))
+    return (rng.random(len(y)) < market_pd).astype(int)
+
+
+def _base(rng: np.random.Generator, n: int, *, with_legacy: bool) -> tuple[pd.DataFrame, pd.Series]:
+    """The shared spine of both bases: features, the risk logit, `true_pd`, the
+    (pre-mask) outcome and the score ladder. Returns the frame and the risk logit `y`,
+    which the incumbent base still needs for `market_default`.
+
+    `actual_default` is drawn as `float` so both bases share the outcome dtype even
+    though only the incumbent one later writes `NaN` into it.
+    """
+    df = _applicants(rng, n)
+    y = _risk_logit(rng, df)
+    df["true_pd"] = _sigmoid(y)
+    df["actual_default"] = (rng.random(n) < df["true_pd"]).astype(float)
+    _score_ladder(rng, df, y, with_legacy=with_legacy)
+    return df, y
 
 
 def generate_sample_data(
@@ -198,14 +213,10 @@ def generate_sample_data(
         The frame alone. The legacy threshold is not returned — recompute it with
         `df["legacy_score"].quantile(LEGACY_APPROVAL_QUANTILE)`.
     """
-    rng = _rng(seed)
+    rng = np.random.default_rng(seed)
     n = n_applicants
 
-    df = _applicants(rng, n)
-    y = _risk_logit(rng, df, n)
-    df["true_pd"] = 1.0 / (1.0 + np.exp(-y))
-    df["actual_default"] = (rng.random(n) < df["true_pd"]).astype(float)
-    _score_ladder(rng, df, y, n, with_legacy=True)
+    df, y = _base(rng, n, with_legacy=True)
 
     df["approved"] = 1
     df.loc[(df["age"] < 18) | (df["vl_negativacao"] > 5000), "approved"] = 0
@@ -224,7 +235,7 @@ def generate_sample_data(
     # Drawn after the funnel so that adding these columns did not perturb the
     # approved/hired stream a given seed used to produce.
     df["passed_antifraud"] = (rng.random(n) < 0.90).astype(int)
-    df["market_default"] = _market_default(rng, y, n)
+    df["market_default"] = _market_default(rng, y)
     df["sample"] = np.where(df["safra"].str.startswith("2024"), "DEV", "OOT")
 
     return df
@@ -253,15 +264,6 @@ def generate_standalone_sample_data(
     Returns:
         DataFrame with one row per applicant.
     """
-    rng = _rng(seed)
-    n = n_applicants
-
-    df = _applicants(rng, n)
-    y = _risk_logit(rng, df, n)
-    df["true_pd"] = 1.0 / (1.0 + np.exp(-y))
-    # float, not int, so the two bases agree on the outcome dtype even though only the
-    # incumbent one ever holds NaN.
-    df["actual_default"] = (rng.random(n) < df["true_pd"]).astype(float)
-    _score_ladder(rng, df, y, n, with_legacy=False)
-
+    rng = np.random.default_rng(seed)
+    df, _ = _base(rng, n_applicants, with_legacy=False)
     return df

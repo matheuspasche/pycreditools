@@ -34,8 +34,9 @@ versions may carry breaking changes.
   now sees `NaN` on non-contracted rows. The legacy cut is not returned —
   recompute it with
   `df["legacy_score"].quantile(LEGACY_APPROVAL_QUANTILE)`, the same expression
-  the generator uses. Scores shift for a given seed; `approved` and `hired` do
-  not.
+  the generator uses. For a given seed the scores, `approved` and `hired` are
+  unchanged from before — only the column set and `actual_default`'s masking and
+  dtype move.
 
 - **`RateStage` is now a generic lottery stage with explicit `observed_col` /
   `calibrate_by` parameters, and the conversion-stage heuristic is gone**
