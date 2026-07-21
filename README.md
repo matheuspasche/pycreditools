@@ -42,7 +42,7 @@ Beyond the Python API, a browser-based **Studio** is under construction to do ev
 
 This section demonstrates the real-world usage of the library to simulate and validate the replacement of a legacy policy (`legacy_score` with a single p78 cutoff) with a new champion model (`score_5`) regionalized by store/region.
 
-The complete execution and validation flow is available in [tutorial_masterclass_v14.ipynb](src/pycreditools/examples/tutorial_masterclass_v14.ipynb).
+The complete execution and validation flow is available in [tutorial_masterclass.ipynb](src/pycreditools/examples/tutorial_masterclass.ipynb).
 
 ### 1. Modeling the Approval Funnel (Bureau + Entry Rules)
 We apply the new entry hard filters and include the active score cutoff for direct comparison of the cumulative funnel over the applicant base:
