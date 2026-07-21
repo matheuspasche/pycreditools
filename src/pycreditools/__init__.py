@@ -22,7 +22,11 @@ from .performance import (
     summarize_results,
 )
 from .policy import CreditPolicy
-from .sample_data import generate_sample_data
+from .sample_data import (
+    LEGACY_APPROVAL_QUANTILE,
+    generate_sample_data,
+    generate_standalone_sample_data,
+)
 from .screening import ScreeningRecipe, ScreeningResult, fit_risk_segments, screen_risk_segments
 from .simulation import CreditSimResults, run_simulation
 from .stages import CutoffStage, FilterStage, RateStage, Stage, register_callable
@@ -75,6 +79,8 @@ __all__ = [
     "ScreeningResult",
     "ScreeningRecipe",
     "generate_sample_data",
+    "generate_standalone_sample_data",
+    "LEGACY_APPROVAL_QUANTILE",
     "col",
     "Expression",
     "TradeoffAnalyzer",

@@ -8,6 +8,36 @@ versions may carry breaking changes.
 
 ### Changed — BREAKING
 
+- **Two canonical sample generators; the outcome is masked, and take-up is no
+  longer a column** (#74). `generate_sample_data` now returns the *incumbent*
+  base: `actual_default` is `NaN` wherever `hired == 0`, exactly as production
+  masks it, so nothing can be measured on a population the legacy policy had
+  already rejected. New alongside it: `generate_standalone_sample_data`, the
+  greenfield base with no incumbent columns and a fully observed
+  `actual_default`. Two functions, not a `scenario=` flag — the returned shape
+  genuinely differs.
+
+  Removed from `generate_sample_data` with no deprecation window:
+  - `conversion_rate` — #68 gave `RateStage` `observed_col` / `calibrate_by`,
+    so a stored propensity has no consumer, and ADR 0008 owns `take_up_rate` as
+    a metric (contracted ÷ approved), never a column;
+  - `score_decile` — the caller computes it where it needs it.
+
+  Added: `passed_antifraud` (Bernoulli(0.90), independent of risk — a rate
+  stage that is *not* take-up), `market_default` (0/1 bureau flag, observed for
+  every row, the only outcome available for a reject) and `sample` (DEV/OOT).
+  `actual_default` is now `float64` on both bases, since the incumbent one
+  holds `NaN`.
+
+  **Impact:** code that read `conversion_rate` or `score_decile` off the sample
+  base breaks; code that assumed `actual_default` was fully observed or integer
+  now sees `NaN` on non-contracted rows. The legacy cut is not returned —
+  recompute it with
+  `df["legacy_score"].quantile(LEGACY_APPROVAL_QUANTILE)`, the same expression
+  the generator uses. For a given seed the scores, `approved` and `hired` are
+  unchanged from before — only the column set and `actual_default`'s masking and
+  dtype move.
+
 - **`RateStage` is now a generic lottery stage with explicit `observed_col` /
   `calibrate_by` parameters, and the conversion-stage heuristic is gone**
   (#68). A rate stage that reads a real 0/1 outcome for keep-ins and calibrates
@@ -34,17 +64,12 @@ versions may carry breaking changes.
   the obvious value to hand to `observed_col`) and no longer drives any engine
   branch.
 
-- **`studio.analyses.policy_kpis()["approval_rate"]` changes meaning** (#67, ADR
-  0008). It is now the **pre-take-up** approval rate (`approved ÷ total`), which
-  measures the underwriting rule, instead of the contracted rate
-  (`new_approval.mean()`). The candidate KPI dict returned by `policy_kpis` /
-  `_candidate_outcome` now follows the ADR 0008 contract:
-  `approval_rate`, `take_up_rate` (`contracted ÷ approved`), `contracted_volume`,
-  and `default_rate`. The old `approved_volume`, `bad_rate`, and `pre_rate_volume`
-  keys are gone (`approved_volume` → `contracted_volume`, `bad_rate` →
-  `default_rate`; `pre_rate_volume` is subsumed). `compare_vs_base` now deltas
-  only `approval_rate` (approved-vs-approved, commensurable) and `default_rate`;
-  `take_up_rate` and `contracted_volume` are candidate-only with no delta, because
-  the comparison base is a decision column and does not know who contracted. This
-  fixes the apples-to-oranges Bancada delta that penalised candidates for the
-  commercial take-up funnel rather than the rule being compared.
+### Added
+
+- **A short quickstart notebook** (#75), `src/pycreditools/examples/quickstart.ipynb`.
+  English throughout, ~15 cells: it opens on the standalone base (one `CutoffStage`
+  with a declared `gte` direction, `take_up_rate` = 1.0), then moves to the incumbent
+  base (hard filters, the legacy cutoff, and a take-up `RateStage`) where `take_up_rate`
+  becomes a real number and `default_rate` moves — the one place ADR 0008's denominators
+  are shown to matter before they are named. Points at the masterclass (#76) for swap
+  analysis, rating, P&L, and the calibration problem.
