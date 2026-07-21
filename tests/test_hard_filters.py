@@ -66,6 +66,38 @@ def test_whole_table_always_returned(incumbent: pd.DataFrame) -> None:
     assert set(s.table["column"]) == set(BUREAU)
 
 
+def test_degenerate_column_accounted_for_not_dropped(incumbent: pd.DataFrame) -> None:
+    """A declared column with no usable cut (constant) must not vanish silently — it
+    is accounted for in .rejected, honouring 'always return the whole table'."""
+    df = incumbent.copy()
+    df["const_col"] = 5  # every threshold rejects nobody or everybody
+    s = _suggest(
+        df,
+        bad_col="actual_default",
+        directions={"vl_negativacao": "lte", "const_col": "lte"},
+        hf_approval_floor=0.40,
+    )
+    # Not in the table (no non-degenerate threshold exists)...
+    assert "const_col" not in set(s.table["column"])
+    # ...but every declared column is accounted for somewhere.
+    accounted = set(s.rule_set["column"]) | set(s.rejected["column"])
+    assert {"vl_negativacao", "const_col"} <= accounted
+    reason = s.rejected.set_index("column").loc["const_col", "reason"]
+    assert "degenerate" in reason
+
+
+def test_budget_reports_spent_and_remaining(incumbent: pd.DataFrame) -> None:
+    """.budget exposes spent (union cut) and remaining (headroom), not just the
+    standing approval rate — spec: '.budget reports spent and remaining'."""
+    s = _suggest(
+        incumbent, bad_col="actual_default", directions=BUREAU, hf_approval_floor=0.40
+    )
+    assert set(s.budget) == {"floor", "spent", "approval_rate", "headroom"}
+    assert s.budget["spent"] == pytest.approx(1.0 - s.budget["approval_rate"])
+    # Spent matches the last rule's cumulative cut on the base.
+    assert s.budget["spent"] == pytest.approx(s.rule_set.iloc[-1]["cumulative_cut"])
+
+
 def test_budget_binds_on_the_set(incumbent: pd.DataFrame) -> None:
     """A floor that leaves room for only two rules must not select the third; the
     set stops on the budget and .budget reports the standing approval rate."""

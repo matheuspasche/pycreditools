@@ -256,9 +256,9 @@ class HardFilterSuggestion:
             its lift so a human can audit the real impact of each rule on its own.
         rejected: Best candidate per rejected column, with the reason it lost
             (IV, lift, min-bads, or the set's budget).
-        budget: ``floor`` (the input), ``approval_rate`` (what the set leaves
-            standing on the base — same denominator as ADR 0008's ``approval_rate``)
-            and ``headroom`` (``approval_rate - floor``).
+        budget: ``floor`` (the input), ``spent`` (the set's union cut on the base),
+            ``approval_rate`` (what the set leaves standing — same denominator as ADR
+            0008's ``approval_rate``) and ``headroom`` (``approval_rate - floor``).
         params: The call's parameters plus the measured coverage fraction.
     """
 
@@ -479,6 +479,7 @@ def suggest_hard_filters(
     contracted_bads = bad_values[contracted_mask]
     tables = []
     ivs: dict[str, float] = {}
+    degenerate: dict[str, str] = {}  # declared columns with no usable threshold
     for column, direction in directions.items():
         base_values = data[column].to_numpy(dtype=float)
         contracted_values = base_values[contracted_mask]
@@ -497,6 +498,11 @@ def suggest_hard_filters(
             grid_kind,
         )
         if col_table.empty:
+            # A declared candidate with no non-degenerate cut (e.g. a constant
+            # column): every threshold rejects nobody or everybody. It cannot enter
+            # the table, but a declared column must still be accounted for — record
+            # it as rejected rather than letting it vanish (behaviour 7).
+            degenerate[column] = direction
             continue
         tables.append(col_table)
 
@@ -553,6 +559,21 @@ def suggest_hard_filters(
     }
 
     rejected_rows: list[dict[str, Any]] = []
+
+    def _reject(row: pd.Series | None, reason: str, **fields: Any) -> None:
+        entry = dict(row) if row is not None else {}
+        entry.update(fields)
+        entry["reason"] = reason
+        rejected_rows.append(entry)
+
+    for column, direction in degenerate.items():
+        _reject(
+            None,
+            "no non-degenerate threshold: every cut rejects nobody or everybody",
+            column=column,
+            direction=direction,
+        )
+
     candidates: dict[str, pd.Series] = {}
     for column in directions:
         col_rows = table[table["column"] == column]
@@ -569,9 +590,7 @@ def suggest_hard_filters(
             continue
         # Rejected column — the best candidate it had, and why it lost.
         best, reason = _hf_reject_reason(col_rows, iv, iv_min, lift_min, min_rejected_bads)
-        row = best.to_dict()
-        row["reason"] = reason
-        rejected_rows.append(row)
+        _reject(best, reason)
 
     # --- Greedy set under the budget. The budget belongs to the *set*: its union cut
     #     may never exceed 1 - floor, and every rule spends its *marginal* cut. ---
@@ -605,13 +624,11 @@ def suggest_hard_filters(
         if rejected_base.mean() + marg_cut > budget_cut_max + 1e-12:
             # Clears the floors but not the remaining budget: reject on budget, never
             # silently cut to fit. A smaller candidate may still fit, so keep going.
-            reason = (
+            _reject(
+                row,
                 f"marginal cut {marg_cut:.1%} exceeds remaining budget "
-                f"{budget_cut_max - rejected_base.mean():.1%}"
+                f"{budget_cut_max - rejected_base.mean():.1%}",
             )
-            r = row.to_dict()
-            r["reason"] = reason
-            rejected_rows.append(r)
             del remaining[column]
             continue
 
@@ -634,9 +651,7 @@ def suggest_hard_filters(
 
     # Any candidate still standing when max_rules is hit is rejected on the cap.
     for column, row in remaining.items():
-        r = row.to_dict()
-        r["reason"] = f"max_rules ({max_rules}) reached"
-        rejected_rows.append(r)
+        _reject(row, f"max_rules ({max_rules}) reached")
 
     rule_set = pd.DataFrame(
         selected,
@@ -651,6 +666,7 @@ def suggest_hard_filters(
     approval_rate = 1.0 - union_cut
     budget = {
         "floor": hf_approval_floor,
+        "spent": union_cut,
         "approval_rate": approval_rate,
         "headroom": approval_rate - hf_approval_floor,
     }
