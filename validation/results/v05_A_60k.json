@@ -1,0 +1,625 @@
+{
+  "branch": "v05",
+  "mode": "A",
+  "seed": 7,
+  "n": 60000,
+  "legacy_cutoff": 790.0,
+  "engine_facts": {
+    "package_version": "n/a",
+    "rate_has_observed_col": true,
+    "optimize_has_directions": true,
+    "has_suggest_hard_filters": true,
+    "legacy_quantile_exported": true,
+    "actual_default_masked_frac": 0.9046833333333333,
+    "sample_data_columns": [
+      "applicant_id",
+      "safra",
+      "region",
+      "age",
+      "income",
+      "employment",
+      "cpf_valido",
+      "vl_negativacao",
+      "vl_vencido_scr",
+      "vl_protestos",
+      "true_pd",
+      "actual_default",
+      "legacy_score",
+      "score_2",
+      "score_3",
+      "score_4",
+      "score_5",
+      "approved",
+      "hired",
+      "passed_antifraud",
+      "market_default",
+      "sample"
+    ],
+    "calibration_bins_supported": true
+  },
+  "incumbent": {
+    "approval": 0.20546666666666666,
+    "default": 0.07536282566882323,
+    "contracted": 5719.0,
+    "take_up": 0.46390330953926023,
+    "legacy_contract": {
+      "approval_post_take_up": 0.09531666666666666,
+      "default_unweighted": 0.07536282566882323
+    },
+    "default_true": 0.07072499855485985,
+    "quadrants": {
+      "keep_in": {
+        "n": 12328,
+        "vol": 5719.0,
+        "sim": 0.07536282566882323,
+        "true": 0.07072499855485985,
+        "actual": 0.07536282566882323
+      },
+      "keep_out": {
+        "n": 47672,
+        "vol": 0.0
+      }
+    }
+  },
+  "hard_filters": {
+    "used_rules": [
+      "vl_negativacao lte 0",
+      "vl_vencido_scr lte 0",
+      "vl_protestos lte 0"
+    ],
+    "bad_col": "actual_default",
+    "suggested": {
+      "rules": [
+        "vl_negativacao lte 0",
+        "vl_vencido_scr lte 0",
+        "vl_protestos lte 0"
+      ],
+      "budget": {
+        "floor": 0.55,
+        "spent": 0.4231,
+        "approval_rate": 0.5769,
+        "headroom": 0.026899999999999924
+      }
+    },
+    "hf_pass_rate": 0.5769
+  },
+  "ks_on_hf_approved": {
+    "legacy_score": 0.2757,
+    "score_2": 0.2947,
+    "score_3": 0.2975,
+    "score_4": 0.3196,
+    "score_5": 0.3333
+  },
+  "frontier": [
+    {
+      "approval": 0.4518,
+      "default": 0.10470196678234657,
+      "contracted": 14057.680972853981,
+      "take_up": 0.5185805287315177,
+      "cutoff": 294,
+      "default_true": 0.19357149134761362,
+      "default_stress_1.3": 0.1306920326105939,
+      "default_stress_1.5": 0.14801874316275881
+    },
+    {
+      "approval": 0.43866666666666665,
+      "default": 0.10387951115927002,
+      "contracted": 13617.356124369133,
+      "take_up": 0.5173767524456357,
+      "cutoff": 319,
+      "default_true": 0.1849057025651014,
+      "default_stress_1.3": 0.12944756460991572,
+      "default_stress_1.5": 0.14649293357701282
+    },
+    {
+      "approval": 0.4257166666666667,
+      "default": 0.10301474070210005,
+      "contracted": 13183.17794255095,
+      "take_up": 0.5161170552617528,
+      "cutoff": 345,
+      "default_true": 0.17698498254966105,
+      "default_stress_1.3": 0.1281390694988309,
+      "default_stress_1.5": 0.14488862202998476
+    },
+    {
+      "approval": 0.41201666666666664,
+      "default": 0.1014543055439058,
+      "contracted": 12723.413094066102,
+      "take_up": 0.5146803565416489,
+      "cutoff": 371,
+      "default_true": 0.16848822642959646,
+      "default_stress_1.3": 0.12592521673574802,
+      "default_stress_1.5": 0.14223915753030952
+    },
+    {
+      "approval": 0.39808333333333334,
+      "default": 0.10039354017247147,
+      "contracted": 12256.266427399436,
+      "take_up": 0.5131365470964805,
+      "cutoff": 397,
+      "default_true": 0.15982364967889956,
+      "default_stress_1.3": 0.12431885172799963,
+      "default_stress_1.5": 0.14026905943168508
+    },
+    {
+      "approval": 0.3847,
+      "default": 0.09937770236092343,
+      "contracted": 11807.118548611557,
+      "take_up": 0.5115292673343539,
+      "cutoff": 422,
+      "default_true": 0.15275733735241837,
+      "default_stress_1.3": 0.12276268767486236,
+      "default_stress_1.5": 0.13835267788415498
+    },
+    {
+      "approval": 0.37033333333333335,
+      "default": 0.09818218257451115,
+      "contracted": 11325.560972853982,
+      "take_up": 0.5097012138998191,
+      "cutoff": 449,
+      "default_true": 0.14499987671138004,
+      "default_stress_1.3": 0.12093518255184611,
+      "default_stress_1.5": 0.13610384920340274
+    },
+    {
+      "approval": 0.3555,
+      "default": 0.09618929628765992,
+      "contracted": 10827.151275884284,
+      "take_up": 0.5076020288740873,
+      "cutoff": 476,
+      "default_true": 0.13668076685888061,
+      "default_stress_1.3": 0.11806363909246768,
+      "default_stress_1.5": 0.13264653429567283
+    },
+    {
+      "approval": 0.34175,
+      "default": 0.0946160725530443,
+      "contracted": 10365.739154672163,
+      "take_up": 0.5055225142488253,
+      "cutoff": 502,
+      "default_true": 0.12977632934379188,
+      "default_stress_1.3": 0.11573657878135699,
+      "default_stress_1.5": 0.12981691626689876
+    },
+    {
+      "approval": 0.32615,
+      "default": 0.09196893407655701,
+      "contracted": 9840.889457702466,
+      "take_up": 0.5028815707344507,
+      "cutoff": 529,
+      "default_true": 0.12226672188865426,
+      "default_stress_1.3": 0.11199932208002691,
+      "default_stress_1.5": 0.1253529140823402
+    },
+    {
+      "approval": 0.3112333333333333,
+      "default": 0.08848578448125032,
+      "contracted": 9341.420366793376,
+      "take_up": 0.5002367123697856,
+      "cutoff": 555,
+      "default_true": 0.11481930626352038,
+      "default_stress_1.3": 0.10719545238343972,
+      "default_stress_1.5": 0.11966856431823265
+    },
+    {
+      "approval": 0.29595,
+      "default": 0.08488116575001857,
+      "contracted": 8828.451881944891,
+      "take_up": 0.49718149923663296,
+      "cutoff": 582,
+      "default_true": 0.1079683527658979,
+      "default_stress_1.3": 0.10219006523722565,
+      "default_stress_1.5": 0.11372933156203037
+    },
+    {
+      "approval": 0.28058333333333335,
+      "default": 0.08168315233602783,
+      "contracted": 8315.042184975195,
+      "take_up": 0.4939139997015263,
+      "cutoff": 609,
+      "default_true": 0.10092851072412022,
+      "default_stress_1.3": 0.09763732963201992,
+      "default_stress_1.5": 0.10827344782934802
+    },
+    {
+      "approval": 0.26485,
+      "default": 0.0782213462114029,
+      "contracted": 7790.455518308527,
+      "take_up": 0.4902432520488658,
+      "cutoff": 635,
+      "default_true": 0.09423048449967499,
+      "default_stress_1.3": 0.09279224969783857,
+      "default_stress_1.5": 0.10250618535546233
+    },
+    {
+      "approval": 0.24863333333333335,
+      "default": 0.07405470060186668,
+      "contracted": 7247.751275884284,
+      "take_up": 0.48583934011826546,
+      "cutoff": 661,
+      "default_true": 0.08619785077360045,
+      "default_stress_1.3": 0.08704066157777492,
+      "default_stress_1.5": 0.09569796889504707
+    },
+    {
+      "approval": 0.23233333333333334,
+      "default": 0.06718145497234577,
+      "contracted": 6694.633700126709,
+      "take_up": 0.4802463199517008,
+      "cutoff": 686,
+      "default_true": 0.07875572070836362,
+      "default_stress_1.3": 0.07810461716761855,
+      "default_stress_1.5": 0.08538672529780045
+    },
+    {
+      "approval": 0.21566666666666667,
+      "default": 0.06333119342648622,
+      "contracted": 6131.83976073277,
+      "take_up": 0.4738670603348354,
+      "cutoff": 710,
+      "default_true": 0.07159695457592659,
+      "default_stress_1.3": 0.07279018473209473,
+      "default_stress_1.5": 0.07909617893583372
+    },
+    {
+      "approval": 0.19923333333333335,
+      "default": 0.05681189286702411,
+      "contracted": 5573.690669823678,
+      "take_up": 0.46626155845940087,
+      "cutoff": 736,
+      "default_true": 0.06436493361211852,
+      "default_stress_1.3": 0.06443620818693596,
+      "default_stress_1.5": 0.0695190850668772
+    },
+    {
+      "approval": 0.18263333333333334,
+      "default": 0.05095445283231501,
+      "contracted": 5025.745215278223,
+      "take_up": 0.45863708845393536,
+      "cutoff": 760,
+      "default_true": 0.057959696050403596,
+      "default_stress_1.3": 0.05692873683789128,
+      "default_stress_1.5": 0.06091159284160879
+    },
+    {
+      "approval": 0.16536666666666666,
+      "default": 0.04453121822350312,
+      "contracted": 4452.592488005496,
+      "take_up": 0.44875957347364404,
+      "cutoff": 785,
+      "default_true": 0.05017988167157158,
+      "default_stress_1.3": 0.04886213563286817,
+      "default_stress_1.5": 0.051749413905778203
+    },
+    {
+      "approval": 0.14938333333333334,
+      "default": 0.04237259169011579,
+      "contracted": 3947.1435650409107,
+      "take_up": 0.44038196642205857,
+      "cutoff": 808,
+      "default_true": 0.04477633670675354,
+      "default_stress_1.3": 0.046039853989700764,
+      "default_stress_1.5": 0.048484695522757415
+    },
+    {
+      "approval": 0.13173333333333334,
+      "default": 0.03779215420090397,
+      "contracted": 3424.191757811995,
+      "take_up": 0.43322264142358236,
+      "cutoff": 832,
+      "default_true": 0.03852049395402139,
+      "default_stress_1.3": 0.04045622079606381,
+      "default_stress_1.5": 0.042232265192837036
+    },
+    {
+      "approval": 0.1147,
+      "default": 0.03260636495728593,
+      "contracted": 2929.9050108240435,
+      "take_up": 0.425734526420233,
+      "cutoff": 853,
+      "default_true": 0.03329998866725587,
+      "default_stress_1.3": 0.034401667399686094,
+      "default_stress_1.5": 0.035598535694619536
+    },
+    {
+      "approval": 0.09628333333333333,
+      "default": 0.02617434849253354,
+      "contracted": 2426.8047321850577,
+      "take_up": 0.4200804452458123,
+      "cutoff": 876,
+      "default_true": 0.027685731144835805,
+      "default_stress_1.3": 0.027227589324465232,
+      "default_stress_1.5": 0.027929749879086363
+    },
+    {
+      "approval": 0.07761666666666667,
+      "default": 0.020325164032331013,
+      "contracted": 1925.967191468445,
+      "take_up": 0.4135639234417962,
+      "cutoff": 898,
+      "default_true": 0.022999926281783628,
+      "default_stress_1.3": 0.020970906977358535,
+      "default_stress_1.5": 0.021401402274043545
+    },
+    {
+      "approval": 0.05906666666666667,
+      "default": 0.012684793207916854,
+      "contracted": 1451.5786053146535,
+      "take_up": 0.4095876425831415,
+      "cutoff": 920,
+      "default_true": 0.014759396491887187,
+      "default_stress_1.3": 0.012976814823889854,
+      "default_stress_1.5": 0.013171495901205185
+    },
+    {
+      "approval": 0.0401,
+      "default": 0.009356952297046802,
+      "contracted": 1004.8555097886559,
+      "take_up": 0.41764568154141973,
+      "cutoff": 941,
+      "default_true": 0.009480420871343122,
+      "default_stress_1.3": 0.009477084515041524,
+      "default_stress_1.5": 0.00955717266037134
+    }
+  ],
+  "three_policies": [
+    {
+      "approval": 0.19923333333333335,
+      "default": 0.05681189286702411,
+      "contracted": 5573.690669823678,
+      "take_up": 0.46626155845940087,
+      "cutoff": 736,
+      "default_true": 0.06436493361211852,
+      "default_stress_1.3": 0.06443620818693596,
+      "default_stress_1.5": 0.0695190850668772,
+      "name": "iso_approval",
+      "default_sim": 0.05681189286702411
+    },
+    {
+      "approval": 0.24863333333333335,
+      "default": 0.07405470060186668,
+      "contracted": 7247.751275884284,
+      "take_up": 0.48583934011826546,
+      "cutoff": 661,
+      "default_true": 0.08619785077360045,
+      "default_stress_1.3": 0.08704066157777492,
+      "default_stress_1.5": 0.09569796889504707,
+      "name": "iso_default",
+      "default_sim": 0.07405470060186668
+    },
+    {
+      "approval": 0.21566666666666667,
+      "default": 0.06333119342648622,
+      "contracted": 6131.83976073277,
+      "take_up": 0.4738670603348354,
+      "cutoff": 710,
+      "default_true": 0.07159695457592659,
+      "default_stress_1.3": 0.07279018473209473,
+      "default_stress_1.5": 0.07909617893583372,
+      "name": "balanced",
+      "default_sim": 0.06333119342648622
+    }
+  ],
+  "champion_iso_approval": {
+    "approval": 0.19923333333333335,
+    "default": 0.05681189286702411,
+    "contracted": 5573.690669823678,
+    "take_up": 0.46626155845940087,
+    "cutoff": 736,
+    "default_sim": 0.05681189286702411,
+    "default_true": 0.06436493361211852,
+    "default_stress_1.3": 0.06443620818693596,
+    "default_stress_1.5": 0.0695190850668772,
+    "legacy_contract": {
+      "approval_post_take_up": 0.0928948444970613,
+      "default_unweighted": 0.060722311020492956
+    },
+    "quadrants": {
+      "keep_in": {
+        "n": 8301,
+        "vol": 3715.0,
+        "sim": 0.047106325706594884,
+        "true": 0.04603052745456184,
+        "actual": 0.047106325706594884
+      },
+      "keep_out": {
+        "n": 44019,
+        "vol": 0.0
+      },
+      "swap_in": {
+        "n": 3653,
+        "vol": 1858.6906698236783,
+        "sim": 0.07621059249272084,
+        "true": 0.10101025603243521
+      },
+      "swap_out": {
+        "n": 4027,
+        "vol": 0.0,
+        "actual": 0.1277445109780439
+      }
+    },
+    "default_stress_1.5_measured": 0.0695190850668772,
+    "swap_in_pd_stress_1.5_measured": 0.11431588873908123
+  },
+  "swap_in_calibration": {
+    "swap_in_pd_true": 0.10101025603243521,
+    "swap_in_pd_stress_1.0": 0.07621059249272084,
+    "swap_in_pd_stress_1.3": 0.09907377024053705,
+    "swap_in_pd_stress_1.5": 0.11431588873908123,
+    "swap_in_pd_imputed": 0.07621059249272084,
+    "swap_in_pd_imputed_naive": 0.08130120460132001
+  },
+  "regional_cutoffs": {
+    "target_default": 0.07536282566882323,
+    "general": {
+      "approval": 0.24863333333333335,
+      "default": 0.07405470060186668,
+      "contracted": 7247.751275884284,
+      "take_up": 0.48583934011826546,
+      "cutoff": 661,
+      "default_true": 0.08619785077360045,
+      "default_stress_1.3": 0.08704066157777492,
+      "default_stress_1.5": 0.09569796889504707,
+      "name": "general",
+      "default_sim": 0.07405470060186668
+    },
+    "regions": [
+      {
+        "region": "Centro-Oeste",
+        "applicants": 5970,
+        "cutoff": 752,
+        "approval": 0.18107202680067003,
+        "default": 0.060127537752310355,
+        "contracted": 490.648056177673
+      },
+      {
+        "region": "Nordeste",
+        "applicants": 10812,
+        "cutoff": 735,
+        "approval": 0.18451720310765815,
+        "default": 0.07027938688750382,
+        "contracted": 960.7741923547246
+      },
+      {
+        "region": "Norte",
+        "applicants": 4125,
+        "cutoff": 676,
+        "approval": 0.21648484848484847,
+        "default": 0.07491212730928538,
+        "contracted": 421.45305932629213
+      },
+      {
+        "region": "Sudeste",
+        "applicants": 26989,
+        "cutoff": 643,
+        "approval": 0.2634777131423913,
+        "default": 0.07059091711282213,
+        "contracted": 3477.42240505781
+      },
+      {
+        "region": "Sul",
+        "applicants": 12104,
+        "cutoff": 575,
+        "approval": 0.31411103767349635,
+        "default": 0.07504906771865105,
+        "contracted": 1853.8412021647428
+      }
+    ],
+    "segmented_total": {
+      "approval": 0.24803333333333333,
+      "default": 0.07123676023797115,
+      "contracted": 7204.138915081242
+    }
+  },
+  "optimizer_check": {
+    "cutoff": 688,
+    "optimizer_metrics": {
+      "overall_approval_rate": 0.23,
+      "overall_default_rate": 0.07400060951809079,
+      "tradeoff_score": -0.14000304759045393,
+      "constraints_met": 1.0
+    },
+    "resimulated": {
+      "approval": 0.23056666666666667,
+      "default": 0.06688331404033093,
+      "contracted": 6633.225215278224,
+      "take_up": 0.4794871487117409,
+      "default_true": 0.07804738782855336
+    }
+  },
+  "rating": {
+    "n_groups": 5,
+    "rows": [
+      {
+        "grade": "A",
+        "period": "Train",
+        "pd": 0.013781223083548665,
+        "volume": 1161.0
+      },
+      {
+        "grade": "B",
+        "period": "Train",
+        "pd": 0.05249343832020997,
+        "volume": 762.0
+      },
+      {
+        "grade": "C",
+        "period": "Train",
+        "pd": 0.078125,
+        "volume": 960.0
+      },
+      {
+        "grade": "D",
+        "period": "Train",
+        "pd": 0.12403100775193798,
+        "volume": 387.0
+      },
+      {
+        "grade": "E",
+        "period": "Train",
+        "pd": 0.1757469244288225,
+        "volume": 569.0
+      },
+      {
+        "grade": "A",
+        "period": "OOT",
+        "pd": 0.023853211009174313,
+        "volume": 545.0
+      },
+      {
+        "grade": "B",
+        "period": "OOT",
+        "pd": 0.08069164265129683,
+        "volume": 347.0
+      },
+      {
+        "grade": "C",
+        "period": "OOT",
+        "pd": 0.07824427480916031,
+        "volume": 524.0
+      },
+      {
+        "grade": "D",
+        "period": "OOT",
+        "pd": 0.11229946524064172,
+        "volume": 187.0
+      },
+      {
+        "grade": "E",
+        "period": "OOT",
+        "pd": 0.17689530685920576,
+        "volume": 277.0
+      }
+    ]
+  },
+  "notes": [
+    "[UserWarning] 'actual_default' is observed for 9.5% of the base; every lift is measured among the contracted, a population the incumbent policy already selected. See the measurement caveat in suggest_hard_filters' docstring.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 10% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 6% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 7% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 1 adjacent score bin(s) invert — PD moves against the score's declared direction, so lowering a gate can read as reducing default rate. Reduce CreditPolicy(calibration_bins=...), or calibrate by rating via calibration_score_col.",
+    "[UserWarning] Swap-in PD imputation is using the default of 10 score bins (deciles). Pass CreditPolicy(calibration_bins=...) to set a different granularity.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 11% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 25% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 21% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 16% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 5% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 2 adjacent score bin(s) invert — PD moves against the score's declared direction, so lowering a gate can read as reducing default rate. Reduce CreditPolicy(calibration_bins=...), or calibrate by rating via calibration_score_col.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 24% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 20% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 12% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 8% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 39% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 36% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 34% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 30% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 26% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 22% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 18% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 17% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 13% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 9% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 19% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 14% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD."
+  ]
+}
