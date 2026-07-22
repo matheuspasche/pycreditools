@@ -24,6 +24,12 @@ import numpy as np
 import pandas as pd
 
 SEED = 7
+# Runtime guard: every blended default reported by this harness must be immune to
+# no-outcome keep-ins (#95). Both metric chokepoints (``kpis``, ``stressed_default``)
+# self-check against an independent masked recompute and RAISE on any drift, so a
+# re-diluted formula can never silently write a JSON. Tests may flip this off to
+# assert the guard itself fires. See ``_assert_undiluted``.
+VALIDATE_INVARIANTS = True
 LEGACY_QUANTILE = 0.78
 STRESS_FACTORS = [1.0, 1.3, 1.5]
 # Fixed challenger hard-filter set (the one the v0.5 suggester picks), so both
@@ -44,17 +50,65 @@ def hf_mask(df: pd.DataFrame) -> pd.Series:
     return m
 
 
+def _wmean(values: pd.Series, weights: pd.Series) -> float:
+    """Weighted mean over rows with a KNOWN outcome only (matches #97 / #93).
+
+    A keep-in that was approved-but-never-contracted carries ``simulated_default``
+    = NaN while its contracted weight ``new_approval`` is 1.0 (scalar-rate bypass,
+    #94). ``.sum()`` silently drops the NaN from the numerator but the full weight
+    stays in the denominator, deflating every inadimplência rate. So we mask to
+    ``notna`` first: such rows leave BOTH numerator and denominator. Keep-ins are
+    still classified by the approval DECISION — they just carry no default
+    parameter. Mirrors ``ladder/ladder_common.py::_wmean`` (#93 / commit 06172ab)
+    and the engine fix in #97.
+    """
+    m = values.notna()
+    v, w = values[m], weights[m]
+    tot = float(w.sum())
+    return float((v * w).sum() / tot) if tot else float("nan")
+
+
+def _assert_undiluted(default: float, sd: pd.Series, weights: pd.Series, ctx: str) -> float:
+    """Guard: ``default`` must be blended over the outcome-known book only (#95).
+
+    Recomputes the masked weighted mean INLINE — deliberately not via ``_wmean`` —
+    so it catches both a re-diluted callsite AND a broken ``_wmean``. Raises if the
+    reported figure drifts from the independent oracle, so no diluted default can
+    reach a written JSON. Drop-invariance framing: the answer must not change when
+    the no-outcome rows are removed, which is exactly this equality.
+    """
+    if not VALIDATE_INVARIANTS:
+        return default
+    m = sd.notna().to_numpy()
+    w = weights.to_numpy()[m]
+    tot = float(w.sum())
+    ref = float((sd.to_numpy()[m] * w).sum() / tot) if tot else float("nan")
+    ok = (np.isnan(default) and np.isnan(ref)) or abs(default - ref) <= 1e-12
+    if not ok:
+        raise AssertionError(f"diluted blended default at {ctx}: {default!r} != masked oracle {ref!r}")
+    return default
+
+
 def kpis(sim_data: pd.DataFrame) -> dict:
     """ADR 0008 metric contract, read straight off the funnel columns."""
     d = sim_data
     n = len(d)
     approved = float(d["approved_pre_rate"].sum())
     contracted = float(d["new_approval"].sum())
-    weighted_default = float((d["simulated_default"] * d["new_approval"]).sum())
+    # Observed contracted volume: the weight that matches the masked ``default``
+    # rate (no-outcome keep-ins excluded). Same mask for stressed/unstressed —
+    # stress only scales non-NaN swap-in rows — so this is the correct weight for
+    # re-blending regional/segment defaults without re-diluting (#95).
+    contracted_observed = float(d.loc[d["simulated_default"].notna(), "new_approval"].sum())
+    default = _assert_undiluted(
+        _wmean(d["simulated_default"], d["new_approval"]),
+        d["simulated_default"], d["new_approval"], "kpis",
+    )
     return {
         "approval": approved / n,
-        "default": weighted_default / contracted if contracted else float("nan"),
+        "default": default,
         "contracted": contracted,
+        "contracted_observed": contracted_observed,
         "take_up": contracted / approved if approved else float("nan"),
     }
 
@@ -82,8 +136,7 @@ def stressed_default(sim_data: pd.DataFrame, factor: float) -> float:
     sd = d["simulated_default"].copy()
     swap_in = d["scenario"] == "swap_in"
     sd.loc[swap_in] = (sd.loc[swap_in] * factor).clip(0.0, 1.0)
-    contracted = float(d["new_approval"].sum())
-    return float((sd * d["new_approval"]).sum()) / contracted if contracted else float("nan")
+    return _assert_undiluted(_wmean(sd, d["new_approval"]), sd, d["new_approval"], f"stressed_default({factor})")
 
 
 def true_default(sim_data: pd.DataFrame) -> float:
@@ -103,7 +156,9 @@ def quadrant_table(sim_data: pd.DataFrame, actual_default_col: str = "actual_def
         vol = float(grp["new_approval"].sum())
         row = {"n": int(len(grp)), "vol": vol}
         if vol:
-            row["sim"] = float((grp["simulated_default"] * grp["new_approval"]).sum()) / vol
+            # sim: masked to the observed book — no-outcome keep-ins carry NaN and
+            # must leave both numerator and denominator (#97).
+            row["sim"] = _wmean(grp["simulated_default"], grp["new_approval"])
             if "true_pd" in grp.columns:
                 row["true"] = float((grp["true_pd"] * grp["new_approval"]).sum()) / vol
         actual = grp[actual_default_col]
@@ -293,7 +348,7 @@ def measure(
         else policy_row("general", int(fr.loc[(fr["default"] - target).abs().idxmin(), "cutoff"]))
     )
     regions = []
-    seg_approved = seg_contracted = seg_weighted_def = 0.0
+    seg_approved = seg_contracted = seg_contracted_obs = seg_weighted_def = 0.0
     for region, sub in base.groupby("region"):
         sub = sub.reset_index(drop=True)
         reg_cutoffs = sorted({int(round(q)) for q in sub["score_5"].quantile(CUTOFF_QUANTILES)})
@@ -323,14 +378,17 @@ def measure(
         )
         seg_approved += k["approval"] * len(sub)
         seg_contracted += k["contracted"]
-        seg_weighted_def += k["default"] * k["contracted"]
+        # Blend defaults on the OBSERVED weight so no-outcome keep-ins don't
+        # re-dilute the aggregate (#95); report contracted as full volume.
+        seg_contracted_obs += k["contracted_observed"]
+        seg_weighted_def += k["default"] * k["contracted_observed"]
     result["regional_cutoffs"] = {
         "target_default": target,
         "general": general_row,
         "regions": regions,
         "segmented_total": {
             "approval": seg_approved / n,
-            "default": seg_weighted_def / seg_contracted if seg_contracted else float("nan"),
+            "default": seg_weighted_def / seg_contracted_obs if seg_contracted_obs else float("nan"),
             "contracted": seg_contracted,
         },
     }
