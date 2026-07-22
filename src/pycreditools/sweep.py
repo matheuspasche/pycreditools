@@ -15,7 +15,8 @@ Contract:
   inherits that stage's direction unless ``directions`` overrides it).
 - **Metrics follow ADR 0008** (docs/adr/0008-metric-contract-approval-take-up-default.md):
   ``overall_approval_rate`` is the pre-take-up approval rate over the whole
-  base; ``overall_default_rate`` is weighted by the *contracted* population.
+  base; ``overall_default_rate`` is weighted by the *contracted-and-observed*
+  population -- no-outcome rows leave the denominator too (#97).
 - **Fast path vs re-simulation is a performance boundary, never a semantic
   one.** When only cutoffs vary, the baseline (config minus the swept cutoff
   entries) is simulated once and each grid point is a vectorised mask -- valid
@@ -85,7 +86,10 @@ def _metrics(
     """ADR 0008 metrics over a simulated frame, optionally under a cutoff mask.
 
     overall_approval_rate = approved_pre_rate.sum() / N        (pre take-up)
-    overall_default_rate  = weighted by the contracted population (new_approval)
+    overall_default_rate  = (default * new_approval).sum()
+                            / new_approval[outcome_known].sum()
+    No-outcome rows (default NaN) leave BOTH sides of the weighting -- counting
+    their contracted weight in the denominator alone deflates the rate (#97).
     """
     n = len(sim_df)
     if n == 0:

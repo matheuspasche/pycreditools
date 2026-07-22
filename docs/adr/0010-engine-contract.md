@@ -37,6 +37,27 @@ Note for anyone auditing the change: that branch was **already a no-op** — the
 0/1 column *is* the fraction of positives. This decision mostly declares what was already
 true. `== 1` continues to match `1.0`.
 
+#### The default rate weights by `new_approval`, over contracted-**and-observed** rows
+
+`new_approval` is the contract weight. The blended default is
+`(default × new_approval).sum() / new_approval[contracted_and_observed].sum()` — **not**
+`… / new_approval.sum()`. A row that was approved but never became a contract with a
+recorded outcome (the canonical case: an approved-but-never-paid keep-in, `actual_default`
+NaN) contributes 0 to the numerator and **must not** sit in the denominator, or the rate is
+deflated. This shipped as a bug (**#97**, sibling of #95) precisely because the denominator
+was the naive `new_approval.sum()`. See ADR 0008's amended default-rate bullet.
+
+> ⚠️ **Do not "restore" `new_approval.sum()` as the denominator, and do not add a naive
+> `notna()` as the *definition* of contract.** The engine currently detects
+> contracted-and-observed via `simulated_default.notna()`, which is only a **proxy** that
+> happens to hold for the three marking scenarios below. Under **external 0/1 marking**
+> (scenario 2/3) every row carries an outcome, so nullness no longer separates contracts
+> from non-contracts — swap-ins must be **drawn against the take-up rate** and only
+> contracts feed the default. The robust form encodes contract status in `new_approval`
+> itself (approved-but-never-paid keep-in → weight `0`), making the denominator plain
+> `new_approval.sum()` with no NaN test. Tracked as a design refactor (**#101**); the proxy
+> is correct for all shipped simulation paths today.
+
 ### Column roles are one object in the engine
 
 Roles become a single input-schema object owned by the engine. `CreditPolicy` = that
