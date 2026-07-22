@@ -55,8 +55,11 @@ precondition for #56.
 approval_rate     = approved_pre_rate.sum() / N                    # approved ÷ total
 take_up_rate      = new_approval.sum() / approved_pre_rate.sum()   # contracted ÷ approved
 contracted_volume = new_approval.sum()                             # a count, not a rate
-default_rate      = (simulated_default * new_approval).sum() / new_approval.sum()
+default_rate      = (simulated_default * new_approval).sum() / new_approval[outcome_known].sum()
 ```
+
+where `outcome_known` marks rows that effectively became a contract and carry a
+recorded outcome (see the default-rate bullet below).
 
 - **Approval rate is always pre-take-up.** It measures the underwriting rule.
 - **Take-up rate is a conversion**, denominated in *approved* — not in total
@@ -65,7 +68,23 @@ default_rate      = (simulated_default * new_approval).sum() / new_approval.sum(
   this ADR closes. The name `take_up_rate` matches `studio`'s existing
   `suggested_take_up_rate` (`hired / approved`), which already computes exactly this.
 - **Default rate is always over the contracted population.** You cannot default on a
-  loan you never took.
+  loan you never took. The denominator is therefore `new_approval` summed **only over
+  rows that became a contract and carry a recorded outcome** — not the full
+  `new_approval.sum()`. Approved-but-never-contracted keep-ins (`actual_default` NaN)
+  contribute 0 to the numerator (NaN × weight drops) and must be dropped from the
+  denominator too, else the rate is deflated (**amended by #97**, sibling of #95; the
+  original `new_approval.sum()` form shipped a dilution bug). The numerator already
+  excludes them via NaN, so the fix restores commensurability, not new behaviour for
+  the fully-observed case.
+  - **Implementation note / future work.** Today the engine detects contract-and-observed
+    by `simulated_default.notna()` (keep-in non-contract ⇔ no marking; swap-in always
+    carries an imputed outcome and is weighted by the rate). This is a *proxy*, not the
+    definition. Under **external marking** (inferred market default present for every
+    row) the user may want to keep the observed take-up rate, so swap-ins must be **drawn
+    against the rate** and only contracts feed the default — a null check would then be
+    wrong. The robust form encodes contract status in the weight (`new_approval`), making
+    the denominator plain `new_approval.sum()` with no NaN test. Tracked as a design
+    refactor; the current proxy is correct for all shipped simulation paths.
 - `delta_table` and `summarize_results` are the reference implementations.
   `summarize_results` already ships `Approved` and `Hired` side by side — that is the
   precedent this vocabulary generalises.
@@ -98,7 +117,12 @@ default_rate      = (simulated_default * new_approval).sum() / new_approval.sum(
   contracted. **No misleading delta is ever shown**, even where a hired column happens
   to exist.
 
-- **`delta_table`, `summarize_results`** — no change; audited as conforming.
+- **`delta_table`, `summarize_results`** — the Approved/Hired columns were audited as
+  conforming and are unchanged. Their analytical default-rate denominator was **amended
+  by #97** to drop no-outcome rows (as above); the console printers
+  (`print_delta_table`, `print_quadrant_summary`, `print_rating_quadrant_table`) carried
+  the same dilution and were corrected. `print_swap_in_by_rating` is swap-in-only
+  (always observed) and needed no change.
 
 ## Consequences
 
