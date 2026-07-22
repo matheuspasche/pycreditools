@@ -1,0 +1,6 @@
+shared_base.parquet
+shared_base.xlsx
+__pycache__/
+# Raw study data is LOCAL only (regenerable via run_all). The verdict lives in
+# README.md; git does not carry the bulk JSON dumps.
+results/
