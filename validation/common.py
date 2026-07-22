@@ -122,7 +122,17 @@ def _simulate(policy, base):
     return sim.data, msgs
 
 
-def measure(adapter, base: pd.DataFrame, mode: str, seed: int, out_path: str) -> dict:
+def measure(
+    adapter,
+    base: pd.DataFrame,
+    mode: str,
+    seed: int,
+    out_path: str,
+    frontier_steps: int | None = None,
+) -> dict:
+    global CUTOFF_QUANTILES
+    if frontier_steps:
+        CUTOFF_QUANTILES = np.linspace(0.30, 0.95, frontier_steps)
     notes: list[str] = []
 
     def note(msgs):
@@ -461,6 +471,8 @@ def run_cli(adapter, generate_fn):
     p.add_argument("--seed", type=int, default=SEED)
     p.add_argument("--frame", default=None, help="parquet path (mode B)")
     p.add_argument("--out", required=True)
+    p.add_argument("--frontier-steps", type=int, default=None,
+                   help="override the 27-point cutoff grid (finer frontier)")
     args = p.parse_args()
 
     if args.mode == "A":
@@ -470,7 +482,8 @@ def run_cli(adapter, generate_fn):
             p.error("--frame is required in mode B")
         base = pd.read_parquet(args.frame)
 
-    res = measure(adapter, base, args.mode, args.seed, args.out)
+    res = measure(adapter, base, args.mode, args.seed, args.out,
+                  frontier_steps=args.frontier_steps)
     print(
         f"{adapter.name} mode {args.mode} n={len(base)}: "
         f"incumbent approval {res['incumbent']['approval']:.3f} "
