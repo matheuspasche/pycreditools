@@ -106,7 +106,14 @@ def _metrics(
         nas = np.isnan(pd_base)
         if nas.any():
             pd_base = np.where(nas, actual_defaults, pd_base)
+    # No recorded outcome (e.g. approved-but-never-hired keep-in): the row must
+    # leave BOTH sides of the default weighting, not just the numerator. Zeroing
+    # only pd_base would keep its contracted weight in the denominator and
+    # deflate the blended rate (issue #97, sibling of #95). Mask the weight so
+    # such rows drop out entirely; the approval-rate weight (p_pre) is untouched.
+    outcome_known = ~np.isnan(pd_base)
     pd_base = np.nan_to_num(pd_base, nan=0.0)
+    contracted_w = contracted_w * outcome_known
 
     if mask is not None:
         p_pre = p_pre * mask
