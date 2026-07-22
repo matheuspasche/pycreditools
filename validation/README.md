@@ -23,6 +23,10 @@ Regra de ouro respeitada: **toda métrica reportada sai de `policy.simulate(...)
 nenhum número vem do fast-path de sweep (a `optimize_cutoffs` da v0.5 usa `run_sweep`
 internamente, por isso os scripts localizam cortes com a própria grade de `.simulate()`).
 
+**Protocolo de condições iguais**: `calibration_bins=5` nas DUAS engines (o knob existe nas
+duas) e **stress ×1,5 sempre** — toda inad manchete de challenger é a estressada ×1,5, com
+as variantes sem stress / ×1,3 / oráculo mantidas como diagnóstico.
+
 ## Veredito, por diferença
 
 Números a seed=7, n=60.000, modo A (≡ modo B). Nenhum diff ficou “inexplicado”.
@@ -35,11 +39,11 @@ Números a seed=7, n=60.000, modo A (≡ modo B). Nenhum diff ficou “inexplica
 | KS nos aprovados-HF (score_5 = 0,3333) | **Idêntico** | `ModelEvaluator.compute_ks` igual nas duas branches. |
 | Seleção de hard filters | **Esperada, neutralizada** | O sugestor da v0.5 (PR #73), deixado livre, escolhe exatamente `vl_negativacao<=0 & vl_vencido_scr<=0 & vl_protestos<=0` — o mesmo conjunto do README. Fixado nos dois lados. |
 | Volume contratado do challenger (5.526 vs 5.574; swap-in 1.811 vs 1.859) | **Esperada, documentada** | Idioma de take-up: coluna de propensão (`main`) × `observed_col="hired"` + `calibrate_by="score"` (v0.5, RateStage genérico #68 / ADR 0008). Efeito ~+2,6% no volume de swap-in. |
-| PD imputado do swap-in (8,16% main vs 7,62% v0.5) | **Esperada, documentada — é O driver** | Com a mesma calibração (decis default), as engines quase coincidem (8,16% vs 8,13%; resíduo = pesos de take-up); e setando `calibration_bins=5` na main também (o parâmetro **existe nas duas engines**), os imputados voltam a colar (7,60% vs 7,62%). O deslocamento é *escolha de fluxo*: a masterclass seta bins=5 (resposta ao warning do PR #72); o README/main fica nos decis default. |
-| “Modelo melhor sem ganho” | **Artefato do stress ×1,5 — confirmado** | PD real do swap-in (oráculo): 10,1%. Imputado cru subestima (~×0,78); **markup honesto ≈ ×1,3** (9,9–10,6% cerca o real); **×1,5 superestima** (11,4–12,2%). Na mesma aprovação, o challenger entrega inad real 6,4% vs 7,5% do incumbente (−1,1 p.p., nas duas engines); com ×1,5 o ganho quase desaparece (6,95–7,18%). O stress ×1,5 também foi **medido** via `policy.stress(1.5)` real em cada engine — coincide com a derivação analítica (`clip(pd × fator)` nos dois lados). |
+| PD imputado do swap-in | **Fechada sob condições iguais** | Mesmo knob → mesma resposta: bins=5 dá 7,60% (main) vs 7,62% (v0.5); decis default dá 8,16% vs 8,13%. Resíduo de ~0,03 p.p. = pesos de take-up. A divergência original era *escolha de fluxo* (masterclass seta bins=5, resposta ao warning do PR #72; README ficava nos decis), não capacidade de engine. |
+| “Modelo melhor sem ganho” | **Artefato do stress ×1,5 — confirmado, e quantificado sob o protocolo** | PD real do swap-in (oráculo): 10,1%. Imputado cru (bins=5) 7,6% subestima ~25%; **markup honesto ≈ ×1,3** (9,9% ≈ real); **×1,5 superestima** (11,4%). Sob o protocolo ×1,5 fixado nos dois lados: manchete 6,90% (main) vs 6,95% (v0.5) contra 7,54% do incumbente — **ainda sobra −0,6 p.p. de ganho**, idêntico nas duas engines; contra o oráculo o ganho é −1,1 p.p. (o ×1,5 come metade). Stress também **medido** via `policy.stress(1.5)` real — coincide com a derivação (`clip(pd × fator)` nos dois lados). |
 | Funil completo (antifraude taxa fixa + conversão por score): contratado da main cai menos que ×0,90 | **Esperada, mas semântica frágil na main** | Nos keep-ins, a main dá bypass (probs=1,0) a qualquer rate stage “não-conversão”, com detecção por **nome/posição** do estágio (`stages.py`: nome em `{conversao, conversion, hired, take_up, take_up_rate}`, `calibrate=True`, ou último RateStage); antifraude fixo nunca toca o livro histórico. A v0.5 é declarativa: `observed_col` presente → keep-in usa o valor observado (~0,90); ausente → 1,0. Aprovação pré-rate intacta e gradiente de conversão decrescente no score nas **duas** engines; probe de ordem invertida deu invariante nos dois lados (na main por coincidência aritmética: `hired` é 0/1). |
-| `optimize_cutoffs` alega ≠ `.simulate()` entrega | **Achado operacional — fast-path das duas erra, em direções opostas** | Deixando cada engine usar seu próprio otimizador (mesmo alvo 7,54%): a **main** alega inad 6,8% no corte 625, mas re-simulado dá **8,5%** — fura o alvo em ~1 p.p. (otimista/inseguro). A **v0.5** alega 7,4% no corte 688 e re-simulado dá **6,7%** — conservadora (a inflação de swap-in do sweep já flagrada na issue). Confirma a regra de ouro: fast-path localiza, `.simulate()` reporta. |
-| Cutoff iso-inad (686 main vs 661 v0.5) e cutoffs regionais (ex.: Sul 680 vs 575) | **Downstream do driver, não é bug** | A v0.5 imputa PD menor no swap-in → “acha” que cabe descer mais o corte pro mesmo orçamento de risco. Critério e grade idênticos nos dois lados. |
+| `optimize_cutoffs` alega ≠ `.simulate()` entrega | **Achado operacional — a ÚNICA etapa que condições iguais não fecham** | Mesma config (bins=5 + stress ×1,5) nos dois otimizadores, mesmo alvo 7,54%: a **main** alega 7,2% no corte 688, re-simulado estressado dá **8,5%** — fura o alvo em ~1 p.p. (otimista/inseguro). A **v0.5** alega 7,2% no corte 751, re-simulado dá **6,3%** — conservadora (inflação de swap-in do sweep, já flagrada na issue). Diferença de código do fast-path, não de configuração. Regra de ouro: fast-path localiza, `.simulate()` reporta. |
+| Cutoffs (iso-inad, regionais) | **Fecharam sob condições iguais** | Com bins=5 + ×1,5 nos dois lados: as três políticas colapsam pro mesmo corte 736 nas duas engines, e os cortes regionais saem **idênticos** nas 5 regiões (752/785/732/694/680). A divergência das rodadas anteriores era 100% premissa de calibração/stress. Sob ×1,5, o challenger compra redução de risco na mesma aprovação, não expansão. |
 | Rating A–E (Train 1,4%→17,6%; OOT estável) | **Idêntico** | `fit_risk_groups` igual nas duas branches. |
 | “5,80% de PD estressado” regional do README | **Não reproduzível — diferença de setup** | Alvo escolhido à mão com outra premissa de stress; nenhum fluxo canônico chega nele. Não é evidência contra nenhuma engine. |
 | Sensibilidade a n=20.000 | **Veredito estável** | Ganho real do challenger persiste (6,9% vs 7,1% do incumbente), margem menor. Nenhuma conclusão muda com o tamanho. |
@@ -54,9 +58,10 @@ v0.5 ainda te avisa quando a calibração é extrapolação (`CalibrationReliabi
 capturado nos `notes` dos JSONs), o que a `main` não faz. Para decisão de corte, os números
 do README calibrados pelo otimizador da main devem ser tratados como otimistas.
 
-Uma lição operacional que vale para as duas engines: **localizar cortes pela inad simulada
-crua é otimista** — a política “iso-inad” escolhida assim entrega inad real acima do alvo
-(main 7,9%, v0.5 8,6%, alvo 7,54%). Localize cortes com markup ~×1,3 sobre o imputado.
+Lição operacional que vale para as duas engines: **em condições iguais, tudo que é política
+cola** (cortes, aprovação, inad manchete) — o que sobra é o idioma de take-up (~0,05 p.p.)
+e o fast-path do otimizador. Localize cortes com `.simulate()` + markup (×1,3 honesto contra
+o oráculo; ×1,5 é o conservadorismo declarado do protocolo), nunca pelo otimizador cru.
 
 **Conclusão para o merge:** nenhum bug encontrado; todas as divergências são esperadas e
 documentadas (ADR 0008, PR #68, PR #72, PR #73). O desencontro que motivou a issue era

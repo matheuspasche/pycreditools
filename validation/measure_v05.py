@@ -85,8 +85,9 @@ class V05Adapter:
         }
 
     def extra_swap_in_facts(self, base, challenger_fn, iso_cut, note):
-        """v0.5-only: swap-in PD with the naive (un-binned) calibration, to show
-        how much of the gap is the PR #72 binning alone (root cause #4)."""
+        """Counterfactual: swap-in PD with the decile-default calibration
+        (no calibration_bins), mirroring main's counterfactual — quantifies
+        what the bins=5 choice moves (root cause #4)."""
         naive = self.take_up(
             CreditPolicy(
                 applicant_id_col="applicant_id",
@@ -102,8 +103,8 @@ class V05Adapter:
         si = sim_data[sim_data["scenario"] == "swap_in"]
         w = si["new_approval"]
         if not float(w.sum()):
-            return {"swap_in_pd_imputed_naive": float("nan")}
-        return {"swap_in_pd_imputed_naive": float((si["simulated_default"] * w).sum() / w.sum())}
+            return {"swap_in_pd_imputed_deciles": float("nan")}
+        return {"swap_in_pd_imputed_deciles": float((si["simulated_default"] * w).sum() / w.sum())}
 
     def optimizer_check(self, base, target_default, note):
         """The engine's own optimize_cutoffs, called the way the masterclass
@@ -111,7 +112,7 @@ class V05Adapter:
         common.measure re-reports the metrics via .simulate()."""
         config = self.take_up(
             self.new_policy(calibrated=True).filter("Hard filters", self.hf_filter())
-        )
+        ).stress(1.5)  # equal-conditions protocol: stress x1.5 always
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             opt = pct.optimize_cutoffs(

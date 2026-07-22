@@ -93,9 +93,10 @@
   "frontier": [
     {
       "approval": 0.4518,
-      "default": 0.10470196678234657,
+      "default": 0.14801874316275881,
       "contracted": 14057.680972853981,
       "take_up": 0.5185805287315177,
+      "default_nostress": 0.10470196678234657,
       "cutoff": 294,
       "default_true": 0.19357149134761362,
       "default_stress_1.3": 0.1306920326105939,
@@ -103,9 +104,10 @@
     },
     {
       "approval": 0.43866666666666665,
-      "default": 0.10387951115927002,
+      "default": 0.14649293357701282,
       "contracted": 13617.356124369133,
       "take_up": 0.5173767524456357,
+      "default_nostress": 0.10387951115927002,
       "cutoff": 319,
       "default_true": 0.1849057025651014,
       "default_stress_1.3": 0.12944756460991572,
@@ -113,9 +115,10 @@
     },
     {
       "approval": 0.4257166666666667,
-      "default": 0.10301474070210005,
+      "default": 0.14488862202998476,
       "contracted": 13183.17794255095,
       "take_up": 0.5161170552617528,
+      "default_nostress": 0.10301474070210005,
       "cutoff": 345,
       "default_true": 0.17698498254966105,
       "default_stress_1.3": 0.1281390694988309,
@@ -123,9 +126,10 @@
     },
     {
       "approval": 0.41201666666666664,
-      "default": 0.1014543055439058,
+      "default": 0.14223915753030952,
       "contracted": 12723.413094066102,
       "take_up": 0.5146803565416489,
+      "default_nostress": 0.1014543055439058,
       "cutoff": 371,
       "default_true": 0.16848822642959646,
       "default_stress_1.3": 0.12592521673574802,
@@ -133,9 +137,10 @@
     },
     {
       "approval": 0.39808333333333334,
-      "default": 0.10039354017247147,
+      "default": 0.14026905943168508,
       "contracted": 12256.266427399436,
       "take_up": 0.5131365470964805,
+      "default_nostress": 0.10039354017247147,
       "cutoff": 397,
       "default_true": 0.15982364967889956,
       "default_stress_1.3": 0.12431885172799963,
@@ -143,9 +148,10 @@
     },
     {
       "approval": 0.3847,
-      "default": 0.09937770236092343,
+      "default": 0.13835267788415498,
       "contracted": 11807.118548611557,
       "take_up": 0.5115292673343539,
+      "default_nostress": 0.09937770236092343,
       "cutoff": 422,
       "default_true": 0.15275733735241837,
       "default_stress_1.3": 0.12276268767486236,
@@ -153,9 +159,10 @@
     },
     {
       "approval": 0.37033333333333335,
-      "default": 0.09818218257451115,
+      "default": 0.13610384920340274,
       "contracted": 11325.560972853982,
       "take_up": 0.5097012138998191,
+      "default_nostress": 0.09818218257451115,
       "cutoff": 449,
       "default_true": 0.14499987671138004,
       "default_stress_1.3": 0.12093518255184611,
@@ -163,9 +170,10 @@
     },
     {
       "approval": 0.3555,
-      "default": 0.09618929628765992,
+      "default": 0.13264653429567283,
       "contracted": 10827.151275884284,
       "take_up": 0.5076020288740873,
+      "default_nostress": 0.09618929628765992,
       "cutoff": 476,
       "default_true": 0.13668076685888061,
       "default_stress_1.3": 0.11806363909246768,
@@ -173,9 +181,10 @@
     },
     {
       "approval": 0.34175,
-      "default": 0.0946160725530443,
+      "default": 0.12981691626689876,
       "contracted": 10365.739154672163,
       "take_up": 0.5055225142488253,
+      "default_nostress": 0.0946160725530443,
       "cutoff": 502,
       "default_true": 0.12977632934379188,
       "default_stress_1.3": 0.11573657878135699,
@@ -183,9 +192,10 @@
     },
     {
       "approval": 0.32615,
-      "default": 0.09196893407655701,
+      "default": 0.1253529140823402,
       "contracted": 9840.889457702466,
       "take_up": 0.5028815707344507,
+      "default_nostress": 0.09196893407655701,
       "cutoff": 529,
       "default_true": 0.12226672188865426,
       "default_stress_1.3": 0.11199932208002691,
@@ -193,9 +203,10 @@
     },
     {
       "approval": 0.3112333333333333,
-      "default": 0.08848578448125032,
+      "default": 0.11966856431823265,
       "contracted": 9341.420366793376,
       "take_up": 0.5002367123697856,
+      "default_nostress": 0.08848578448125032,
       "cutoff": 555,
       "default_true": 0.11481930626352038,
       "default_stress_1.3": 0.10719545238343972,
@@ -203,9 +214,10 @@
     },
     {
       "approval": 0.29595,
-      "default": 0.08488116575001857,
+      "default": 0.11372933156203037,
       "contracted": 8828.451881944891,
       "take_up": 0.49718149923663296,
+      "default_nostress": 0.08488116575001857,
       "cutoff": 582,
       "default_true": 0.1079683527658979,
       "default_stress_1.3": 0.10219006523722565,
@@ -213,9 +225,10 @@
     },
     {
       "approval": 0.28058333333333335,
-      "default": 0.08168315233602783,
+      "default": 0.10827344782934802,
       "contracted": 8315.042184975195,
       "take_up": 0.4939139997015263,
+      "default_nostress": 0.08168315233602783,
       "cutoff": 609,
       "default_true": 0.10092851072412022,
       "default_stress_1.3": 0.09763732963201992,
@@ -223,9 +236,10 @@
     },
     {
       "approval": 0.26485,
-      "default": 0.0782213462114029,
+      "default": 0.10250618535546233,
       "contracted": 7790.455518308527,
       "take_up": 0.4902432520488658,
+      "default_nostress": 0.0782213462114029,
       "cutoff": 635,
       "default_true": 0.09423048449967499,
       "default_stress_1.3": 0.09279224969783857,
@@ -233,9 +247,10 @@
     },
     {
       "approval": 0.24863333333333335,
-      "default": 0.07405470060186668,
+      "default": 0.09569796889504707,
       "contracted": 7247.751275884284,
       "take_up": 0.48583934011826546,
+      "default_nostress": 0.07405470060186668,
       "cutoff": 661,
       "default_true": 0.08619785077360045,
       "default_stress_1.3": 0.08704066157777492,
@@ -243,9 +258,10 @@
     },
     {
       "approval": 0.23233333333333334,
-      "default": 0.06718145497234577,
+      "default": 0.08538672529780045,
       "contracted": 6694.633700126709,
       "take_up": 0.4802463199517008,
+      "default_nostress": 0.06718145497234577,
       "cutoff": 686,
       "default_true": 0.07875572070836362,
       "default_stress_1.3": 0.07810461716761855,
@@ -253,9 +269,10 @@
     },
     {
       "approval": 0.21566666666666667,
-      "default": 0.06333119342648622,
+      "default": 0.07909617893583372,
       "contracted": 6131.83976073277,
       "take_up": 0.4738670603348354,
+      "default_nostress": 0.06333119342648622,
       "cutoff": 710,
       "default_true": 0.07159695457592659,
       "default_stress_1.3": 0.07279018473209473,
@@ -263,9 +280,10 @@
     },
     {
       "approval": 0.19923333333333335,
-      "default": 0.05681189286702411,
+      "default": 0.0695190850668772,
       "contracted": 5573.690669823678,
       "take_up": 0.46626155845940087,
+      "default_nostress": 0.05681189286702411,
       "cutoff": 736,
       "default_true": 0.06436493361211852,
       "default_stress_1.3": 0.06443620818693596,
@@ -273,9 +291,10 @@
     },
     {
       "approval": 0.18263333333333334,
-      "default": 0.05095445283231501,
+      "default": 0.06091159284160879,
       "contracted": 5025.745215278223,
       "take_up": 0.45863708845393536,
+      "default_nostress": 0.05095445283231501,
       "cutoff": 760,
       "default_true": 0.057959696050403596,
       "default_stress_1.3": 0.05692873683789128,
@@ -283,9 +302,10 @@
     },
     {
       "approval": 0.16536666666666666,
-      "default": 0.04453121822350312,
+      "default": 0.051749413905778203,
       "contracted": 4452.592488005496,
       "take_up": 0.44875957347364404,
+      "default_nostress": 0.04453121822350312,
       "cutoff": 785,
       "default_true": 0.05017988167157158,
       "default_stress_1.3": 0.04886213563286817,
@@ -293,9 +313,10 @@
     },
     {
       "approval": 0.14938333333333334,
-      "default": 0.04237259169011579,
+      "default": 0.048484695522757415,
       "contracted": 3947.1435650409107,
       "take_up": 0.44038196642205857,
+      "default_nostress": 0.04237259169011579,
       "cutoff": 808,
       "default_true": 0.04477633670675354,
       "default_stress_1.3": 0.046039853989700764,
@@ -303,9 +324,10 @@
     },
     {
       "approval": 0.13173333333333334,
-      "default": 0.03779215420090397,
+      "default": 0.042232265192837036,
       "contracted": 3424.191757811995,
       "take_up": 0.43322264142358236,
+      "default_nostress": 0.03779215420090397,
       "cutoff": 832,
       "default_true": 0.03852049395402139,
       "default_stress_1.3": 0.04045622079606381,
@@ -313,9 +335,10 @@
     },
     {
       "approval": 0.1147,
-      "default": 0.03260636495728593,
+      "default": 0.035598535694619536,
       "contracted": 2929.9050108240435,
       "take_up": 0.425734526420233,
+      "default_nostress": 0.03260636495728593,
       "cutoff": 853,
       "default_true": 0.03329998866725587,
       "default_stress_1.3": 0.034401667399686094,
@@ -323,9 +346,10 @@
     },
     {
       "approval": 0.09628333333333333,
-      "default": 0.02617434849253354,
+      "default": 0.027929749879086363,
       "contracted": 2426.8047321850577,
       "take_up": 0.4200804452458123,
+      "default_nostress": 0.02617434849253354,
       "cutoff": 876,
       "default_true": 0.027685731144835805,
       "default_stress_1.3": 0.027227589324465232,
@@ -333,9 +357,10 @@
     },
     {
       "approval": 0.07761666666666667,
-      "default": 0.020325164032331013,
+      "default": 0.021401402274043545,
       "contracted": 1925.967191468445,
       "take_up": 0.4135639234417962,
+      "default_nostress": 0.020325164032331013,
       "cutoff": 898,
       "default_true": 0.022999926281783628,
       "default_stress_1.3": 0.020970906977358535,
@@ -343,9 +368,10 @@
     },
     {
       "approval": 0.05906666666666667,
-      "default": 0.012684793207916854,
+      "default": 0.013171495901205185,
       "contracted": 1451.5786053146535,
       "take_up": 0.4095876425831415,
+      "default_nostress": 0.012684793207916854,
       "cutoff": 920,
       "default_true": 0.014759396491887187,
       "default_stress_1.3": 0.012976814823889854,
@@ -353,9 +379,10 @@
     },
     {
       "approval": 0.0401,
-      "default": 0.009356952297046802,
+      "default": 0.00955717266037134,
       "contracted": 1004.8555097886559,
       "take_up": 0.41764568154141973,
+      "default_nostress": 0.009356952297046802,
       "cutoff": 941,
       "default_true": 0.009480420871343122,
       "default_stress_1.3": 0.009477084515041524,
@@ -365,51 +392,55 @@
   "three_policies": [
     {
       "approval": 0.19923333333333335,
-      "default": 0.05681189286702411,
+      "default": 0.0695190850668772,
       "contracted": 5573.690669823678,
       "take_up": 0.46626155845940087,
+      "default_nostress": 0.05681189286702411,
       "cutoff": 736,
       "default_true": 0.06436493361211852,
       "default_stress_1.3": 0.06443620818693596,
       "default_stress_1.5": 0.0695190850668772,
       "name": "iso_approval",
-      "default_sim": 0.05681189286702411
+      "default_sim": 0.0695190850668772
     },
     {
-      "approval": 0.24863333333333335,
-      "default": 0.07405470060186668,
-      "contracted": 7247.751275884284,
-      "take_up": 0.48583934011826546,
-      "cutoff": 661,
-      "default_true": 0.08619785077360045,
-      "default_stress_1.3": 0.08704066157777492,
-      "default_stress_1.5": 0.09569796889504707,
+      "approval": 0.19923333333333335,
+      "default": 0.0695190850668772,
+      "contracted": 5573.690669823678,
+      "take_up": 0.46626155845940087,
+      "default_nostress": 0.05681189286702411,
+      "cutoff": 736,
+      "default_true": 0.06436493361211852,
+      "default_stress_1.3": 0.06443620818693596,
+      "default_stress_1.5": 0.0695190850668772,
       "name": "iso_default",
-      "default_sim": 0.07405470060186668
+      "default_sim": 0.0695190850668772
     },
     {
-      "approval": 0.21566666666666667,
-      "default": 0.06333119342648622,
-      "contracted": 6131.83976073277,
-      "take_up": 0.4738670603348354,
-      "cutoff": 710,
-      "default_true": 0.07159695457592659,
-      "default_stress_1.3": 0.07279018473209473,
-      "default_stress_1.5": 0.07909617893583372,
+      "approval": 0.19923333333333335,
+      "default": 0.0695190850668772,
+      "contracted": 5573.690669823678,
+      "take_up": 0.46626155845940087,
+      "default_nostress": 0.05681189286702411,
+      "cutoff": 736,
+      "default_true": 0.06436493361211852,
+      "default_stress_1.3": 0.06443620818693596,
+      "default_stress_1.5": 0.0695190850668772,
       "name": "balanced",
-      "default_sim": 0.06333119342648622
+      "default_sim": 0.0695190850668772
     }
   ],
   "champion_iso_approval": {
     "approval": 0.19923333333333335,
-    "default": 0.05681189286702411,
+    "default": 0.0695190850668772,
     "contracted": 5573.690669823678,
     "take_up": 0.46626155845940087,
     "cutoff": 736,
-    "default_sim": 0.05681189286702411,
+    "default_nostress": 0.05681189286702411,
     "default_true": 0.06436493361211852,
     "default_stress_1.3": 0.06443620818693596,
     "default_stress_1.5": 0.0695190850668772,
+    "default_sim": 0.0695190850668772,
     "legacy_contract": {
       "approval_post_take_up": 0.0928948444970613,
       "default_unweighted": 0.060722311020492956
@@ -447,21 +478,22 @@
     "swap_in_pd_stress_1.3": 0.09907377024053705,
     "swap_in_pd_stress_1.5": 0.11431588873908123,
     "swap_in_pd_imputed": 0.07621059249272084,
-    "swap_in_pd_imputed_naive": 0.08130120460132001
+    "swap_in_pd_imputed_deciles": 0.08130120460132001
   },
   "regional_cutoffs": {
     "target_default": 0.07536282566882323,
     "general": {
-      "approval": 0.24863333333333335,
-      "default": 0.07405470060186668,
-      "contracted": 7247.751275884284,
-      "take_up": 0.48583934011826546,
-      "cutoff": 661,
-      "default_true": 0.08619785077360045,
-      "default_stress_1.3": 0.08704066157777492,
-      "default_stress_1.5": 0.09569796889504707,
+      "approval": 0.19923333333333335,
+      "default": 0.0695190850668772,
+      "contracted": 5573.690669823678,
+      "take_up": 0.46626155845940087,
+      "default_nostress": 0.05681189286702411,
+      "cutoff": 736,
+      "default_true": 0.06436493361211852,
+      "default_stress_1.3": 0.06443620818693596,
+      "default_stress_1.5": 0.0695190850668772,
       "name": "general",
-      "default_sim": 0.07405470060186668
+      "default_sim": 0.0695190850668772
     },
     "regions": [
       {
@@ -469,53 +501,54 @@
         "applicants": 5970,
         "cutoff": 752,
         "approval": 0.18107202680067003,
-        "default": 0.060127537752310355,
+        "default": 0.07388634037154622,
         "contracted": 490.648056177673
       },
       {
         "region": "Nordeste",
         "applicants": 10812,
-        "cutoff": 735,
-        "approval": 0.18451720310765815,
-        "default": 0.07027938688750382,
-        "contracted": 960.7741923547246
+        "cutoff": 785,
+        "approval": 0.1499260081391047,
+        "default": 0.06269619936074007,
+        "contracted": 757.3633012656157
       },
       {
         "region": "Norte",
         "applicants": 4125,
-        "cutoff": 676,
-        "approval": 0.21648484848484847,
-        "default": 0.07491212730928538,
-        "contracted": 421.45305932629213
+        "cutoff": 732,
+        "approval": 0.184,
+        "default": 0.07396222680579972,
+        "contracted": 348.3001930842539
       },
       {
         "region": "Sudeste",
         "applicants": 26989,
-        "cutoff": 643,
-        "approval": 0.2634777131423913,
-        "default": 0.07059091711282213,
-        "contracted": 3477.42240505781
+        "cutoff": 694,
+        "approval": 0.23076068027714994,
+        "default": 0.07396644410971615,
+        "contracted": 2977.221356106761
       },
       {
         "region": "Sul",
         "applicants": 12104,
-        "cutoff": 575,
-        "approval": 0.31411103767349635,
-        "default": 0.07504906771865105,
-        "contracted": 1853.8412021647428
+        "cutoff": 680,
+        "approval": 0.25,
+        "default": 0.07258871593025462,
+        "contracted": 1433.0345107149287
       }
     ],
     "segmented_total": {
-      "approval": 0.24803333333333333,
-      "default": 0.07123676023797115,
-      "contracted": 7204.138915081242
+      "approval": 0.21191666666666667,
+      "default": 0.07220990452648793,
+      "contracted": 6006.5674173492325
     }
   },
   "full_funnel": {
     "approval": 0.19923333333333335,
-    "default": 0.057017016181501054,
+    "default": 0.06969474147847599,
     "contracted": 4990.277551597854,
     "take_up": 0.41745671336773077,
+    "default_nostress": 0.057017016181501054,
     "cutoff": 736,
     "default_true": 0.06501565119269587,
     "quadrants": {
@@ -551,30 +584,31 @@
     },
     "reference_single_stage": {
       "approval": 0.19923333333333335,
-      "default": 0.05681189286702411,
+      "default": 0.0695190850668772,
       "contracted": 5573.690669823678
     },
     "reversed_order": {
       "approval": 0.19923333333333335,
-      "default": 0.057017016181501054,
+      "default": 0.06969474147847599,
       "contracted": 4990.277551597854
     },
     "order_invariant": true
   },
   "optimizer_check": {
-    "cutoff": 688,
+    "cutoff": 751,
     "optimizer_metrics": {
-      "overall_approval_rate": 0.23,
-      "overall_default_rate": 0.07400060951809079,
-      "tradeoff_score": -0.14000304759045393,
+      "overall_approval_rate": 0.18866666666666668,
+      "overall_default_rate": 0.07237310986152391,
+      "tradeoff_score": -0.17319888264095287,
       "constraints_met": 1.0
     },
     "resimulated": {
-      "approval": 0.23056666666666667,
-      "default": 0.06688331404033093,
-      "contracted": 6633.225215278224,
-      "take_up": 0.4794871487117409,
-      "default_true": 0.07804738782855336
+      "approval": 0.18923333333333334,
+      "default": 0.0624714487916148,
+      "contracted": 5236.176730429739,
+      "take_up": 0.4611746283626686,
+      "default_nostress": 0.051896840953957295,
+      "default_true": 0.06024409974147681
     }
   },
   "rating": {

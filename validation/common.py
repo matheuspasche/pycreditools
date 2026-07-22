@@ -179,6 +179,12 @@ def measure(adapter, base: pd.DataFrame, mode: str, seed: int, out_path: str) ->
             .cutoff("Challenger cutoff", {"score_5": float(cutoff)}, direction="gte")
         )
 
+    # Equal-conditions protocol: calibration_bins=5 on BOTH engines (the knob
+    # exists on both) and stress x1.5 ALWAYS — headline "default" below is the
+    # stress-1.5 figure, exactly what the masterclass policy would report.
+    # The simulation runs unstressed and the x1.5 blend is derived, which was
+    # verified to match policy.stress(1.5)'s real code path on both engines
+    # (see default_stress_1.5_measured).
     cutoffs = sorted({int(round(q)) for q in base["score_5"].quantile(CUTOFF_QUANTILES)})
     frontier = []
     sims_by_cutoff = {}
@@ -186,10 +192,12 @@ def measure(adapter, base: pd.DataFrame, mode: str, seed: int, out_path: str) ->
         sim_data, msgs = _simulate(challenger(cut), base)
         note(msgs)
         row = kpis(sim_data)
+        row["default_nostress"] = row["default"]
         row["cutoff"] = cut
         row["default_true"] = true_default(sim_data)
         for f in STRESS_FACTORS[1:]:
             row[f"default_stress_{f}"] = stressed_default(sim_data, f)
+        row["default"] = row["default_stress_1.5"]
         frontier.append(row)
         sims_by_cutoff[cut] = sim_data
     result["frontier"] = frontier
@@ -226,10 +234,12 @@ def measure(adapter, base: pd.DataFrame, mode: str, seed: int, out_path: str) ->
     champ_data = sims_by_cutoff[iso_appr_cut]
     champ = kpis(champ_data)
     champ["cutoff"] = iso_appr_cut
-    champ["default_sim"] = champ["default"]  # issue-schema alias
+    champ["default_nostress"] = champ["default"]
     champ["default_true"] = true_default(champ_data)
     for f in STRESS_FACTORS[1:]:
         champ[f"default_stress_{f}"] = stressed_default(champ_data, f)
+    champ["default"] = champ["default_stress_1.5"]
+    champ["default_sim"] = champ["default"]  # issue-schema alias
     champ["legacy_contract"] = kpis_legacy_contract(champ_data)
     champ["quadrants"] = quadrant_table(champ_data)
 
@@ -278,17 +288,17 @@ def measure(adapter, base: pd.DataFrame, mode: str, seed: int, out_path: str) ->
         sub = sub.reset_index(drop=True)
         reg_cutoffs = sorted({int(round(q)) for q in sub["score_5"].quantile(CUTOFF_QUANTILES)})
         best = None
+        rows = []
         for cut in reg_cutoffs:
             sim_data, msgs = _simulate(challenger(cut), sub)
             note(msgs)
             k = kpis(sim_data)
+            k["default_nostress"] = k["default"]
+            k["default"] = stressed_default(sim_data, 1.5)  # stress x1.5 always
+            rows.append((cut, k))
             if k["default"] <= target and (best is None or k["approval"] > best[1]["approval"]):
                 best = (cut, k)
-        if best is None:  # no cutoff meets target: take lowest default
-            rows = []
-            for cut in reg_cutoffs:
-                sim_data, _ = _simulate(challenger(cut), sub)
-                rows.append((cut, kpis(sim_data)))
+        if best is None:  # no cutoff meets target: take lowest stressed default
             best = min(rows, key=lambda r: r[1]["default"])
         cut, k = best
         regions.append(
@@ -329,6 +339,8 @@ def measure(adapter, base: pd.DataFrame, mode: str, seed: int, out_path: str) ->
     full_data, msgs = _simulate(full, base)
     note(msgs)
     ff = kpis(full_data)
+    ff["default_nostress"] = ff["default"]
+    ff["default"] = stressed_default(full_data, 1.5)  # stress x1.5 always
     ff["cutoff"] = iso_appr_cut
     ff["default_true"] = true_default(full_data)
     ff["quadrants"] = quadrant_table(full_data)
@@ -366,6 +378,7 @@ def measure(adapter, base: pd.DataFrame, mode: str, seed: int, out_path: str) ->
     rev_data, msgs = _simulate(rev, base)
     note(msgs)
     rev_k = kpis(rev_data)
+    rev_k["default"] = stressed_default(rev_data, 1.5)  # same contract as ff
     ff["reversed_order"] = {
         "approval": rev_k["approval"],
         "default": rev_k["default"],
@@ -387,6 +400,8 @@ def measure(adapter, base: pd.DataFrame, mode: str, seed: int, out_path: str) ->
             sim_data, msgs = _simulate(challenger(opt["cutoff"]), base)
             note(msgs)
             opt["resimulated"] = kpis(sim_data)
+            opt["resimulated"]["default_nostress"] = opt["resimulated"]["default"]
+            opt["resimulated"]["default"] = stressed_default(sim_data, 1.5)
             opt["resimulated"]["default_true"] = true_default(sim_data)
         result["optimizer_check"] = opt
     except Exception as exc:

@@ -18,15 +18,17 @@ class MainAdapter:
     name = "main"
 
     def new_policy(self, calibrated: bool = False) -> CreditPolicy:
-        # main DOES have the calibration_bins knob, but the published
-        # main/README flow never sets it (decile default). `calibrated` is
-        # accepted and deliberately ignored to reproduce that flow; the
-        # bins=5 counterfactual is measured in extra_swap_in_facts instead.
+        # Equal-conditions protocol: the calibration_bins knob exists on BOTH
+        # branches, so the challenger runs with bins=5 on both. The decile
+        # default (the published main/README flow) is kept as a counterfactual
+        # in extra_swap_in_facts.
+        kwargs = {"calibration_bins": 5} if calibrated else {}
         return CreditPolicy(
             applicant_id_col="applicant_id",
             score_cols=("score_5",),
             current_approval_col="approved",
             actual_default_col="actual_default",
+            **kwargs,
         )
 
     def take_up(self, policy: CreditPolicy) -> CreditPolicy:
@@ -58,33 +60,34 @@ class MainAdapter:
         return None  # no suggester on main; fixed HF set used instead.
 
     def extra_swap_in_facts(self, base, challenger_fn, iso_cut, note):
-        """Counterfactual: main with calibration_bins=5 (same knob v0.5's
-        masterclass sets), so the bins effect is measured on BOTH engines."""
-        binned = self.take_up(
+        """Counterfactual: main with the DECILE default (the published
+        main/README flow), since the equal-conditions run uses bins=5."""
+        deciles = self.take_up(
             CreditPolicy(
                 applicant_id_col="applicant_id",
                 score_cols=("score_5",),
                 current_approval_col="approved",
                 actual_default_col="actual_default",
-                calibration_bins=5,
             )
             .filter("Hard filters", self.hf_filter())
             .cutoff("Challenger cutoff", {"score_5": float(iso_cut)}, direction="gte")
         )
-        sim_data, msgs = common._simulate(binned, base)
+        sim_data, msgs = common._simulate(deciles, base)
         note(msgs)
         si = sim_data[sim_data["scenario"] == "swap_in"]
         w = si["new_approval"]
         if not float(w.sum()):
-            return {"swap_in_pd_imputed_bins5": float("nan")}
-        return {"swap_in_pd_imputed_bins5": float((si["simulated_default"] * w).sum() / w.sum())}
+            return {"swap_in_pd_imputed_deciles": float("nan")}
+        return {"swap_in_pd_imputed_deciles": float((si["simulated_default"] * w).sum() / w.sum())}
 
     def optimizer_check(self, base, target_default, note):
         """main's own optimize_cutoffs (no directions= parameter on this
         branch). Localization only — metrics re-reported via .simulate()."""
         import warnings
 
-        config = self.take_up(self.new_policy().filter("Hard filters", self.hf_filter()))
+        config = self.take_up(
+            self.new_policy(calibrated=True).filter("Hard filters", self.hf_filter())
+        ).stress(1.5)  # equal-conditions protocol: stress x1.5 always
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             opt = pct.optimize_cutoffs(
