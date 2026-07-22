@@ -76,6 +76,12 @@ invariantes medidos, o SHA da base e os **warnings capturados** (nunca suprimido
   (`keep_bin_pd` é a fonte não-ponderada que o motor imputa; o swap-in do bin é esse PD ×
   fator). Sem stress = 1,0; no L4/L5 = 1,5, cravado.
 
+> **Exato, não amostral.** No modo `analytical` o `simulated_default` do swap-in **é** o PD
+> imputado (`keep_bin_pd × fator`), valor esperado determinístico — não um desfecho sorteado.
+> Logo a razão dá o fator **exato** em qualquer `n`, sem ruído amostral. As duas engines
+> passam os dois checks (60k e 1,5M); o divergente é só o re-gate do keep-in (#94), ortogonal.
+> Esse contrato virou teste de pacote: `tests/test_stress_imputation_contract.py`.
+
 ## Resultado (60k; o relatório final usa 1,5M)
 
 | degrau | + componente | veredito main × v0.5 |
