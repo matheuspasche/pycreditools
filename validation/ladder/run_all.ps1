@@ -30,7 +30,7 @@ foreach ($wt in @($wtMain, $wtV05)) {
     $py = Join-Path $wt ".venv\Scripts\python.exe"
     if (-not (Test-Path $py)) {
         python -m venv (Join-Path $wt ".venv")
-        & $py -m pip install -q -e $wt pyarrow openpyxl
+        & $py -m pip install -q -e $wt pyarrow openpyxl nbformat
     }
 }
 $pyMain = Join-Path $wtMain ".venv\Scripts\python.exe"
@@ -52,6 +52,11 @@ foreach ($size in $Sizes) {
     # 5. Render the committed summary (raw JSONL stays local/gitignored).
     & $pyV05  build_summary.py --tag $size
 }
+
+# 6. Regenerate the local notebooks from their committed generators (the .ipynb
+#    themselves are gitignored — git carries the generator, not the JSON).
+& $pyV05 _build_notebook.py
+& $pyV05 _build_decomp_notebook.py
 
 Write-Host "done. JSONs in validation/ladder/results; open ladder_report.ipynb."
 # Cleanup (optional): git worktree remove wt-main wt-v05 when finished.

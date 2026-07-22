@@ -21,7 +21,7 @@ for wt in "$wtMain" "$wtV05"; do
   py="$wt/.venv/bin/python"
   if [ ! -x "$py" ]; then
     python -m venv "$wt/.venv"
-    "$py" -m pip install -q -e "$wt" pyarrow openpyxl
+    "$py" -m pip install -q -e "$wt" pyarrow openpyxl nbformat
   fi
 done
 pyMain="$wtMain/.venv/bin/python"
@@ -40,5 +40,9 @@ for size in ${sizes[@]}; do
   "$pyV05"  run_ladder_v05.py  --frame "$frame" --manifest "$manifest" --tag "$size"
   "$pyV05"  build_summary.py --tag "$size"
 done
+
+# Regenerate the local notebooks from their committed generators (.ipynb gitignored).
+"$pyV05" _build_notebook.py
+"$pyV05" _build_decomp_notebook.py
 
 echo "done. JSONs in validation/ladder/results; open ladder_report.ipynb."

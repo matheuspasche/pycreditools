@@ -7,3 +7,6 @@ _executed_check.ipynb
 # and the *_manifest.json (small: SHA-256 + take-up curve). Everything else in
 # results/ is regenerable via run_all.
 results/
+# Notebooks are generated locally from their committed _build_*.py generators
+# (run_all rebuilds them). Git carries the generator, not the bulky .ipynb JSON.
+*.ipynb
