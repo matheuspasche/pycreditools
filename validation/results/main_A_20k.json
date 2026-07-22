@@ -498,6 +498,56 @@
       "contracted": 3155.83
     }
   },
+  "full_funnel": {
+    "approval": 0.20135,
+    "default": 0.0531533208525039,
+    "contracted": 1825.813,
+    "take_up": 0.4533928482741495,
+    "cutoff": 734,
+    "default_true": 0.06825863897004456,
+    "quadrants": {
+      "keep_in": {
+        "n": 2784,
+        "vol": 1270.0,
+        "sim": 0.04173228346456693,
+        "true": 0.05192693665232522,
+        "actual": 0.04173228346456693
+      },
+      "keep_out": {
+        "n": 14667,
+        "vol": 0.0
+      },
+      "swap_in": {
+        "n": 1243,
+        "vol": 555.813,
+        "sim": 0.07924971925031027,
+        "true": 0.10557561778037028
+      },
+      "swap_out": {
+        "n": 1306,
+        "vol": 0.0,
+        "actual": 0.132569558101473
+      }
+    },
+    "take_up_by_score_quintile": {
+      "q1": 0.4700960591133006,
+      "q2": 0.47478535980148884,
+      "q3": 0.47400373134328366,
+      "q4": 0.4001417910447761,
+      "q5": 0.4476966292134832
+    },
+    "reference_single_stage": {
+      "approval": 0.20135,
+      "default": 0.054007135691610975,
+      "contracted": 1887.57
+    },
+    "reversed_order": {
+      "approval": 0.20135,
+      "default": 0.0531533208525039,
+      "contracted": 1825.813
+    },
+    "order_invariant": true
+  },
   "optimizer_check": {
     "cutoff": 627,
     "optimizer_metrics": {

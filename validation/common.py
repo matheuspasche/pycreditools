@@ -315,6 +315,68 @@ def measure(adapter, base: pd.DataFrame, mode: str, seed: int, out_path: str) ->
         },
     }
 
+    # ── Full funnel stress: two rate stages ─────────────────────────────
+    # Anti-fraud (FLAT rate, risk-independent) + take-up (score-discriminating:
+    # the worse the score, the higher the conversion). Exercises stacked
+    # RateStages: approval (pre-rate) must not move, blended default must stay
+    # ~invariant under the flat stage, contracted volume must scale by it.
+    full = adapter.antifraud(
+        adapter.new_policy(calibrated=True)
+        .filter("Hard filters", adapter.hf_filter())
+        .cutoff("Challenger cutoff", {"score_5": float(iso_appr_cut)}, direction="gte")
+    )
+    full = adapter.take_up(full)
+    full_data, msgs = _simulate(full, base)
+    note(msgs)
+    ff = kpis(full_data)
+    ff["cutoff"] = iso_appr_cut
+    ff["default_true"] = true_default(full_data)
+    ff["quadrants"] = quadrant_table(full_data)
+    # Conversion gradient: contracted-weighted take-up by score_5 quintile of
+    # the approved population — proves the stage discriminates by score.
+    appr = full_data[full_data["approved_pre_rate"] > 0].copy()
+    appr["score_q"] = pd.qcut(appr["score_5"], q=5, labels=False, duplicates="drop")
+    grad = (
+        appr.groupby("score_q")
+        .apply(
+            lambda g: float(g["new_approval"].sum()) / float(g["approved_pre_rate"].sum()),
+            include_groups=False,
+        )
+        .to_dict()
+    )
+    ff["take_up_by_score_quintile"] = {f"q{int(k)+1}": float(v) for k, v in grad.items()}
+    ff["reference_single_stage"] = {
+        "approval": champ["approval"],
+        "default": champ["default"],
+        "contracted": champ["contracted"],
+    }
+
+    # Order-sensitivity probe: same two rate stages, reversed (take-up BEFORE
+    # anti-fraud). Mathematically a product of the same per-row rates, so a
+    # sane engine must return identical numbers. main's RateStage detects the
+    # "conversion stage" partly by name/position (last RateStage wins), so a
+    # reorder can silently reassign the keep-in bypass.
+    rev = adapter.antifraud(
+        adapter.take_up(
+            adapter.new_policy(calibrated=True)
+            .filter("Hard filters", adapter.hf_filter())
+            .cutoff("Challenger cutoff", {"score_5": float(iso_appr_cut)}, direction="gte")
+        )
+    )
+    rev_data, msgs = _simulate(rev, base)
+    note(msgs)
+    rev_k = kpis(rev_data)
+    ff["reversed_order"] = {
+        "approval": rev_k["approval"],
+        "default": rev_k["default"],
+        "contracted": rev_k["contracted"],
+    }
+    ff["order_invariant"] = bool(
+        abs(rev_k["contracted"] - ff["contracted"]) < 1e-6
+        and abs(rev_k["default"] - ff["default"]) < 1e-9
+    )
+    result["full_funnel"] = ff
+
     # Engine's own optimize_cutoffs, as the masterclass would call it (root
     # cause #6). Cutoff LOCALIZED by the optimizer, metrics RE-REPORTED via
     # .simulate() at that cutoff, honouring the golden rule (the v0.5

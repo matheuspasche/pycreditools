@@ -33,6 +33,11 @@ class MainAdapter:
         # main idiom: propensity column as a rate multiplier (README flow).
         return policy.rate("Take-up", base_rate=1.0, variable="conversion_rate")
 
+    def antifraud(self, policy: CreditPolicy) -> CreditPolicy:
+        # main idiom: flat pass rate (the generator's passed_antifraud is
+        # Bernoulli(0.90), risk-independent — 0.90 is its expected rate).
+        return policy.rate("Anti-fraud", base_rate=0.90)
+
     def entry_filter(self):
         return (col("age") >= 18) & (col("vl_negativacao") <= 5000)
 

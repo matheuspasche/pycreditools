@@ -39,6 +39,11 @@ class V05Adapter:
         # v0.5 idiom: observed outcome column, calibrated by score (ADR 0008).
         return policy.rate("Take-up", base_rate=1.0, observed_col="hired", calibrate_by="score")
 
+    def antifraud(self, policy: CreditPolicy) -> CreditPolicy:
+        # v0.5 idiom: observed 0/1 column, calibrate_by=None -> flat observed
+        # rate (~0.90), risk-independent (masterclass full-funnel cell).
+        return policy.rate("Anti-fraud", base_rate=1.0, observed_col="passed_antifraud", calibrate_by=None)
+
     def entry_filter(self):
         return (col("age") >= 18) & (col("vl_negativacao") <= 5000)
 
