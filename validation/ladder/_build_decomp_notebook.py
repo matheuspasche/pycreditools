@@ -82,10 +82,14 @@ c.append(nbf.v4.new_code_cell(
 
 c.append(nbf.v4.new_markdown_cell(
     "## Leitura\n\n"
-    "O **Efeito B domina por ordem de grandeza** (~13× o A no 1,5M). Modelar a "
-    "conversão **reduz** a participação do swap-in de alto risco na carteira nova — o "
-    "keep-in (bom, com bypass) dilui, e o blended cai, **antes de qualquer stress**. "
-    "O efeito-mix (A, seleção adversa) existe mas é ruído perto disso.\n\n"
+    "O **Efeito B domina o A** (várias vezes maior). Modelar a conversão **reduz** a "
+    "participação do swap-in de alto risco na carteira nova — o keep-in (com bypass) "
+    "dilui, e o blended cai, **antes de qualquer stress**. O efeito-mix (A, seleção "
+    "adversa) existe mas é pequeno perto disso.\n\n"
+    "> **Base observada, não decisão.** `keep_in_vol` aqui é o keep-in **contratado** "
+    "(com desfecho) — os aprovados-não-pagos ficam de fora de toda conta de inad "
+    "(seguem keep-in por decisão, mas sem `actual_default` não entram em denominador). "
+    "Por isso o swap-in pesa mais na carteira observada do que a intuição sugere.\n\n"
     "**Consequência pro estudo de 'modelo melhor sem ganho':** sem o stage de "
     "conversão a carteira nova fica ~metade swap-in de alto risco e o ganho some; com "
     "ele, o swap-in dilui e o ganho aparece — sem invocar oráculo. A alavanca do "

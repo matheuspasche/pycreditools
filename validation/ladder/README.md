@@ -77,6 +77,17 @@ Booleanos/ids/contadores: **exato**. Floats: `1e-9` (aritmética direta) ou `1e-
 (imputação com calibração). Cada JSON de degrau serializa a config completa, os
 invariantes medidos, o SHA da base e os **warnings capturados** (nunca suprimidos).
 
+### Convenção de inad: só sobre contratado (nunca sobre a decisão)
+
+Keep-in é classificado pela **decisão** (aprovado) — um aprovado-mas-nunca-contratado
+segue keep-in. Mas ele **não tem desfecho** (`actual_default` = NaN). Nenhum parâmetro de
+inad pode ser calculado sobre ele: sai de **numerador e denominador** (senão o livro não-pago
+deflaciona toda taxa). Por isso a tabela traz dois volumes — `keep_in_vol` (contratado, com
+desfecho, base de toda inad) e `keep_in_vol_decision` (todos os keep-in, só transparência). O
+`_wmean` mascara NaN; o `blended` e o `keep_in_inad` são taxas condicionais ao desfecho
+observado. (Efeito colateral real: metade do keep-in é não-pago, então o swap-in é maioria da
+carteira **observada**.)
+
 ### Dois sanity checks embutidos (pedido do dono)
 
 - **Carteira = SOMARPRODUTO.** `Σ(inad_célula × volume_célula) / Σvolume` sobre keep-in +
@@ -105,12 +116,12 @@ invariantes medidos, o SHA da base e os **warnings capturados** (nunca suprimido
 ### Diff mínimo do L2 (culpado isolado)
 
 `approval` pré-rate **idêntica** (0,34175) e **quadrantes idênticos** — o funil não mexeu.
-`swap_in_vol` idêntico (antifraude 0,90 aplicado ao swap-in nos dois). Só `keep_in_vol`
-diverge:
+`swap_in_vol` idêntico (antifraude 0,90 aplicado ao swap-in nos dois). Só o volume keep-in
+contratado (`keep_in_vol_decision`, todos os keep-in ponderados por `new_approval`) diverge:
 
-- **v0.5**: `keep_in_vol` = população keep-in inteira (9.137) → **bypass declarativo**:
+- **v0.5**: keep-in contratado = população keep-in inteira (9.137) → **bypass declarativo**:
   rate escalar sem `observed_col` ⇒ keep-in recebe 1,0.
-- **main**: `keep_in_vol` = 4.196 → **aplica a taxa** ao keep-in (heurística de nome/posição
+- **main**: keep-in contratado = 4.196 → **aplica a taxa** ao keep-in (heurística de nome/posição
   do RateStage não reconhece "Anti-fraud" como estágio-conversão de bypass).
 
 Componente culpado: o rate escalar no keep-in. Semântica divergente por **código**, não por

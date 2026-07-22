@@ -10,7 +10,7 @@
   "measured": {
     "step": "L5",
     "adds": "+ regional segmentation",
-    "target_default": 0.14681799754402447,
+    "target_default": 0.14681799754402453,
     "region_cutoffs": {
       "Centro-Oeste": 289,
       "Nordeste": 268,
@@ -48,7 +48,7 @@
         "applicants": 26989,
         "cutoff": 303,
         "approval": 0.4490718440846271,
-        "default": 0.1656764966053254,
+        "default": 0.16567649660532544,
         "contracted": 6018.505094287935
       },
       {
@@ -61,7 +61,7 @@
       }
     ],
     "segmented_approval": 0.4521,
-    "segmented_default": 0.1704698619027007,
+    "segmented_default": 0.17046986190270072,
     "segmented_contracted": 13496.831794700844
   },
   "warnings": [],

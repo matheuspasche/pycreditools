@@ -117,8 +117,17 @@ def _simulate(policy, base):
 
 
 def _wmean(values: pd.Series, weights: pd.Series) -> float:
-    w = float(weights.sum())
-    return float((values * weights).sum() / w) if w else float("nan")
+    """Weighted mean over rows with a KNOWN outcome only.
+
+    Keep-ins are classified by the approval DECISION, so a keep-in that was
+    approved-but-never-contracted (``actual_default`` is NaN) stays a keep-in —
+    but it carries no default outcome. No inadimplência parameter may be computed
+    over it: it must drop out of BOTH numerator and denominator, otherwise the
+    unpaid book silently deflates every rate. So we mask to ``notna`` here."""
+    m = values.notna()
+    v, w = values[m], weights[m]
+    tot = float(w.sum())
+    return float((v * w).sum() / tot) if tot else float("nan")
 
 
 def kpis(d: pd.DataFrame) -> dict:
@@ -181,19 +190,30 @@ def decile_table(d: pd.DataFrame) -> list[dict]:
         si = g[swap.loc[gi]]
         approved_b = float(g["approved_pre_rate"].sum())
         contracted_b = float(g["new_approval"].sum())
-        ki_vol, si_vol = float(ki["new_approval"].sum()), float(si["new_approval"].sum())
-        ki_inad = _wmean(ki["simulated_default"], ki["new_approval"])
-        keep_bin_pd = float(ki["actual_default"].mean()) if len(ki) else float("nan")
+        # Two keep-in volumes: the DECISION book (all keep-ins) and the OBSERVED
+        # book (keep-ins with a known outcome). inad is a rate over the observed
+        # book only; the decision book is reported for transparency, never as an
+        # inad denominator.
+        ki_obs = ki[ki["simulated_default"].notna()]
+        ki_vol_decision = float(ki["new_approval"].sum())
+        ki_vol = float(ki_obs["new_approval"].sum())
+        si_vol = float(si["new_approval"].sum())
+        ki_inad = _wmean(ki["simulated_default"], ki["new_approval"])  # _wmean masks NaN
         si_inad = _wmean(si["simulated_default"], si["new_approval"])
+        # Imputation source: UNWEIGHTED observed keep-in default in the bin — what
+        # the engine imputes each swap-in from. Used only for the stress-ratio
+        # sanity, so the check stays clean regardless of keep-in re-gating.
+        keep_bin_pd = float(ki["actual_default"].mean()) if ki["actual_default"].notna().any() else float("nan")
         rows.append({
             "decile": int(b),
-            "keep_in_vol": ki_vol,
-            "keep_in_inad": ki_inad,
-            "keep_bin_pd": keep_bin_pd,
+            "keep_in_vol": ki_vol,                     # observed (contracted) book
+            "keep_in_vol_decision": ki_vol_decision,   # all keep-ins (decision)
+            "keep_in_inad": ki_inad,                   # rate over observed keep-ins
+            "keep_bin_pd": keep_bin_pd,                # imputation source (unweighted)
             "swap_in_vol": si_vol,
             "swap_in_inad": si_inad,
             "conversion": contracted_b / approved_b if approved_b else float("nan"),
-            "swap_over_keep": (si_inad / keep_bin_pd) if keep_bin_pd else float("nan"),
+            "swap_over_keep": (si_inad / ki_inad) if ki_inad else float("nan"),
         })
     return rows
 
@@ -230,9 +250,12 @@ def measure_step(step: str, sim_data: pd.DataFrame) -> dict:
         and abs(sumproduct_default - k["blended_default"]) < 1e-9
     )
 
-    # Sanity #2 (stress steps): swap/keep ratio == stress factor, row by row.
-    ratios = [r["swap_over_keep"] for r in table
-              if r["keep_in_vol"] and r["swap_in_vol"] and not np.isnan(r["swap_over_keep"])]
+    # Sanity #2 (stress steps): swap-in default == imputation source * factor,
+    # row by row. Compared against keep_bin_pd (the UNWEIGHTED observed keep-in
+    # default the engine imputes from), so it isolates imputation x stress and is
+    # immune to keep-in re-gating (which only moves the weighted keep_in_inad).
+    ratios = [r["swap_in_inad"] / r["keep_bin_pd"] for r in table
+              if r["swap_in_vol"] and r["keep_bin_pd"] and not np.isnan(r["keep_bin_pd"])]
     stressed = step in ("L4", "L5")
     expected_ratio = STRESS_FACTOR if stressed else 1.0
     stress_ratio_ok = bool(ratios) and all(abs(x - expected_ratio) < 1e-9 for x in ratios)

@@ -40,7 +40,7 @@
         "applicants": 104459,
         "cutoff": 264,
         "approval": 0.45384313462698284,
-        "default": 0.17024224416194253,
+        "default": 0.17024224416194256,
         "contracted": 23541.0156643263
       },
       {
@@ -48,7 +48,7 @@
         "applicants": 675043,
         "cutoff": 304,
         "approval": 0.4523489614735654,
-        "default": 0.14493606490184094,
+        "default": 0.14493606490184088,
         "contracted": 150161.99994697777
       },
       {
@@ -61,7 +61,7 @@
       }
     ],
     "segmented_approval": 0.4524433333333333,
-    "segmented_default": 0.15136088893753516,
+    "segmented_default": 0.15136088893753513,
     "segmented_contracted": 334542.67513803235
   },
   "warnings": [],

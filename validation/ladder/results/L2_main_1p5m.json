@@ -39,6 +39,7 @@
       {
         "decile": 0,
         "keep_in_vol": 13151.0,
+        "keep_in_vol_decision": 13151.0,
         "keep_in_inad": 0.1363394418675386,
         "keep_bin_pd": 0.1363394418675386,
         "swap_in_vol": 179041.42423066666,
@@ -49,6 +50,7 @@
       {
         "decile": 1,
         "keep_in_vol": 11888.0,
+        "keep_in_vol_decision": 11888.0,
         "keep_in_inad": 0.08882907133243607,
         "keep_bin_pd": 0.08882907133243607,
         "swap_in_vol": 34265.41856666667,
@@ -59,6 +61,7 @@
       {
         "decile": 2,
         "keep_in_vol": 10885.0,
+        "keep_in_vol_decision": 10885.0,
         "keep_in_inad": 0.07680293982544786,
         "keep_bin_pd": 0.07680293982544786,
         "swap_in_vol": 17395.943293333337,
@@ -69,6 +72,7 @@
       {
         "decile": 3,
         "keep_in_vol": 10929.0,
+        "keep_in_vol_decision": 10929.0,
         "keep_in_inad": 0.061670784152255465,
         "keep_bin_pd": 0.061670784152255465,
         "swap_in_vol": 10043.38992,
@@ -79,6 +83,7 @@
       {
         "decile": 4,
         "keep_in_vol": 10291.0,
+        "keep_in_vol_decision": 10291.0,
         "keep_in_inad": 0.052278690117578464,
         "keep_bin_pd": 0.052278690117578464,
         "swap_in_vol": 5836.145486666666,
@@ -89,6 +94,7 @@
       {
         "decile": 5,
         "keep_in_vol": 10135.0,
+        "keep_in_vol_decision": 10135.0,
         "keep_in_inad": 0.03857918105574741,
         "keep_bin_pd": 0.03857918105574741,
         "swap_in_vol": 3849.9661359999996,
@@ -99,6 +105,7 @@
       {
         "decile": 6,
         "keep_in_vol": 9057.0,
+        "keep_in_vol_decision": 9057.0,
         "keep_in_inad": 0.027050899856464614,
         "keep_bin_pd": 0.027050899856464614,
         "swap_in_vol": 2185.0672693333336,
@@ -109,6 +116,7 @@
       {
         "decile": 7,
         "keep_in_vol": 9303.0,
+        "keep_in_vol_decision": 9303.0,
         "keep_in_inad": 0.019886058260776093,
         "keep_bin_pd": 0.019886058260776093,
         "swap_in_vol": 1513.7080506666666,
@@ -119,6 +127,7 @@
       {
         "decile": 8,
         "keep_in_vol": 9537.0,
+        "keep_in_vol_decision": 9537.0,
         "keep_in_inad": 0.0142602495543672,
         "keep_bin_pd": 0.0142602495543672,
         "swap_in_vol": 1200.5270746666665,
@@ -129,6 +138,7 @@
       {
         "decile": 9,
         "keep_in_vol": 8938.0,
+        "keep_in_vol_decision": 8938.0,
         "keep_in_inad": 0.006153501901991497,
         "keep_bin_pd": 0.006153501901991497,
         "swap_in_vol": 984.5401946666666,

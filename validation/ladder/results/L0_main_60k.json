@@ -12,7 +12,7 @@
     "adds": "cutoff only",
     "approval": 0.50085,
     "contracted": 30051.0,
-    "blended_default": 0.10144036069281359,
+    "blended_default": 0.12997289499359346,
     "take_up": 1.0,
     "approved_ids_sha": "5b7f53364ff6adb1a8d72096f94fa9dfb390b0aaed2405ec2b72d925a330ccfa",
     "quadrant_counts": {
@@ -21,7 +21,7 @@
       "keep_in": 12293,
       "swap_out": 35
     },
-    "keep_in_inad": 0.034409826730659725,
+    "keep_in_inad": 0.0742626404494382,
     "swap_in_pd": 0.14784234030745247,
     "effective_rate_by_decile": {
       "0": 1.0,
@@ -38,8 +38,9 @@
     "decile_table": [
       {
         "decile": 0,
-        "keep_in_vol": 1247.0,
-        "keep_in_inad": 0.10104250200481155,
+        "keep_in_vol": 738.0,
+        "keep_in_vol_decision": 1247.0,
+        "keep_in_inad": 0.17073170731707318,
         "keep_bin_pd": 0.17073170731707318,
         "swap_in_vol": 12366.0,
         "swap_in_inad": 0.17073170731707313,
@@ -48,8 +49,9 @@
       },
       {
         "decile": 1,
-        "keep_in_vol": 1221.0,
-        "keep_in_inad": 0.06633906633906633,
+        "keep_in_vol": 637.0,
+        "keep_in_vol_decision": 1221.0,
+        "keep_in_inad": 0.1271585557299843,
         "keep_bin_pd": 0.1271585557299843,
         "swap_in_vol": 2384.0,
         "swap_in_inad": 0.12715855572998433,
@@ -58,8 +60,9 @@
       },
       {
         "decile": 2,
-        "keep_in_vol": 1248.0,
-        "keep_in_inad": 0.044070512820512824,
+        "keep_in_vol": 645.0,
+        "keep_in_vol_decision": 1248.0,
+        "keep_in_inad": 0.08527131782945736,
         "keep_bin_pd": 0.08527131782945736,
         "swap_in_vol": 1204.0,
         "swap_in_inad": 0.08527131782945738,
@@ -68,8 +71,9 @@
       },
       {
         "decile": 3,
-        "keep_in_vol": 1214.0,
-        "keep_in_inad": 0.03459637561779242,
+        "keep_in_vol": 564.0,
+        "keep_in_vol_decision": 1214.0,
+        "keep_in_inad": 0.07446808510638298,
         "keep_bin_pd": 0.07446808510638298,
         "swap_in_vol": 694.0,
         "swap_in_inad": 0.07446808510638299,
@@ -78,8 +82,9 @@
       },
       {
         "decile": 4,
-        "keep_in_vol": 1217.0,
-        "keep_in_inad": 0.029580936729663106,
+        "keep_in_vol": 556.0,
+        "keep_in_vol_decision": 1217.0,
+        "keep_in_inad": 0.06474820143884892,
         "keep_bin_pd": 0.06474820143884892,
         "swap_in_vol": 423.0,
         "swap_in_inad": 0.06474820143884893,
@@ -88,8 +93,9 @@
       },
       {
         "decile": 5,
-        "keep_in_vol": 1239.0,
-        "keep_in_inad": 0.03228410008071025,
+        "keep_in_vol": 543.0,
+        "keep_in_vol_decision": 1239.0,
+        "keep_in_inad": 0.07366482504604052,
         "keep_bin_pd": 0.07366482504604052,
         "swap_in_vol": 245.0,
         "swap_in_inad": 0.07366482504604055,
@@ -98,8 +104,9 @@
       },
       {
         "decile": 6,
-        "keep_in_vol": 1284.0,
-        "keep_in_inad": 0.01557632398753894,
+        "keep_in_vol": 527.0,
+        "keep_in_vol_decision": 1284.0,
+        "keep_in_inad": 0.03795066413662239,
         "keep_bin_pd": 0.03795066413662239,
         "swap_in_vol": 188.0,
         "swap_in_inad": 0.0379506641366224,
@@ -108,8 +115,9 @@
       },
       {
         "decile": 7,
-        "keep_in_vol": 1197.0,
-        "keep_in_inad": 0.006683375104427736,
+        "keep_in_vol": 481.0,
+        "keep_in_vol_decision": 1197.0,
+        "keep_in_inad": 0.016632016632016633,
         "keep_bin_pd": 0.016632016632016633,
         "swap_in_vol": 102.0,
         "swap_in_inad": 0.016632016632016633,
@@ -118,8 +126,9 @@
       },
       {
         "decile": 8,
-        "keep_in_vol": 1235.0,
-        "keep_in_inad": 0.008097165991902834,
+        "keep_in_vol": 509.0,
+        "keep_in_vol_decision": 1235.0,
+        "keep_in_inad": 0.019646365422396856,
         "keep_bin_pd": 0.019646365422396856,
         "swap_in_vol": 86.0,
         "swap_in_inad": 0.019646365422396856,
@@ -128,8 +137,9 @@
       },
       {
         "decile": 9,
-        "keep_in_vol": 1191.0,
-        "keep_in_inad": 0.0041981528127623844,
+        "keep_in_vol": 496.0,
+        "keep_in_vol_decision": 1191.0,
+        "keep_in_inad": 0.010080645161290322,
         "keep_bin_pd": 0.010080645161290322,
         "swap_in_vol": 66.0,
         "swap_in_inad": 0.010080645161290324,
@@ -138,7 +148,7 @@
       }
     ],
     "sanity": {
-      "sumproduct_default": 0.10144036069281354,
+      "sumproduct_default": 0.1299728949935934,
       "sumproduct_matches_blended": true,
       "swap_over_keep_ratios": [
         0.9999999999999997,

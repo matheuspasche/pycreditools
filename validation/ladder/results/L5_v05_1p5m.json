@@ -10,7 +10,7 @@
   "measured": {
     "step": "L5",
     "adds": "+ regional segmentation",
-    "target_default": 0.08515334389987389,
+    "target_default": 0.1276059648745099,
     "region_cutoffs": {
       "Centro-Oeste": 284,
       "Nordeste": 266,
@@ -24,7 +24,7 @@
         "applicants": 150133,
         "cutoff": 284,
         "approval": 0.45191263746145083,
-        "default": 0.11261546469150607,
+        "default": 0.15285746156214536,
         "contracted": 45391.5513074443
       },
       {
@@ -32,7 +32,7 @@
         "applicants": 270197,
         "cutoff": 266,
         "approval": 0.4517888799653586,
-        "default": 0.13056034164252794,
+        "default": 0.17362654516504555,
         "contracted": 80459.03001519665
       },
       {
@@ -40,7 +40,7 @@
         "applicants": 104459,
         "cutoff": 264,
         "approval": 0.45384313462698284,
-        "default": 0.12875231534449424,
+        "default": 0.17024224416194256,
         "contracted": 31127.0156643263
       },
       {
@@ -48,7 +48,7 @@
         "applicants": 675043,
         "cutoff": 304,
         "approval": 0.4523489614735654,
-        "default": 0.10485589408202495,
+        "default": 0.14493606490184088,
         "contracted": 207559.99994697777
       },
       {
@@ -56,12 +56,12 @@
         "applicants": 300168,
         "cutoff": 313,
         "approval": 0.45302297380133794,
-        "default": 0.09938698339437405,
+        "default": 0.13825269204869645,
         "contracted": 93056.07820408733
       }
     ],
     "segmented_approval": 0.4524433333333333,
-    "segmented_default": 0.11065860270284364,
+    "segmented_default": 0.151128786132242,
     "segmented_contracted": 457593.67513803235
   },
   "warnings": [
