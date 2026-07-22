@@ -24,6 +24,15 @@ um venv por worktree, gera a **base única** por tamanho e roda `run_ladder_main
 
 Regra de ouro: **toda métrica sai de `policy.simulate(...).data`** — zero fast-path.
 
+### Dois notebooks, escopos separados
+
+- `ladder_report.ipynb` — **paridade v0.5 × main** (matriz verde/vermelho, diff mínimo).
+  É o debug de motor; a paridade está pacificada aqui (primeiro vermelho = L2, #94).
+- `swap_in_conversion_decomp.ipynb` — **análise de modelagem, uma engine só (v0.5)**,
+  só observáveis (sem oráculo). Decompõe o que o stage de conversão faz com o peso do
+  swap-in na carteira nova (Efeito A = mix × Efeito B = nível). **Não** é paridade —
+  não misturar com o de cima.
+
 ## Decisões travadas com o dono (desvios do texto do issue)
 
 1. **Opção B — `current_approval_col` ligado desde o L0.** A população swap-in existe
