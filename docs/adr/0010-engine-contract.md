@@ -148,6 +148,35 @@ Rationale, stated precisely because #78's was not:
   whether it is itself the last one (`stages.py:262`) — #68 kills that; after it, one field
   remains, resolved twice per call.
 
+### A scalar/anonymous RateStage does not re-gate the keep-in
+
+This is the declarative resolution of #94, whose ablation ladder (#93) isolated the
+first divergence between the engines to a single quadrant.
+
+A `RateStage` sourced from a **pure scalar** — `base_rate` only, no `observed_col` and no
+`variable` — applied to a book with `current_approval_col` active, **bypasses** the
+keep-in population: every keep-in passes at `1.0`, and swap-ins pass at the scalar rate.
+
+- **`main` re-gated the keep-in** by an implicit **name/position heuristic** of the
+  `RateStage` (#91), applying a fractional (score-calibrated) rate to the incumbent book —
+  the very kind of inference this ADR abolishes (see the `ApplyContext` rationale, where
+  #68 kills the stage asking its parent whether it is the last one).
+- **v0.5 sources the keep-in's take-up from what is *recorded* about it.** With
+  `observed_col`, the keep-in takes its real `0/1` outcome (`stages.py`, `_observed_probs`
+  + the caller override). Absent a recorded outcome, its membership in the incumbent book
+  is the only fact; its contribution to contracted volume is **taken as given (`1.0`)**,
+  never re-drawn from a swap-in-calibrated rate. This is the exact analogue of the
+  `observed_col` rule: "keep-in take-up comes from what the data records about the keep-in;
+  a scalar rate records nothing, so the book passes through."
+
+Decided: **v0.5's declarative bypass is the contract.** `main`'s re-gate is the bug. The
+scope is only the scalar/anonymous rate over keep-ins; the `observed_col`/`variable=`
+take-up paths are unchanged. Locked by `tests/test_scalar_rate_keepin_contract.py`
+(with `base_rate < 1.0`, so bypass `1.0` and re-gate `base_rate` are distinguishable —
+the pre-existing `test_name_conversao_is_not_special_without_observed_col` uses
+`base_rate=1.0`, where the two coincide). The v0.5 engine already honours this; no engine
+change was required — the deliverable is the declared contract plus the regression lock.
+
 ### Serialized state carries a version
 
 `ProjectBundle` gains `schema_version`; deserialization becomes strict (unknown key
