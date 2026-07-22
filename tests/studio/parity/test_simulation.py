@@ -63,9 +63,13 @@ def test_quadrant_hired_and_bad_rate_match_a_hand_groupby_over_sim_data(sample_d
         if scenario == "swap_out":
             expected_bad = group[roles.actual_default_col].mean()
         else:
+            # No-outcome rows (simulated_default NaN) leave the denominator too,
+            # else the rate is diluted (#97).
+            outcome_known = group["simulated_default"].notna()
+            denom = group.loc[outcome_known, "new_approval"].sum()
             expected_bad = (
                 group["simulated_default"] * group["new_approval"]
-            ).sum() / expected_hired
+            ).sum() / denom
         assert abs(row["Bad_Rate"] - expected_bad) < 1e-9
 
 

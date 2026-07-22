@@ -84,8 +84,11 @@ def summarize_results(results: CreditSimResults, by: str | list[str] | None = No
                 return np.nan
             if scen == Quadrant.SWAP_OUT.value:
                 return grp[actual_default_col].mean(skipna=True)
-            # keep_in / swap_in: weighted simulated default
-            total_app = grp["new_approval"].sum(skipna=True)
+            # keep_in / swap_in: weighted simulated default. No-outcome rows
+            # (simulated_default NaN, e.g. approved-but-never-hired keep-ins)
+            # must leave the denominator too, else the rate is diluted (#97).
+            outcome_known = grp["simulated_default"].notna()
+            total_app = grp.loc[outcome_known, "new_approval"].sum(skipna=True)
             if total_app <= 0:
                 return 0.0
             return grp["_weighted_default"].sum(skipna=True) / total_app
@@ -157,7 +160,10 @@ def compare_policies(
             bad_rate = data.loc[data["new_approval"] == 1, "simulated_default"].mean(skipna=True)
         else:
             app_sum = data[aprov_col].sum(skipna=True)
-            hired_sum = data["new_approval"].sum(skipna=True)
+            # No-outcome rows (simulated_default NaN) must leave the denominator
+            # too, else the blended rate is diluted (#97).
+            outcome_known = data["simulated_default"].notna()
+            hired_sum = data.loc[outcome_known, "new_approval"].sum(skipna=True)
             if hired_sum > 0:
                 bad_rate = (data["simulated_default"] * data["new_approval"]).sum(
                     skipna=True
