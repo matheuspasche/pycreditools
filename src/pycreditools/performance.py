@@ -359,7 +359,16 @@ def print_delta_table(
         aprov_col = "approved_pre_rate" if "approved_pre_rate" in df_new.columns else "new_approval"
         aprov_new = df_new[aprov_col].mean() if is_analytical else (df_new[aprov_col] > 0).mean()
         vol_new = df_new["new_approval"].sum()
-        bad_new = (df_new["simulated_default"] * df_new["new_approval"]).sum() / vol_new if vol_new > 0 else 0.0
+        # No-outcome rows (simulated_default NaN) leave the rate denominator too,
+        # else the blended default is diluted (#97). vol_new is displayed volume
+        # and stays over the full contracted population.
+        outcome_known = df_new["simulated_default"].notna()
+        denom_new = df_new.loc[outcome_known, "new_approval"].sum()
+        bad_new = (
+            (df_new["simulated_default"] * df_new["new_approval"]).sum() / denom_new
+            if denom_new > 0
+            else 0.0
+        )
 
         aprov_news.append(aprov_new)
         bad_news.append(bad_new)
@@ -470,7 +479,14 @@ def print_quadrant_summary(sim_results: CreditSimResults) -> None:
         if vol <= 0:
             return 0.0, 0.0
         col_to_use = "simulated_default" if is_simulated else default_col
-        bad_rate = (subset[col_to_use] * subset["new_approval"]).sum() / vol
+        # No-outcome rows (e.g. approved-but-never-hired keep-ins, default NaN)
+        # leave the rate denominator too, else it is diluted (#97). Vol is the
+        # displayed contracted volume and stays over the full population.
+        outcome_known = subset[col_to_use].notna()
+        denom = subset.loc[outcome_known, "new_approval"].sum()
+        if denom <= 0:
+            return vol, 0.0
+        bad_rate = (subset[col_to_use] * subset["new_approval"]).sum() / denom
         return vol, bad_rate
 
     ki_vol, ki_bad = get_metric(ki, actual_default_col, is_simulated=False)
@@ -599,7 +615,14 @@ def print_rating_quadrant_table(sim_results: CreditSimResults, rating_col: str =
                     (g["simulated_default"] * g["new_approval"]).sum() / vol if vol > 0 else np.nan
                 )
             elif scen == "keep_in":
-                bad = (g[actual_default_col] * g["new_approval"]).sum() / vol if vol > 0 else np.nan
+                # No-outcome keep-ins (actual_default NaN) leave the denominator
+                # too, else the rate is diluted (#97).
+                denom = g.loc[g[actual_default_col].notna(), "new_approval"].sum()
+                bad = (
+                    (g[actual_default_col] * g["new_approval"]).sum() / denom
+                    if denom > 0
+                    else np.nan
+                )
             else:
                 bad = np.nan
 
