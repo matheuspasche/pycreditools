@@ -1,0 +1,74 @@
+{
+  "engine": "main",
+  "step": "L5",
+  "base_sha256": "f7283541835f52a640e294183d9bef51f86415f8683d001702471a898a0a97e9",
+  "n": 1500000,
+  "cutoff": 504,
+  "antifraud_rate": 0.8999453333333334,
+  "calibration_bins": 10,
+  "package_version": "n/a",
+  "measured": {
+    "step": "L5",
+    "adds": "+ regional segmentation",
+    "target_default": 0.1276059648745099,
+    "region_cutoffs": {
+      "Centro-Oeste": 284,
+      "Nordeste": 266,
+      "Norte": 264,
+      "Sudeste": 304,
+      "Sul": 313
+    },
+    "regions": [
+      {
+        "region": "Centro-Oeste",
+        "applicants": 150133,
+        "cutoff": 284,
+        "approval": 0.45191263746145083,
+        "default": 0.15285746156214536,
+        "contracted": 33441.55130744431
+      },
+      {
+        "region": "Nordeste",
+        "applicants": 270197,
+        "cutoff": 266,
+        "approval": 0.4517888799653586,
+        "default": 0.17362654516504555,
+        "contracted": 60502.03001519666
+      },
+      {
+        "region": "Norte",
+        "applicants": 104459,
+        "cutoff": 264,
+        "approval": 0.45384313462698284,
+        "default": 0.17024224416194253,
+        "contracted": 23541.0156643263
+      },
+      {
+        "region": "Sudeste",
+        "applicants": 675043,
+        "cutoff": 304,
+        "approval": 0.4523489614735654,
+        "default": 0.14493606490184094,
+        "contracted": 150161.99994697777
+      },
+      {
+        "region": "Sul",
+        "applicants": 300168,
+        "cutoff": 313,
+        "approval": 0.45302297380133794,
+        "default": 0.13825269204869645,
+        "contracted": 66896.07820408733
+      }
+    ],
+    "segmented_approval": 0.4524433333333333,
+    "segmented_default": 0.15136088893753516,
+    "segmented_contracted": 334542.67513803235
+  },
+  "warnings": [],
+  "l8_engine_exclusive_notes": {
+    "rate_take_up_idiom": "propensity column via variable=; no observed_col/calibrate_by API",
+    "keep_in_bypass_detection": "RateStage bypass keyed by name/position (stages.py): stage name in {conversao, conversion, hired, take_up, take_up_rate}, calibrate=True, or last RateStage. A reorder can silently reassign the keep-in bypass.",
+    "optimize_cutoffs_directions": "no directions= parameter on this branch",
+    "suggest_hard_filters": "absent on main"
+  }
+}

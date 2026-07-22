@@ -1,0 +1,163 @@
+{
+  "engine": "v05",
+  "step": "L4",
+  "base_sha256": "c7abcd1858a8d16f7440564443511f3b24bbc92c2131f29f2470a4608ce8e248",
+  "n": 60000,
+  "cutoff": 502,
+  "antifraud_rate": 0.8994166666666666,
+  "calibration_bins": 10,
+  "package_version": "n/a",
+  "measured": {
+    "step": "L4",
+    "adds": "+ stress x1.5",
+    "approval": 0.34175,
+    "contracted": 14891.89452711798,
+    "blended_default": 0.09810507357427513,
+    "take_up": 0.7262567435804916,
+    "approved_ids_sha": "fc925e1ed11e5fd6b8ad28d2f23ec75acc13c24a6169ea4ab35ea62f15e6a460",
+    "quadrant_counts": {
+      "keep_out": 36304,
+      "swap_in": 11368,
+      "keep_in": 9137,
+      "swap_out": 3191
+    },
+    "keep_in_inad": 0.02747072343219875,
+    "swap_in_pd": 0.21025066620103652,
+    "effective_rate_by_decile": {
+      "0": 0.5798915068386329,
+      "1": 0.6501015678039599,
+      "2": 0.7429362091858244,
+      "3": 0.7926282715894594,
+      "4": 0.8614194574888352,
+      "5": 0.9078799716575634,
+      "6": 0.919569326206555,
+      "7": 0.9564231244169057,
+      "8": 0.9688097459110885,
+      "9": 0.9733343009695888
+    },
+    "decile_table": [
+      {
+        "decile": 0,
+        "keep_in_vol": 923.0,
+        "keep_in_inad": 0.09425785482123511,
+        "keep_bin_pd": 0.1641509433962264,
+        "swap_in_vol": 4249.314788544862,
+        "swap_in_inad": 0.2462264150943397,
+        "conversion": 0.5810936735810429,
+        "swap_over_keep": 1.5000000000000007
+      },
+      {
+        "decile": 1,
+        "keep_in_vol": 914.0,
+        "keep_in_inad": 0.047045951859956234,
+        "keep_bin_pd": 0.08884297520661157,
+        "swap_in_vol": 728.1225271490887,
+        "swap_in_inad": 0.13326446280991736,
+        "conversion": 0.6664458308234937,
+        "swap_over_keep": 1.5
+      },
+      {
+        "decile": 2,
+        "keep_in_vol": 922.0,
+        "keep_in_inad": 0.033622559652928416,
+        "keep_bin_pd": 0.06695464362850972,
+        "swap_in_vol": 338.1006528297151,
+        "swap_in_inad": 0.10043196544276457,
+        "conversion": 0.7586397669053071,
+        "swap_over_keep": 1.4999999999999998
+      },
+      {
+        "decile": 3,
+        "keep_in_vol": 912.0,
+        "keep_in_inad": 0.03070175438596491,
+        "keep_bin_pd": 0.06682577565632458,
+        "swap_in_vol": 183.66557950477397,
+        "swap_in_inad": 0.1002386634844869,
+        "conversion": 0.8092064841246485,
+        "swap_over_keep": 1.5000000000000004
+      },
+      {
+        "decile": 4,
+        "keep_in_vol": 932.0,
+        "keep_in_inad": 0.02145922746781116,
+        "keep_bin_pd": 0.04728132387706856,
+        "swap_in_vol": 97.37047709340968,
+        "swap_in_inad": 0.07092198581560284,
+        "conversion": 0.8790524996527838,
+        "swap_over_keep": 1.5000000000000002
+      },
+      {
+        "decile": 5,
+        "keep_in_vol": 918.0,
+        "keep_in_inad": 0.02287581699346405,
+        "keep_bin_pd": 0.052109181141439205,
+        "swap_in_vol": 61.22644121714249,
+        "swap_in_inad": 0.07816377171215882,
+        "conversion": 0.9109083174112954,
+        "swap_over_keep": 1.5000000000000002
+      },
+      {
+        "decile": 6,
+        "keep_in_vol": 884.0,
+        "keep_in_inad": 0.010180995475113122,
+        "keep_bin_pd": 0.026865671641791045,
+        "swap_in_vol": 42.18616170742375,
+        "swap_in_inad": 0.04029850746268656,
+        "conversion": 0.9289730809502746,
+        "swap_over_keep": 1.4999999999999998
+      },
+      {
+        "decile": 7,
+        "keep_in_vol": 917.0,
+        "keep_in_inad": 0.004362050163576881,
+        "keep_bin_pd": 0.01084010840108401,
+        "swap_in_vol": 25.452724020207757,
+        "swap_in_inad": 0.016260162601626018,
+        "conversion": 0.9538995182390767,
+        "swap_over_keep": 1.5000000000000002
+      },
+      {
+        "decile": 8,
+        "keep_in_vol": 942.0,
+        "keep_in_inad": 0.006369426751592357,
+        "keep_bin_pd": 0.01488833746898263,
+        "swap_in_vol": 16.34528980086818,
+        "swap_in_inad": 0.022332506203473948,
+        "conversion": 0.9719526265728886,
+        "swap_over_keep": 1.5000000000000002
+      },
+      {
+        "decile": 9,
+        "keep_in_vol": 873.0,
+        "keep_in_inad": 0.002290950744558992,
+        "keep_bin_pd": 0.005449591280653951,
+        "swap_in_vol": 13.109885250489784,
+        "swap_in_inad": 0.008174386920980926,
+        "conversion": 0.9758919441084688,
+        "swap_over_keep": 1.5
+      }
+    ],
+    "sanity": {
+      "sumproduct_default": 0.09810507357427513,
+      "sumproduct_matches_blended": true,
+      "swap_over_keep_ratios": [
+        1.5000000000000007,
+        1.5,
+        1.4999999999999998,
+        1.5000000000000004,
+        1.5000000000000002,
+        1.5000000000000002,
+        1.4999999999999998,
+        1.5000000000000002,
+        1.5000000000000002,
+        1.5
+      ],
+      "expected_ratio": 1.5,
+      "stress_ratio_ok": true
+    },
+    "stress_ratio_ok": true
+  },
+  "warnings": [
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 2 adjacent score bin(s) invert — PD moves against the score's declared direction, so lowering a gate can read as reducing default rate. Reduce CreditPolicy(calibration_bins=...), or calibrate by rating via calibration_score_col."
+  ]
+}

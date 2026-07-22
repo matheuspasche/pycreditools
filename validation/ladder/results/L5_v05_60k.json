@@ -1,0 +1,104 @@
+{
+  "engine": "v05",
+  "step": "L5",
+  "base_sha256": "c7abcd1858a8d16f7440564443511f3b24bbc92c2131f29f2470a4608ce8e248",
+  "n": 60000,
+  "cutoff": 502,
+  "antifraud_rate": 0.8994166666666666,
+  "calibration_bins": 10,
+  "package_version": "n/a",
+  "measured": {
+    "step": "L5",
+    "adds": "+ regional segmentation",
+    "target_default": 0.09810507357427513,
+    "region_cutoffs": {
+      "Centro-Oeste": 289,
+      "Nordeste": 268,
+      "Norte": 274,
+      "Sudeste": 303,
+      "Sul": 305
+    },
+    "regions": [
+      {
+        "region": "Centro-Oeste",
+        "applicants": 5970,
+        "cutoff": 289,
+        "approval": 0.45108877721943047,
+        "default": 0.16857271158747716,
+        "contracted": 1812.2334840874123
+      },
+      {
+        "region": "Nordeste",
+        "applicants": 10812,
+        "cutoff": 268,
+        "approval": 0.45689974102848685,
+        "default": 0.11978154127233649,
+        "contracted": 3304.047309638233
+      },
+      {
+        "region": "Norte",
+        "applicants": 4125,
+        "cutoff": 274,
+        "approval": 0.455030303030303,
+        "default": 0.12886132812866738,
+        "contracted": 1251.565106986288
+      },
+      {
+        "region": "Sudeste",
+        "applicants": 26989,
+        "cutoff": 303,
+        "approval": 0.4490718440846271,
+        "default": 0.12025860534173147,
+        "contracted": 8291.505094287935
+      },
+      {
+        "region": "Sul",
+        "applicants": 12104,
+        "cutoff": 305,
+        "approval": 0.4540647719762062,
+        "default": 0.11653549526004196,
+        "contracted": 3785.4807997009757
+      }
+    ],
+    "segmented_approval": 0.4521,
+    "segmented_default": 0.12473971450515735,
+    "segmented_contracted": 18444.831794700847
+  },
+  "warnings": [
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 2 adjacent score bin(s) invert — PD moves against the score's declared direction, so lowering a gate can read as reducing default rate. Reduce CreditPolicy(calibration_bins=...), or calibrate by rating via calibration_score_col.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 11% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 6% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 25% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 21% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 16% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 3 adjacent score bin(s) invert — PD moves against the score's declared direction, so lowering a gate can read as reducing default rate. Reduce CreditPolicy(calibration_bins=...), or calibrate by rating via calibration_score_col.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 5% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 4 adjacent score bin(s) invert — PD moves against the score's declared direction, so lowering a gate can read as reducing default rate. Reduce CreditPolicy(calibration_bins=...), or calibrate by rating via calibration_score_col.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 5 adjacent score bin(s) invert — PD moves against the score's declared direction, so lowering a gate can read as reducing default rate. Reduce CreditPolicy(calibration_bins=...), or calibrate by rating via calibration_score_col.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 24% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 20% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 12% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 8% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 7% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 1 adjacent score bin(s) invert — PD moves against the score's declared direction, so lowering a gate can read as reducing default rate. Reduce CreditPolicy(calibration_bins=...), or calibrate by rating via calibration_score_col.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 39% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 36% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 34% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 30% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 26% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 22% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 18% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 17% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 13% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 9% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 19% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 14% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD."
+  ],
+  "l8_engine_exclusive_notes": {
+    "rate_take_up_idiom": "observed_col= + calibrate_by= available (ADR 0008); the ladder deliberately uses the common denominator variable= instead, identical to main",
+    "keep_in_bypass_detection": "declarative: observed_col present -> keep-in uses observed value; absent -> 1.0. No name/position heuristic.",
+    "optimize_cutoffs_directions": "directions= parameter present",
+    "suggest_hard_filters": "present (PR #73); picks the fixed HF set used here",
+    "calibration_reliability_warning": "CalibrationReliabilityWarning emitted on thin cells (captured in each step's warnings, never suppressed)"
+  }
+}

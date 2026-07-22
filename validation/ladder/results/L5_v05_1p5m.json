@@ -1,0 +1,81 @@
+{
+  "engine": "v05",
+  "step": "L5",
+  "base_sha256": "f7283541835f52a640e294183d9bef51f86415f8683d001702471a898a0a97e9",
+  "n": 1500000,
+  "cutoff": 504,
+  "antifraud_rate": 0.8999453333333334,
+  "calibration_bins": 10,
+  "package_version": "n/a",
+  "measured": {
+    "step": "L5",
+    "adds": "+ regional segmentation",
+    "target_default": 0.08515334389987389,
+    "region_cutoffs": {
+      "Centro-Oeste": 284,
+      "Nordeste": 266,
+      "Norte": 264,
+      "Sudeste": 304,
+      "Sul": 313
+    },
+    "regions": [
+      {
+        "region": "Centro-Oeste",
+        "applicants": 150133,
+        "cutoff": 284,
+        "approval": 0.45191263746145083,
+        "default": 0.11261546469150607,
+        "contracted": 45391.5513074443
+      },
+      {
+        "region": "Nordeste",
+        "applicants": 270197,
+        "cutoff": 266,
+        "approval": 0.4517888799653586,
+        "default": 0.13056034164252794,
+        "contracted": 80459.03001519665
+      },
+      {
+        "region": "Norte",
+        "applicants": 104459,
+        "cutoff": 264,
+        "approval": 0.45384313462698284,
+        "default": 0.12875231534449424,
+        "contracted": 31127.0156643263
+      },
+      {
+        "region": "Sudeste",
+        "applicants": 675043,
+        "cutoff": 304,
+        "approval": 0.4523489614735654,
+        "default": 0.10485589408202495,
+        "contracted": 207559.99994697777
+      },
+      {
+        "region": "Sul",
+        "applicants": 300168,
+        "cutoff": 313,
+        "approval": 0.45302297380133794,
+        "default": 0.09938698339437405,
+        "contracted": 93056.07820408733
+      }
+    ],
+    "segmented_approval": 0.4524433333333333,
+    "segmented_default": 0.11065860270284364,
+    "segmented_contracted": 457593.67513803235
+  },
+  "warnings": [
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 1 adjacent score bin(s) invert — PD moves against the score's declared direction, so lowering a gate can read as reducing default rate. Reduce CreditPolicy(calibration_bins=...), or calibrate by rating via calibration_score_col.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 6% of swap-ins score outside the keep-ins' observed range, so their imputed PD is edge-clamp extrapolation, not measurement. No bin count fixes this — the score range has no observed defaults to measure. Pass an estimated_default_col with a model PD.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 2 adjacent score bin(s) invert — PD moves against the score's declared direction, so lowering a gate can read as reducing default rate. Reduce CreditPolicy(calibration_bins=...), or calibrate by rating via calibration_score_col.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 3 adjacent score bin(s) invert — PD moves against the score's declared direction, so lowering a gate can read as reducing default rate. Reduce CreditPolicy(calibration_bins=...), or calibrate by rating via calibration_score_col.",
+    "[CalibrationReliabilityWarning] Swap-in PD calibration is unreliable: 4 adjacent score bin(s) invert — PD moves against the score's declared direction, so lowering a gate can read as reducing default rate. Reduce CreditPolicy(calibration_bins=...), or calibrate by rating via calibration_score_col."
+  ],
+  "l8_engine_exclusive_notes": {
+    "rate_take_up_idiom": "observed_col= + calibrate_by= available (ADR 0008); the ladder deliberately uses the common denominator variable= instead, identical to main",
+    "keep_in_bypass_detection": "declarative: observed_col present -> keep-in uses observed value; absent -> 1.0. No name/position heuristic.",
+    "optimize_cutoffs_directions": "directions= parameter present",
+    "suggest_hard_filters": "present (PR #73); picks the fixed HF set used here",
+    "calibration_reliability_warning": "CalibrationReliabilityWarning emitted on thin cells (captured in each step's warnings, never suppressed)"
+  }
+}

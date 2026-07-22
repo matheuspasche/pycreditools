@@ -1,0 +1,161 @@
+{
+  "engine": "main",
+  "step": "L2",
+  "base_sha256": "f7283541835f52a640e294183d9bef51f86415f8683d001702471a898a0a97e9",
+  "n": 1500000,
+  "cutoff": 504,
+  "antifraud_rate": 0.8999453333333334,
+  "calibration_bins": 10,
+  "package_version": "n/a",
+  "measured": {
+    "step": "L2",
+    "adds": "+ antifraud scalar rate",
+    "approval": 0.341208,
+    "contracted": 360430.13022266666,
+    "blended_default": 0.09956059707491502,
+    "take_up": 0.7042236802237279,
+    "approved_ids_sha": "f3e52e12692bf556b0c9e945a624ef17ecf1ae5f85c71c34f89a30a3c959465a",
+    "quadrant_counts": {
+      "keep_out": 908614,
+      "swap_in": 284813,
+      "keep_in": 226999,
+      "swap_out": 79574
+    },
+    "keep_in_inad": 0.05675509537622222,
+    "swap_in_pd": 0.1169479226403647,
+    "effective_rate_by_decile": {
+      "0": 0.8694363278019552,
+      "1": 0.7718052773236985,
+      "2": 0.689492090240581,
+      "3": 0.6165730852304356,
+      "4": 0.5758037868920821,
+      "5": 0.518570442143114,
+      "6": 0.4625909947926811,
+      "7": 0.4484817197419086,
+      "8": 0.437935677853381,
+      "9": 0.4329769866825051
+    },
+    "decile_table": [
+      {
+        "decile": 0,
+        "keep_in_vol": 13151.0,
+        "keep_in_inad": 0.1363394418675386,
+        "keep_bin_pd": 0.1363394418675386,
+        "swap_in_vol": 179041.42423066666,
+        "swap_in_inad": 0.13633944186753863,
+        "conversion": 0.8663365152726756,
+        "swap_over_keep": 1.0000000000000002
+      },
+      {
+        "decile": 1,
+        "keep_in_vol": 11888.0,
+        "keep_in_inad": 0.08882907133243607,
+        "keep_bin_pd": 0.08882907133243607,
+        "swap_in_vol": 34265.41856666667,
+        "swap_in_inad": 0.08882907133243606,
+        "conversion": 0.7607413764305769,
+        "swap_over_keep": 0.9999999999999999
+      },
+      {
+        "decile": 2,
+        "keep_in_vol": 10885.0,
+        "keep_in_inad": 0.07680293982544786,
+        "keep_bin_pd": 0.07680293982544786,
+        "swap_in_vol": 17395.943293333337,
+        "swap_in_inad": 0.07680293982544786,
+        "conversion": 0.6728751675787136,
+        "swap_over_keep": 1.0
+      },
+      {
+        "decile": 3,
+        "keep_in_vol": 10929.0,
+        "keep_in_inad": 0.061670784152255465,
+        "keep_bin_pd": 0.061670784152255465,
+        "swap_in_vol": 10043.38992,
+        "swap_in_inad": 0.06167078415225545,
+        "conversion": 0.6058407695640871,
+        "swap_over_keep": 0.9999999999999998
+      },
+      {
+        "decile": 4,
+        "keep_in_vol": 10291.0,
+        "keep_in_inad": 0.052278690117578464,
+        "keep_bin_pd": 0.052278690117578464,
+        "swap_in_vol": 5836.145486666666,
+        "swap_in_inad": 0.052278690117578484,
+        "conversion": 0.5665008250199054,
+        "swap_over_keep": 1.0000000000000004
+      },
+      {
+        "decile": 5,
+        "keep_in_vol": 10135.0,
+        "keep_in_inad": 0.03857918105574741,
+        "keep_bin_pd": 0.03857918105574741,
+        "swap_in_vol": 3849.9661359999996,
+        "swap_in_inad": 0.03857918105574742,
+        "conversion": 0.5006969365937488,
+        "swap_over_keep": 1.0000000000000002
+      },
+      {
+        "decile": 6,
+        "keep_in_vol": 9057.0,
+        "keep_in_inad": 0.027050899856464614,
+        "keep_bin_pd": 0.027050899856464614,
+        "swap_in_vol": 2185.0672693333336,
+        "swap_in_inad": 0.027050899856464618,
+        "conversion": 0.45964785629787125,
+        "swap_over_keep": 1.0000000000000002
+      },
+      {
+        "decile": 7,
+        "keep_in_vol": 9303.0,
+        "keep_in_inad": 0.019886058260776093,
+        "keep_bin_pd": 0.019886058260776093,
+        "swap_in_vol": 1513.7080506666666,
+        "swap_in_inad": 0.0198860582607761,
+        "conversion": 0.44398095680608574,
+        "swap_over_keep": 1.0000000000000004
+      },
+      {
+        "decile": 8,
+        "keep_in_vol": 9537.0,
+        "keep_in_inad": 0.0142602495543672,
+        "keep_bin_pd": 0.0142602495543672,
+        "swap_in_vol": 1200.5270746666665,
+        "swap_in_inad": 0.014260249554367202,
+        "conversion": 0.4382306372813103,
+        "swap_over_keep": 1.0000000000000002
+      },
+      {
+        "decile": 9,
+        "keep_in_vol": 8938.0,
+        "keep_in_inad": 0.006153501901991497,
+        "keep_bin_pd": 0.006153501901991497,
+        "swap_in_vol": 984.5401946666666,
+        "swap_in_inad": 0.006153501901991497,
+        "conversion": 0.4327506735865789,
+        "swap_over_keep": 1.0
+      }
+    ],
+    "sanity": {
+      "sumproduct_default": 0.09956059707491506,
+      "sumproduct_matches_blended": true,
+      "swap_over_keep_ratios": [
+        1.0000000000000002,
+        0.9999999999999999,
+        1.0,
+        0.9999999999999998,
+        1.0000000000000004,
+        1.0000000000000002,
+        1.0000000000000002,
+        1.0000000000000004,
+        1.0000000000000002,
+        1.0
+      ],
+      "expected_ratio": 1.0,
+      "stress_ratio_ok": true
+    },
+    "stress_ratio_ok": true
+  },
+  "warnings": []
+}
