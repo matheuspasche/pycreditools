@@ -22,8 +22,6 @@ Two columns are deliberately absent from both bases:
   policy against your own model's opinion. `market_default` is what a lender actually
   has for a reject: observed market reality from a bureau, as a 0/1 flag.
 
-`true_pd` is an oracle. It exists so the material can *measure* calibration error instead
-of asserting it; no client has it, and it is never an input to a policy.
 """
 
 import numpy as np
@@ -126,7 +124,7 @@ def _score_ladder(
 
     `c_noise` is shared across all scores, so the models correlate with each other the
     way real challenger models correlate with the incumbent. The per-score independent
-    noise is calibrated to land legacy KS ~25% and `score_5` KS ~31%.
+    noise is calibrated to land legacy KS ~25% and `score_5` KS ~33%.
     """
     n = len(df)
     s = -y
@@ -141,7 +139,7 @@ def _score_ladder(
         "score_2": 1.25,
         "score_3": 1.10,
         "score_4": 0.95,
-        "score_5": 0.80,
+        "score_5": 0.70,
     }.items():
         latent = s + c_noise + rng.normal(0, noise_std, n)
         z = (latent - latent.mean()) / latent.std()
@@ -152,16 +150,16 @@ def _market_default(rng: np.random.Generator, y: pd.Series) -> np.ndarray:
     """A 0/1 bureau flag: did this person default *anywhere in the market*.
 
     Observed for every row, contracted or not — that is the whole point. It correlates
-    with `true_pd` without being it: the market is wider than this lender's product, so
-    the flag is both more frequent and noisier than the lender's own outcome.
+    with the lender's own risk without being it: the market is wider than this lender's
+    product, so the flag is both more frequent and noisier than the lender's own outcome.
     """
     market_pd = _sigmoid(y + 0.4 + rng.normal(0, 1.0, len(y)))
     return (rng.random(len(y)) < market_pd).astype(int)
 
 
 def _base(rng: np.random.Generator, n: int, *, with_legacy: bool) -> tuple[pd.DataFrame, pd.Series]:
-    """The shared spine of both bases: features, the risk logit, `true_pd`, the
-    (pre-mask) outcome and the score ladder. Returns the frame and the risk logit `y`,
+    """The shared spine of both bases: features, the risk logit, the (pre-mask)
+    outcome and the score ladder. Returns the frame and the risk logit `y`,
     which the incumbent base still needs for `market_default`.
 
     `actual_default` is drawn as `float` so both bases share the outcome dtype even
@@ -169,8 +167,7 @@ def _base(rng: np.random.Generator, n: int, *, with_legacy: bool) -> tuple[pd.Da
     """
     df = _applicants(rng, n)
     y = _risk_logit(rng, df)
-    df["true_pd"] = _sigmoid(y)
-    df["actual_default"] = (rng.random(n) < df["true_pd"]).astype(float)
+    df["actual_default"] = (rng.random(n) < _sigmoid(y)).astype(float)
     _score_ladder(rng, df, y, with_legacy=with_legacy)
     return df, y
 
@@ -192,7 +189,6 @@ def generate_sample_data(
     - bureau (hard-filter candidates): `cpf_valido`, `vl_negativacao`, `vl_vencido_scr`,
       `vl_protestos`
     - scores: `legacy_score`, `score_2` ... `score_5` (monotone quality ladder)
-    - `true_pd`: oracle, synthetic-only — never an input to a policy
     - `approved`: the incumbent's decision (~22% approval)
     - `passed_antifraud`: Bernoulli(0.90), independent of risk — a rate stage that is
       *not* take-up
@@ -253,7 +249,7 @@ def generate_standalone_sample_data(
     being a separate function rather than a flag.
 
     Columns: the same features, the same bureau columns, the same `score_2` ... `score_5`
-    ladder, `true_pd` as oracle, and a fully observed `actual_default`. There is no
+    ladder, and a fully observed `actual_default`. There is no
     `market_default`: the bureau flag exists so a lender can see the outcome of the
     applicants it *rejected*, and this base rejected nobody.
 

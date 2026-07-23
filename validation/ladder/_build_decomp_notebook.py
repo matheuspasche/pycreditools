@@ -4,7 +4,7 @@ analysis, separate from the parity study.
 Scope boundary (deliberate): `ladder_report.ipynb` debugs v0.5 vs main and the
 parity there is settled. THIS notebook does not compare engines — it decomposes
 what the take-up/conversion stage does to the swap-in's weight in the new book,
-using only observables (no oracle / true_pd). Run once to (re)emit:
+using only observables (no oracle). Run once to (re)emit:
     python _build_decomp_notebook.py
 """
 
@@ -18,7 +18,7 @@ c = nb.cells
 c.append(nbf.v4.new_markdown_cell(
     "# Decomposição A vs B — o stage de conversão sobre o swap-in\n\n"
     "**Escopo:** análise de modelagem, **uma engine só (v0.5)**, só observáveis "
-    "(sem oráculo/`true_pd`). **NÃO** é estudo de paridade — a paridade v0.5 × main "
+    "(sem oráculo). **NÃO** é estudo de paridade — a paridade v0.5 × main "
     "está pacificada no `ladder_report.ipynb`. Aqui a pergunta é outra: o que um "
     "`RateStage` de conversão (`take_up_rate`, com taxa < 1) faz com o **peso do "
     "swap-in** na carteira nova.\n\n"

@@ -69,7 +69,7 @@ Regra de ouro: **toda métrica sai de `policy.simulate(...).data`** — zero fas
 - **`antifraud_rate`:** média de `passed_antifraud` (~0,90), constante escalar no manifesto.
 - Manifesto (`*_manifest.json`): seed, n, **SHA-256** do parquet, curva take-up por decil,
   taxa de antifraude, corte legacy e o corte challenger (mediana de `score_5`).
-- Cópia `.xlsx` (gabarito) só no 60k. `true_pd` viaja como curiosidade — nunca invariante.
+- Cópia `.xlsx` (gabarito) só no 60k.
 
 ## Invariantes e tolerâncias (declarados em `ladder_common.TOL`, antes de rodar)
 
@@ -148,7 +148,7 @@ cascata.
 - **Corrigir** o bypass divergente do L2 — vira issue própria, com o diff mínimo como corpo.
 - `optimize_cutoffs` segmentado — é a #92.
 - Números históricos do README da main — abandonados (#91).
-- Oráculo `true_pd` — fora do protocolo (não portável); no máximo curiosidade no xlsx.
+- Oráculo sintético — fora do protocolo (não portável); removido do gerador (#76).
 
 ## Referências
 
