@@ -26,6 +26,7 @@ pip install git+https://github.com/matheuspasche/pycreditools.git
 ## 💡 Core Features
 
 - **Credit Policy Simulation**: Design decision funnels composed of multiple stages (bureau hard filters, score cutoff rules, variable take-up rate stages).
+- **Hard-Filter Suggester** (`suggest_hard_filters`): Consultative screening — greedy selection of a hard-filter *set* under an approval budget, ranking declared candidates by bads avoided with full lift traceback.
 - **Automated Risk Clustering**: Group score bands into "Risk Ratings" (A to E) under strict business constraints (monotonicity of default rates, minimum volume per group, and longitudinal safra/vintage stability).
 - **Monotonic Sorting Kernel**: (New!) Ensures ratings for single-score setups are strictly contiguous and ordered, preventing score overlaps or inversions (higher scores always mapped to better or equal ratings).
 - **Longitudinal Stability**: The Ward linkage engine calculates and enforces vintage risk separation over multiple periods of observation.
@@ -45,7 +46,22 @@ This section demonstrates the real-world usage of the library to simulate and va
 The complete execution and validation flow is available in [tutorial_masterclass.ipynb](src/pycreditools/examples/tutorial_masterclass.ipynb).
 
 ### 1. Modeling the Approval Funnel (Bureau + Entry Rules)
-We apply the new entry hard filters and include the active score cutoff for direct comparison of the cumulative funnel over the applicant base:
+Before wiring the funnel, a **consultative** pass ranks candidate bureau shields by bads avoided and greedily selects a set under an approval budget — advisory, never an automated decision:
+
+```python
+from pycreditools import suggest_hard_filters
+
+hf = suggest_hard_filters(
+    df,
+    bad_col="actual_default",
+    directions={"vl_negativacao": "lte", "vl_vencido_scr": "lte", "vl_protestos": "lte"},
+    hf_approval_floor=0.50,   # keep at least 50% approvable — leave the score its room
+    lift_min=1.3,
+)
+hf.rule_set   # suggested shields, in selection order, with lift + bads_rejected traceback
+```
+
+We then apply the entry hard filters and include the active score cutoff for direct comparison of the cumulative funnel over the applicant base:
 
 ```python
 import pandas as pd
@@ -118,7 +134,7 @@ def politica_loja(df_in):
 policy_final = (
     policy_hf
     .filter("Score Regionalizado Flat PD", politica_loja)
-    .rate("Propensão de Contrato", base_rate=1.0, variable="take_up_rate")
+    .rate("Propensão de Contrato", base_rate=1.0, observed_col="hired", calibrate_by="score")
 )
 ```
 
@@ -186,20 +202,20 @@ The policy transition changes portfolio composition. We evaluate the observed pe
 > [!NOTE]
 > For **Swap Ins** simulation (Magnum), we use an **Angled Aggravation** strategy to conservatively price adverse selection. Stress is applied incrementally by risk Rating (from best to worst), penalizing riskier ratings more heavily:
 > - **Rating A**: 1.20x (+20% stress)
-> - **Rating B**: 1.30x (+30% stress)
-> - **Rating C**: 1.40x (+40% stress)
-> - **Rating D**: 1.40x (+40% stress)
-> - **Rating E**: 1.50x (+50% stress)
+> - **Rating B**: 1.20x (+20% stress)
+> - **Rating C**: 1.30x (+30% stress)
+> - **Rating D**: 1.30x (+30% stress)
+> - **Rating E**: 1.40x (+40% stress)
 
 Here is the code snippet where we define and apply this angled aggravation by risk Rating using the `CustomStress` class:
 
 ```python
 from pycreditools import CustomStress
 
-# Angled Swap In Aggravation (A=1.2x to E=1.50x)
+# Angled Swap In Aggravation (A=1.2x to E=1.40x)
 def angulado(df_swap, pd_col):
-    mapa = {"A": 1.20, "B": 1.30, "C": 1.40, "D": 1.40, "E": 1.50}
-    fator = df_swap["Rating"].map(mapa).fillna(1.4)
+    mapa = {"A": 1.20, "B": 1.20, "C": 1.30, "D": 1.30, "E": 1.40}
+    fator = df_swap["Rating"].map(mapa).fillna(1.3)
     return (df_swap[pd_col] * fator).clip(0, 1)
 
 policy_magnum = (
@@ -214,7 +230,7 @@ policy_magnum = (
 The new structured policy achieves a highly balanced result for expected P&L:
 1. **Healthy Acquisition**: With a far superior predictive engine (Score 5), we approve lower-risk applicants. By calibrating the conversion/take-up rate to reflect actual customer appetite (ranging from **41%** for the best scores to **95%** for the lowest), we mitigate adverse selection.
 2. **Efficient Swap**: We successfully swap high-risk legacy customers (**Swap Out** with **14.33%** default rate) for qualified new customers (**Swap In** with an expected default rate of **10.11%**, even under a rigorous angled stress scenario).
-3. **Win-Win Effect**: The final simulation demonstrates that we reduce the overall default rate from **7.18% to 5.94%** (a **-17.3%** reduction in total risk under angled stress) while expected contract volume remains solid at **92,071** (compared to 94,675 legacy, a small planned reduction of **-2.8%** to ensure operational resilience).
+3. **Win-Win Effect**: The final simulation demonstrates that we reduce the overall default rate from **7.19% to 5.94%** (a **-17.4%** reduction in total risk under angled stress) while expected contract volume remains solid at **92,071** (compared to 94,675 legacy, a small planned reduction of **-2.8%** to ensure operational resilience).
 
 ---
 
@@ -224,7 +240,7 @@ The consolidated comparison between the policies proves the success of the new s
 | Metric | Legacy Policy | New Policy (Flat PD) | Absolute Delta | Relative Delta |
 | :--- | :---: | :---: | :---: | :---: |
 | **Global Approval (% ToF)** | 20.47% | **20.50%** | **+0.02%** | **+0.1%** |
-| **Hired Default Rate (P&L)** | 7.18% | **5.94%** | **-1.24%** | **-17.3%** |
+| **Hired Default Rate (P&L)** | 7.19% | **5.94%** | **-1.25%** | **-17.4%** |
 | **Expected Hired Volume** | 94,675 | **92,071** | **-2,604** | **-2.8%** |
 
 ---
@@ -234,7 +250,7 @@ Since Swap In performance is simulated, we perform a stress test by varying the 
 
 ![Crash Test](images/crash_test.png)
 
-*The **breakeven point is reached at 2.25x**. This means the actual Swap In default rate would have to be **2.25 times higher** than estimated by the model (even after angled stress) to match the legacy loss of **7.18%**. This 125% resilience buffer proves the safety and robustness of the new regional Flat PD policy.*
+*The **breakeven point is reached at 2.00x**. This means the actual Swap In default rate would have to be **2.00 times higher** than estimated by the model (even after angled stress) to match the legacy loss of **7.19%**. This 100% resilience buffer proves the safety and robustness of the new regional Flat PD policy.*
 
 ---
 
