@@ -178,7 +178,11 @@ def test_aggregate_segment_kpis_equals_the_combined_population_outcome(
     aggregate = aggregate_segment_kpis(sims)
 
     combined = pd.concat([sim.data for sim in sims.values()], ignore_index=True)
-    expected_approval_rate = float(combined["new_approval"].mean())
+    # approval_rate is pre-take-up (approved_pre_rate); contracted_volume is the
+    # hire-weighted new_approval. These diverge once the keep-in is weighted by its
+    # observed hire instead of a blanket 1.0 (ADR 0011) — the old test conflated
+    # them because the 1.0 bypass made approval == contract.
+    expected_approval_rate = float(combined["approved_pre_rate"].mean())
     expected_volume = float(combined["new_approval"].sum())
 
     assert aggregate["approval_rate"] == pytest.approx(expected_approval_rate)

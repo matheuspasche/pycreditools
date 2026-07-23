@@ -331,6 +331,66 @@ class CreditSimResults:
         return df[simple_cols].copy()
 
 
+def _has_observed_col_stage(policy: CreditPolicy) -> bool:
+    """True if any RateStage sources the keep-in take-up from an observed column.
+
+    This is the legacy take-up declaration that predates ``current_hired_col``
+    (ADR 0011). It keeps a book valid during the deprecation window.
+    """
+    return any(
+        isinstance(s, RateStage) and getattr(s, "observed_col", None) is not None
+        for s in policy.stages
+    )
+
+
+def _apply_keep_in_hire_weight(df: pd.DataFrame, policy: CreditPolicy) -> None:
+    """Weight the keep-in contract by observed hire, in place (ADR 0011).
+
+    keep-in ``new_approval`` := ``approved_pre_rate`` (survived the hard stages)
+    × ``current_hired_col`` (observed 0/1). A modeled rate stage never re-gates a
+    keep-in; its take-up is observed data, read here by the core.
+
+    Rollout note (#103): the hard error the ADR mandates for an *undeclared*
+    take-up is staged. While call sites migrate, an undeclared keep-in book emits
+    a ``DeprecationWarning`` and keeps the legacy 1.0 pass-through. A follow-up
+    flips the warning to a ``ValueError`` once the sites set ``current_hired_col``.
+    """
+    approval_col = policy.current_approval_col
+    if approval_col is None or approval_col not in df.columns:
+        return
+
+    keep_in_mask = df[approval_col] == 1
+    if not keep_in_mask.any():
+        return
+
+    if policy.current_hired_col is not None:
+        hired_raw = df.loc[keep_in_mask, policy.current_hired_col]
+        non_null = hired_raw.dropna()
+        if not non_null.isin([0, 1]).all():
+            bad = sorted(set(non_null[~non_null.isin([0, 1])].unique()))
+            raise ValueError(
+                f"current_hired_col '{policy.current_hired_col}' must be 0/1 over the "
+                f"keep-in population (NaN = not hired is allowed); found {bad}. It is an "
+                f"observed contract flag, not a rate — a fractional value would silently "
+                f"mis-weight the keep-in default (ADR 0011)."
+            )
+        hired = df[policy.current_hired_col].fillna(0.0).astype(float)
+        df.loc[keep_in_mask, "new_approval"] = (
+            df.loc[keep_in_mask, "approved_pre_rate"].astype(float)
+            * hired.loc[keep_in_mask]
+        )
+    elif not _has_observed_col_stage(policy):
+        warnings.warn(
+            "Book has keep-ins (current_approval_col == 1) but no declared "
+            "observed take-up: set current_hired_col so the keep-in contract is "
+            "weighted by its real hire (ADR 0011). The engine is assuming a full "
+            "1.0 hire, which dilutes the default rate with approved-but-never-hired "
+            "keep-ins. This will become a hard error in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+
 def run_simulation(
     data: pd.DataFrame,
     policy: CreditPolicy,
@@ -394,6 +454,14 @@ def run_simulation(
     del df["pass_prob_funnel"]
     if "pass_prob_pre_rate" in df.columns:
         del df["pass_prob_pre_rate"]
+
+    # ADR 0011: the keep-in contract weight is its OBSERVED hire, not a silent
+    # 1.0. A keep-in that survives the new policy's hard stages
+    # (approved_pre_rate) is weighted by current_hired_col (0/1); an
+    # approved-but-never-hired keep-in gets weight 0, so it leaves BOTH sides of
+    # the default-rate ratio. This realizes #101 (contract status lives in
+    # new_approval) and amends ADR 0010 #94 ("passes at 1.0").
+    _apply_keep_in_hire_weight(df, policy)
 
     if policy.current_approval_col is None:
         # Standalone Simulation

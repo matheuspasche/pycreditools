@@ -288,7 +288,10 @@ def test_policy_vintage_comparison_tracks_candidate_and_base_per_vintage(sample_
 
     for period, group in sim.data.groupby(roles.time_col):
         candidate_row = table[(table[roles.time_col] == period) & (table["series"] == "candidate")]
-        expected_approval = float(group["new_approval"].mean())
+        # Candidate approval_rate is pre-take-up (approved_pre_rate), not the
+        # hire-weighted new_approval — the two split once the keep-in carries its
+        # observed hire instead of a blanket 1.0 (ADR 0011).
+        expected_approval = float(group["approved_pre_rate"].mean())
         assert candidate_row["approval_rate"].iloc[0] == pytest.approx(expected_approval)
 
         base_row = table[(table[roles.time_col] == period) & (table["series"] == "base")]

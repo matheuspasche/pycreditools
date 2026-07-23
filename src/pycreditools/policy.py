@@ -171,6 +171,8 @@ class CreditPolicy:
             required_cols.append(self.actual_default_col)
         if self.estimated_default_col is not None:
             required_cols.append(self.estimated_default_col)
+        if self.current_hired_col is not None:
+            required_cols.append(self.current_hired_col)
 
         # Add columns from stages
         from .expressions import Expression
