@@ -6,6 +6,7 @@ Acceptance criteria:
   (c) two chained rate stages compose multiplicatively on the funnel.
   (d) angled_rate_variable respects lte direction (issue #47).
   (e) angled rate row representation is clean/serializable (issue #47).
+  (f) approval/take-up boundary is by stage type, not position (ADR 0008, #69).
 """
 
 import dataclasses
@@ -218,6 +219,107 @@ def test_make_angled_rate_row_lte_direction(roles):
     )
     assert row["_angled_direction"] == "lte"
     assert row["type"] == "rate"
+
+
+# ---------------------------------------------------------------------------
+# (f) approval/take-up boundary is by stage type, not position — ADR 0008
+#     amended by issue #69
+# ---------------------------------------------------------------------------
+
+
+def test_rate_stage_position_does_not_change_the_metrics(sample_df, roles):
+    """A RateStage before vs after a cutoff yields identical approval/take-up KPIs.
+
+    ADR 0008 (amended #69): the boundary is by stage type, not position.
+    Reordering stages must not silently change what either metric means.
+    """
+    from pycreditools.studio.analyses import policy_kpis
+
+    subset = population_filter(sample_df, roles, "Todos")
+    score_col = roles.score_cols[-1]
+    cutoff_val = float(subset[score_col].quantile(0.5))
+
+    cutoff_row = make_cutoff_row(name="Corte", cutoffs={score_col: cutoff_val})
+    rate_row = make_rate_row(name="Anti-fraude", base_rate=0.7)
+
+    rate_after = build_policy(roles, [cutoff_row, rate_row]).simulate(
+        subset, method="analytical"
+    )
+    rate_before = build_policy(roles, [rate_row, cutoff_row]).simulate(
+        subset, method="analytical"
+    )
+
+    kpis_after = policy_kpis(rate_after)
+    kpis_before = policy_kpis(rate_before)
+
+    assert kpis_before["approval_rate"] == pytest.approx(kpis_after["approval_rate"])
+    assert kpis_before["take_up_rate"] == pytest.approx(kpis_after["take_up_rate"])
+    assert kpis_before["contracted_volume"] == pytest.approx(
+        kpis_after["contracted_volume"]
+    )
+
+
+def test_rate_stage_before_cutoff_is_take_up_not_approval(sample_df, roles):
+    """A RateStage declared before a cutoff counts as take-up, never as approval.
+
+    ADR 0008 amended by #69: `approval_rate` = deterministic-rule survivors only.
+    The rate stage must NOT inflate/deflate approval just because it sits first;
+    it must show up in `take_up_rate` instead.
+    """
+    from pycreditools.studio.analyses import policy_kpis
+
+    subset = population_filter(sample_df, roles, "Todos")
+    score_col = roles.score_cols[-1]
+    cutoff_val = float(subset[score_col].quantile(0.5))
+
+    cutoff_row = make_cutoff_row(name="Corte", cutoffs={score_col: cutoff_val})
+    rate_row = make_rate_row(name="Anti-fraude", base_rate=0.7)
+
+    cutoff_only = build_policy(roles, [cutoff_row]).simulate(subset, method="analytical")
+    rate_before_cutoff = build_policy(roles, [rate_row, cutoff_row]).simulate(
+        subset, method="analytical"
+    )
+
+    kpis_cutoff = policy_kpis(cutoff_only)
+    kpis_rate_first = policy_kpis(rate_before_cutoff)
+
+    # approval_rate is unchanged by the leading rate stage: it measures the rule.
+    assert kpis_rate_first["approval_rate"] == pytest.approx(
+        kpis_cutoff["approval_rate"]
+    )
+    # ...and the rate stage lands in take-up, shrinking contracted below approved.
+    assert kpis_rate_first["take_up_rate"] < 1.0
+    assert kpis_rate_first["contracted_volume"] < kpis_cutoff["contracted_volume"]
+
+
+def test_take_up_rate_is_product_of_all_rate_stages_regardless_of_order(
+    sample_df, roles
+):
+    """`take_up_rate` = product of EVERY RateStage, wherever each sits in the list.
+
+    Guards against a future "the last rate stage" shortcut: two rate stages
+    interleaved around a cutoff must give the same take-up as both stacked after it.
+    """
+    from pycreditools.studio.analyses import policy_kpis
+
+    subset = population_filter(sample_df, roles, "Todos")
+    score_col = roles.score_cols[-1]
+    cutoff_val = float(subset[score_col].quantile(0.5))
+
+    cutoff_row = make_cutoff_row(name="Corte", cutoffs={score_col: cutoff_val})
+    r1 = make_rate_row(name="Anti-fraude", base_rate=0.8)
+    r2 = make_rate_row(name="Aceite", base_rate=0.75)
+
+    interleaved = build_policy(roles, [r1, cutoff_row, r2]).simulate(
+        subset, method="analytical"
+    )
+    both_after = build_policy(roles, [cutoff_row, r1, r2]).simulate(
+        subset, method="analytical"
+    )
+
+    tu_interleaved = policy_kpis(interleaved)["take_up_rate"]
+    tu_after = policy_kpis(both_after)["take_up_rate"]
+    assert tu_interleaved == pytest.approx(tu_after)
 
 
 def test_build_policy_angled_row_with_df_reconstructs_expression(sample_df, roles):

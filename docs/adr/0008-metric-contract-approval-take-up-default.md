@@ -6,7 +6,9 @@
   `analysis.py`, `performance.py`) **and** `studio/`. The "MUST NOT touch the engine"
   constraint of ADR 0001 does **not** apply here (owner decision, wayfinder map #54).
 - **Ticket:** #55 (wayfinder map #54).
-- **Amended by:** ADR 0010, on the **simulation path only** — the bad marker there narrows
+- **Amended by:** #69, which fixes the approval/take-up boundary for policies with
+  more than one `RateStage` — see "Boundary with N rate stages" below. Also amended by
+  ADR 0010, on the **simulation path only** — the bad marker there narrows
   to a 0/1 flag (`market_default_col`), because a modelled PD as a simulation input is
   circular. For **measurement** (#73's `bad_col`) the marker stays loose: any column whose
   mean is the bad rate, with the suggester declaring which one it used. The narrowing
@@ -88,6 +90,43 @@ recorded outcome (see the default-rate bullet below).
 - `delta_table` and `summarize_results` are the reference implementations.
   `summarize_results` already ships `Approved` and `Hired` side by side — that is the
   precedent this vocabulary generalises.
+
+### Boundary with N rate stages (amended by #69)
+
+The original contract was written with a single conversion stage in mind, so
+"approved" vs "contracted" read off cleanly: everything before the take-up stage
+was approval, everything after was take-up. #56/#68 made `RateStage` **generic** —
+one policy may carry several (antifraude, mesa de crédito, formalização,
+contratação), interleaved with the deterministic stages in any order. That leaves
+"who is contracted?" undefined. #69 pins it:
+
+**The boundary is by stage type, not by position.**
+
+- `FilterStage` and `CutoffStage` compose **approval**, wherever they sit.
+  `approval_rate` = survivors of the deterministic rules ÷ total.
+- **Every** `RateStage` composes **take-up**, wherever it sits.
+  `take_up_rate` = product of *all* rate stages = contracted ÷ approved.
+
+So `approval_rate` means, precisely, "passed the deterministic rules" and nothing
+more. A consequence, accepted deliberately: an antifraude `RateStage` declared
+*before* a cutoff counts as take-up, not as approval — the same policy reordered
+does not change what either metric means.
+
+**Rejected alternative — a positional boundary** at the last deterministic stage
+(everything before it = approval, everything after = take-up). Rejected because
+reordering stages would then silently change the meaning of both metrics, which is
+exactly the class of surprise this ADR exists to close.
+
+**This is already what the engine computes** — no metric-surface code changed for
+#69. `simulation.py` builds two funnel columns by stage type, not by position:
+`pass_prob_pre_rate` multiplies **only** the non-`RateStage` stages (→
+`approved_pre_rate`), while `pass_prob_funnel` multiplies **all** stages (→
+`new_approval`). The reference implementations (`delta_table`,
+`summarize_results`, `policy_kpis`) read those two columns, so `take_up_rate =
+new_approval / approved_pre_rate` is the product of every rate stage
+automatically, regardless of order. #69 is the ADR catching up to the code and a
+regression test (`test_take_up_rates.py`) locking the positional-independence
+guarantee against a future "last rate stage" shortcut.
 
 ### Per-surface obligations
 
