@@ -163,12 +163,12 @@ def test_compare_vs_base_shows_full_swap_and_deltas_in_tier_b(sample_df, roles):
 
     assert result["tier"] == "B"
     assert result["base"]["approval_rate"] == pytest.approx(expected_base_approval)
-    assert result["base"]["bad_rate"] == pytest.approx(expected_base_bad)
+    assert result["base"]["default_rate"] == pytest.approx(expected_base_bad)
     assert result["delta"]["approval_rate"] == pytest.approx(
         result["candidate"]["approval_rate"] - expected_base_approval
     )
-    assert result["delta"]["bad_rate"] == pytest.approx(
-        result["candidate"]["bad_rate"] - expected_base_bad
+    assert result["delta"]["default_rate"] == pytest.approx(
+        result["candidate"]["default_rate"] - expected_base_bad
     )
     assert result["quadrants"] is not None
     assert set(result["quadrants"]["scenario"]) == {
@@ -288,7 +288,10 @@ def test_policy_vintage_comparison_tracks_candidate_and_base_per_vintage(sample_
 
     for period, group in sim.data.groupby(roles.time_col):
         candidate_row = table[(table[roles.time_col] == period) & (table["series"] == "candidate")]
-        expected_approval = float(group["new_approval"].mean())
+        # Candidate approval_rate is pre-take-up (approved_pre_rate), not the
+        # hire-weighted new_approval — the two split once the keep-in carries its
+        # observed hire instead of a blanket 1.0 (ADR 0011).
+        expected_approval = float(group["approved_pre_rate"].mean())
         assert candidate_row["approval_rate"].iloc[0] == pytest.approx(expected_approval)
 
         base_row = table[(table[roles.time_col] == period) & (table["series"] == "base")]
@@ -306,7 +309,7 @@ def test_exposure_kpis_is_candidate_only_in_tier_c(sample_df, roles):
 
     candidate = policy_kpis(sim)
     assert result["candidate_bad_volume"] == pytest.approx(
-        candidate["bad_rate"] * candidate["approved_volume"]
+        candidate["default_rate"] * candidate["contracted_volume"]
     )
     assert result["base_bad_volume"] is None
     assert result["delta"] is None
@@ -322,7 +325,7 @@ def test_exposure_kpis_computes_delta_vs_base_in_tier_b(sample_df, roles):
     result = exposure_kpis(sim, tier_b_roles, tier)
 
     candidate = policy_kpis(sim)
-    expected_candidate_volume = candidate["bad_rate"] * candidate["approved_volume"]
+    expected_candidate_volume = candidate["default_rate"] * candidate["contracted_volume"]
     approval_col = sim.data[tier_b_roles.current_approval_col].fillna(0)
     expected_base_bad_rate = float(
         sim.data.loc[approval_col == 1, tier_b_roles.actual_default_col].mean()

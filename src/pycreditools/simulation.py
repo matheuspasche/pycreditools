@@ -7,9 +7,28 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ._kernels import (
+    CalibrationDiagnostics,
+    calibrate_by_score_bins,
+    diagnose_score_bin_calibration,
+)
 from ._types import Quadrant, SimulationMethod
 from .policy import CreditPolicy
-from .stages import RateStage
+from .stages import (
+    RateStage,
+    resolve_calibration_direction,
+    resolve_calibration_score_col,
+)
+
+
+class CalibrationReliabilityWarning(UserWarning):
+    """Raised when a swap-in PD calibration is not measuring what it claims (#72).
+
+    A dedicated category so the Studio can catch it by type (not by matching the
+    message text) and a caller can mute the whole class with one line:
+    ``warnings.filterwarnings("ignore", category=CalibrationReliabilityWarning)``.
+    Advisory only — it never blocks a run.
+    """
 
 
 @dataclass
@@ -127,10 +146,10 @@ class CreditSimResults:
         for _, r in df_funnel.iterrows():
             pass_rate_val = r['Stage_Pass_Rate']
             rej_rate_val = r['Stage_Rej_Rate']
-            
+
             pass_rate_str = "-" if pd.isna(pass_rate_val) else f"{pass_rate_val:.1%}"
             rej_rate_str = "-" if pd.isna(rej_rate_val) else f"{rej_rate_val:.1%}"
-            
+
             print(
                 f"{r['Stage']:<25} {r['Candidates']:>12,}  {r['Passed']:>12,}  "
                 f"{pass_rate_str:>10}  {r['Cum_Pass_Rate']:>10.1%}  "
@@ -312,6 +331,66 @@ class CreditSimResults:
         return df[simple_cols].copy()
 
 
+def _has_observed_col_stage(policy: CreditPolicy) -> bool:
+    """True if any RateStage sources the keep-in take-up from an observed column.
+
+    This is the legacy take-up declaration that predates ``current_hired_col``
+    (ADR 0011). It keeps a book valid during the deprecation window.
+    """
+    return any(
+        isinstance(s, RateStage) and getattr(s, "observed_col", None) is not None
+        for s in policy.stages
+    )
+
+
+def _apply_keep_in_hire_weight(df: pd.DataFrame, policy: CreditPolicy) -> None:
+    """Weight the keep-in contract by observed hire, in place (ADR 0011).
+
+    keep-in ``new_approval`` := ``approved_pre_rate`` (survived the hard stages)
+    × ``current_hired_col`` (observed 0/1). A modeled rate stage never re-gates a
+    keep-in; its take-up is observed data, read here by the core.
+
+    Rollout note (#103): the hard error the ADR mandates for an *undeclared*
+    take-up is staged. While call sites migrate, an undeclared keep-in book emits
+    a ``DeprecationWarning`` and keeps the legacy 1.0 pass-through. A follow-up
+    flips the warning to a ``ValueError`` once the sites set ``current_hired_col``.
+    """
+    approval_col = policy.current_approval_col
+    if approval_col is None or approval_col not in df.columns:
+        return
+
+    keep_in_mask = df[approval_col] == 1
+    if not keep_in_mask.any():
+        return
+
+    if policy.current_hired_col is not None:
+        hired_raw = df.loc[keep_in_mask, policy.current_hired_col]
+        non_null = hired_raw.dropna()
+        if not non_null.isin([0, 1]).all():
+            bad = sorted(set(non_null[~non_null.isin([0, 1])].unique()))
+            raise ValueError(
+                f"current_hired_col '{policy.current_hired_col}' must be 0/1 over the "
+                f"keep-in population (NaN = not hired is allowed); found {bad}. It is an "
+                f"observed contract flag, not a rate — a fractional value would silently "
+                f"mis-weight the keep-in default (ADR 0011)."
+            )
+        hired = df[policy.current_hired_col].fillna(0.0).astype(float)
+        df.loc[keep_in_mask, "new_approval"] = (
+            df.loc[keep_in_mask, "approved_pre_rate"].astype(float)
+            * hired.loc[keep_in_mask]
+        )
+    elif not _has_observed_col_stage(policy):
+        warnings.warn(
+            "Book has keep-ins (current_approval_col == 1) but no declared "
+            "observed take-up: set current_hired_col so the keep-in contract is "
+            "weighted by its real hire (ADR 0011). The engine is assuming a full "
+            "1.0 hire, which dilutes the default rate with approved-but-never-hired "
+            "keep-ins. This will become a hard error in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+
 def run_simulation(
     data: pd.DataFrame,
     policy: CreditPolicy,
@@ -375,6 +454,14 @@ def run_simulation(
     del df["pass_prob_funnel"]
     if "pass_prob_pre_rate" in df.columns:
         del df["pass_prob_pre_rate"]
+
+    # ADR 0011: the keep-in contract weight is its OBSERVED hire, not a silent
+    # 1.0. A keep-in that survives the new policy's hard stages
+    # (approved_pre_rate) is weighted by current_hired_col (0/1); an
+    # approved-but-never-hired keep-in gets weight 0, so it leaves BOTH sides of
+    # the default-rate ratio. This realizes #101 (contract status lives in
+    # new_approval) and amends ADR 0010 #94 ("passes at 1.0").
+    _apply_keep_in_hire_weight(df, policy)
 
     if policy.current_approval_col is None:
         # Standalone Simulation
@@ -502,13 +589,13 @@ def _assign_simulated_defaults_standalone(
     approved_mask = df["new_approval"] > 0
     if approved_mask.any():
         sim_defaults = pd.Series(np.nan, index=df.index)
-        
+
         known_mask = approved_mask & known_outcome.notna()
         unknown_mask = approved_mask & known_outcome.isna()
-        
+
         if known_mask.any():
             sim_defaults.loc[known_mask] = known_outcome.loc[known_mask]
-            
+
         if unknown_mask.any():
             if method == SimulationMethod.STOCHASTIC and use_stochastic_draw:
                 probs = final_probs.loc[unknown_mask]
@@ -519,7 +606,7 @@ def _assign_simulated_defaults_standalone(
                     sim_defaults.loc[not_na_mask[not_na_mask].index] = outcomes
             else:
                 sim_defaults.loc[unknown_mask] = final_probs.loc[unknown_mask]
-                
+
         df["simulated_default"] = sim_defaults
 
     return df
@@ -624,7 +711,7 @@ def _estimate_swap_in_baseline_pd(
             keep_in_ratings = ratings.loc[keep_ins_mask]
             keep_in_defaults = df.loc[keep_ins_mask, actual_default_col]
             rating_pd = keep_in_defaults.groupby(keep_in_ratings).mean().fillna(global_pd)
-            
+
             swap_in_ratings = ratings.loc[swap_ins.index]
             baseline = swap_in_ratings.map(rating_pd).fillna(global_pd)
             return pd.Series(baseline.values, index=swap_ins.index).clip(0.0, 1.0)
@@ -633,24 +720,7 @@ def _estimate_swap_in_baseline_pd(
 
     # 2. Score-based decile calibration (fallback)
     # Identify primary score column (explicitly configured, or fallback to active cutoff score, or last score_cols)
-    primary_score = policy.calibration_score_col
-
-    if primary_score is None:
-        from .stages import CutoffStage
-        cutoff_cols = []
-        for stage in policy.stages:
-            if isinstance(stage, CutoffStage):
-                cutoff_cols.extend(stage.cutoffs.keys())
-        for sc in reversed(cutoff_cols):
-            if sc in df.columns:
-                primary_score = sc
-                break
-
-    if primary_score is None and policy.score_cols:
-        for sc in reversed(policy.score_cols):
-            if sc in df.columns:
-                primary_score = sc
-                break
+    primary_score = resolve_calibration_score_col(policy, df)
 
     actual_default_col = policy.actual_default_col
 
@@ -676,48 +746,75 @@ def _estimate_swap_in_baseline_pd(
 
     # Determine bins configuration
     cal_bins = policy.calibration_bins
-    if cal_bins is None:
-        # Default: 10 score bins (deciles). Override via CreditPolicy(calibration_bins=...).
-        n_bins = 10
+    n_bins = 10 if cal_bins is None else cal_bins
+
+    baseline = calibrate_by_score_bins(
+        cal_scores=keep_in_scores,
+        cal_values=keep_in_defaults,
+        ref_scores=reference_scores,
+        target_scores=swap_ins[primary_score],
+        bins=n_bins,
+        global_fallback=global_pd,
+    )
+
+    diag = diagnose_score_bin_calibration(
+        cal_scores=keep_in_scores,
+        cal_values=keep_in_defaults,
+        ref_scores=reference_scores,
+        target_scores=swap_ins[primary_score],
+        bins=n_bins,
+        direction=resolve_calibration_direction(policy, primary_score),
+    )
+    _emit_calibration_warnings(diag, using_default_bins=cal_bins is None)
+
+    return baseline.clip(0.0, 1.0)
+
+
+def _emit_calibration_warnings(
+    diag: CalibrationDiagnostics, *, using_default_bins: bool
+) -> None:
+    """Surface the two ways swap-in PD imputation silently lies (#72).
+
+    One concept — "this calibration is not measuring what it claims" — with two
+    triggers, each with its own remediation, both raised under
+    :class:`CalibrationReliabilityWarning` so the Studio can catch them by
+    category and a user can mute them with a single ``filterwarnings``.
+
+    Scope is the **PD path only** (see ADR 0010's correction note): the shared
+    ``calibrate_by_score_bins`` primitive is value-agnostic, and only this caller
+    knows it is calibrating risk — so detection lives here, not in the primitive.
+    """
+    no_overlap = diag.no_overlap_fraction > 0.05
+
+    if diag.n_inversions >= 1:
+        warnings.warn(
+            f"Swap-in PD calibration is unreliable: {diag.n_inversions} adjacent "
+            "score bin(s) invert — PD moves against the score's declared "
+            "direction, so lowering a gate can read as reducing default rate. "
+            "Reduce CreditPolicy(calibration_bins=...), or calibrate by rating "
+            "via calibration_score_col.",
+            CalibrationReliabilityWarning,
+            stacklevel=3,
+        )
+
+    if no_overlap:
+        pct = diag.no_overlap_fraction * 100
+        warnings.warn(
+            f"Swap-in PD calibration is unreliable: {pct:.0f}% of swap-ins score "
+            "outside the keep-ins' observed range, so their imputed PD is "
+            "edge-clamp extrapolation, not measurement. No bin count fixes this "
+            "— the score range has no observed defaults to measure. Pass an "
+            "estimated_default_col with a model PD.",
+            CalibrationReliabilityWarning,
+            stacklevel=3,
+        )
+
+    # The default-bins granularity nudge only helps when bins are the lever. When
+    # no-overlap fires, bins are moot ("no bin count fixes this") — suppress it so
+    # the two do not read contradictorily on the same run (#72).
+    if using_default_bins and not no_overlap:
         warnings.warn(
             "Swap-in PD imputation is using the default of 10 score bins (deciles). "
             "Pass CreditPolicy(calibration_bins=...) to set a different granularity.",
-            stacklevel=2,
+            stacklevel=3,
         )
-    else:
-        n_bins = cal_bins
-
-    try:
-        if isinstance(n_bins, int):
-            _, bin_edges = pd.qcut(reference_scores, q=n_bins, retbins=True, duplicates="drop")
-            # Extend edges slightly so that out-of-range values are clipped to nearest bin
-            bin_edges[0] = -np.inf
-            bin_edges[-1] = np.inf
-        else:
-            # It's a sequence of bin edges (list or tuple or numpy array)
-            # Ensure outer boundaries are infinite to handle out of bounds values
-            edges = list(n_bins)
-            if edges[0] > -np.inf:
-                edges.insert(0, -np.inf)
-            if edges[-1] < np.inf:
-                edges.append(np.inf)
-            bin_edges = np.array(edges)
-
-        keep_in_bins = pd.cut(keep_in_scores, bins=bin_edges, labels=False, include_lowest=True)
-        # Group defaults by score bin
-        bin_pd = keep_in_defaults.groupby(keep_in_bins).mean()
-
-        # Ensure all bin indices are represented in the mapping (fill missing ones with global_pd)
-        all_bin_indices = range(len(bin_edges) - 1)
-        bin_pd = bin_pd.reindex(all_bin_indices).fillna(global_pd)
-
-        swap_in_bins = pd.cut(
-            swap_ins[primary_score], bins=bin_edges, labels=False, include_lowest=True
-        )
-        baseline = swap_in_bins.map(bin_pd)
-        # Any remaining NaN → global_pd
-        baseline = baseline.fillna(global_pd)
-    except Exception:
-        baseline = pd.Series(global_pd, index=swap_ins.index)
-
-    return pd.Series(baseline.values, index=swap_ins.index).clip(0.0, 1.0)

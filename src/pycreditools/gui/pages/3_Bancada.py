@@ -146,17 +146,25 @@ def _render_live_funnel() -> None:
         return
 
     state.last_sim = sim
+    for _msg in sim.metadata.get("calibration_warnings", []):
+        st.warning(_msg)
     funnel_df = sim.to_funnel_dataframe()
     kpis = policy_kpis(sim)
     survivors = survivor_population(sim)
 
     kpi_items = [
         {"label": "Taxa de aprovação", "value": tables.pct(kpis["approval_rate"])},
-        {"label": "Volume aprovado", "value": tables.thousands(kpis["approved_volume"])},
     ]
-    if kpis["bad_rate"] is not None:
+    if kpis["take_up_rate"] is not None:
         kpi_items.append(
-            {"label": "Inadimplência simulada", "value": tables.pct(kpis["bad_rate"])}
+            {"label": "Taxa de contratação", "value": tables.pct(kpis["take_up_rate"])}
+        )
+    kpi_items.append(
+        {"label": "Volume contratado", "value": tables.thousands(kpis["contracted_volume"])}
+    )
+    if kpis["default_rate"] is not None:
+        kpi_items.append(
+            {"label": "Inadimplência simulada", "value": tables.pct(kpis["default_rate"])}
         )
     kpi.kpi_row(kpi_items)
     st.caption(
@@ -236,6 +244,11 @@ def _render_segmentation(subset: pd.DataFrame) -> None:
         st.error(f"Não foi possível simular a segmentação: {exc}")
         return
 
+    for _msg in dict.fromkeys(
+        m for s in sims.values() for m in s.metadata.get("calibration_warnings", [])
+    ):
+        st.warning(_msg)
+
     aggregate = aggregate_funnel([s.to_funnel_dataframe() for s in sims.values()])
     aggregate_kpis = aggregate_segment_kpis(sims)
     kpi_items = [
@@ -243,16 +256,25 @@ def _render_segmentation(subset: pd.DataFrame) -> None:
             "label": "Taxa de aprovação (agregada)",
             "value": tables.pct(aggregate_kpis["approval_rate"]),
         },
-        {
-            "label": "Volume aprovado (agregado)",
-            "value": tables.thousands(aggregate_kpis["approved_volume"]),
-        },
     ]
-    if aggregate_kpis["bad_rate"] is not None:
+    if aggregate_kpis["take_up_rate"] is not None:
+        kpi_items.append(
+            {
+                "label": "Taxa de contratação (agregada)",
+                "value": tables.pct(aggregate_kpis["take_up_rate"]),
+            }
+        )
+    kpi_items.append(
+        {
+            "label": "Volume contratado (agregado)",
+            "value": tables.thousands(aggregate_kpis["contracted_volume"]),
+        }
+    )
+    if aggregate_kpis["default_rate"] is not None:
         kpi_items.append(
             {
                 "label": "Inadimplência simulada (agregada)",
-                "value": tables.pct(aggregate_kpis["bad_rate"]),
+                "value": tables.pct(aggregate_kpis["default_rate"]),
             }
         )
     kpi.kpi_row(kpi_items)
@@ -267,7 +289,9 @@ def _render_segmentation(subset: pd.DataFrame) -> None:
         )
     with tab_table:
         breakout = segment_kpi_table(sims)
-        tables.dataframe(breakout, percent_cols=("approval_rate", "bad_rate"))
+        tables.dataframe(
+            breakout, percent_cols=("approval_rate", "take_up_rate", "default_rate")
+        )
 
 
 def _render_dragcutoff_tradeoff(subset: pd.DataFrame, population: str) -> None:
@@ -435,7 +459,7 @@ def _render_depth_section(
                 vintage,
                 time_col=roles.time_col,
                 rating_col="series",
-                rate_col="bad_rate",
+                rate_col="default_rate",
                 oot_date=roles.oot_date,
             ),
             use_container_width=True,
@@ -496,16 +520,25 @@ def _render_comparison_vs_base(sim, subset: pd.DataFrame, population: str) -> No
             higher_is_good=True,
         )
     ]
-    if candidate["bad_rate"] is not None and base["bad_rate"] is not None:
+    if candidate["default_rate"] is not None and base["default_rate"] is not None:
         delta_items.append(
             _delta_kpi(
                 "Inadimplência",
-                candidate["bad_rate"],
-                delta["bad_rate"],
+                candidate["default_rate"],
+                delta["default_rate"],
                 fmt=tables.pct,
                 higher_is_good=False,
             )
         )
+    # Candidate-only figures: no delta — the base is a decision column and does not know
+    # who contracted (ADR 0008).
+    if candidate["take_up_rate"] is not None:
+        delta_items.append(
+            {"label": "Taxa de contratação", "value": tables.pct(candidate["take_up_rate"])}
+        )
+    delta_items.append(
+        {"label": "Volume contratado", "value": tables.thousands(candidate["contracted_volume"])}
+    )
     kpi.kpi_row(delta_items)
 
     quad = comparison["quadrants"]
@@ -520,7 +553,7 @@ def _render_comparison_vs_base(sim, subset: pd.DataFrame, population: str) -> No
         tables.dataframe(quad, percent_cols=("Bad_Rate",))
 
     _render_depth_section(sim, tier, comparison=comparison)
-    _render_aggravation_game(subset, population, base["bad_rate"])
+    _render_aggravation_game(subset, population, base["default_rate"])
 
 
 with funnel_col:

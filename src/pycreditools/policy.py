@@ -112,10 +112,19 @@ class CreditPolicy:
         base_rate: float,
         variable: str | float | None = None,
         calibrate: bool = False,
+        observed_col: str | None = None,
+        calibrate_by: str | None = "score",
     ) -> CreditPolicy:
         """Add a RateStage to the policy."""
         return self.add_stage(
-            RateStage(name=name, base_rate=base_rate, variable=variable, calibrate=calibrate)
+            RateStage(
+                name=name,
+                base_rate=base_rate,
+                variable=variable,
+                calibrate=calibrate,
+                observed_col=observed_col,
+                calibrate_by=calibrate_by,
+            )
         )
 
     def stress_aggravation(self, factor: float) -> CreditPolicy:
@@ -162,6 +171,8 @@ class CreditPolicy:
             required_cols.append(self.actual_default_col)
         if self.estimated_default_col is not None:
             required_cols.append(self.estimated_default_col)
+        if self.current_hired_col is not None:
+            required_cols.append(self.current_hired_col)
 
         # Add columns from stages
         from .expressions import Expression

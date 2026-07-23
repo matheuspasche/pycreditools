@@ -154,18 +154,34 @@ class TestOptimizationApprovedPreRate:
 # ── 3. simulation.py — fixed 10-bin default calibration with warning ────
 
 class TestCalibrationBinsDefault:
-    def test_default_bins_emits_warning(self, sample_df):
-        """When calibration_bins is None, simulation should warn about 10-bin default."""
+    def test_default_bins_emits_warning(self):
+        """When calibration_bins is None, simulation warns about the 10-bin default.
+
+        Uses an overlap-rich base (swap-ins inside the keep-in score range) so the
+        #72 no-overlap warning stays silent — otherwise the granularity nudge is
+        deliberately suppressed, since bins are moot when there is no overlap.
+        """
+        import numpy as np
+
+        score = np.tile(np.arange(600, 900), 2)
+        df = pd.DataFrame(
+            {
+                "applicant_id": np.arange(len(score)),
+                "score": score,
+                "approved": np.tile([1, 0], len(score) // 2),  # independent of score
+                "actual_default": (score < 750).astype(float),
+            }
+        )
         policy = CreditPolicy(
             applicant_id_col="applicant_id",
-            score_cols=("legacy_score",),
+            score_cols=("score",),
             current_approval_col="approved",
             actual_default_col="actual_default",
-        ).cutoff("Score Cut", {"legacy_score": 700})
+        ).cutoff("Score Cut", {"score": 500})
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            run_simulation(sample_df, policy, method="analytical")
+            run_simulation(df, policy, method="analytical")
             calibration_warnings = [
                 x for x in w
                 if "10 score bins (deciles)" in str(x.message)

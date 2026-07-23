@@ -7,7 +7,13 @@ from ._types import ClusteringMethod, PolicySummary, Quadrant, SimulationMethod,
 from .analysis import TradeoffAnalyzer, run_tradeoff_analysis
 from .deployment import DeploymentPolicy
 from .expressions import Expression, col
-from .grouping import GroupingRecipe, RiskGroupResult, fit_risk_groups, fit_pairwise_risk_groups, find_risk_groups
+from .grouping import (
+    GroupingRecipe,
+    RiskGroupResult,
+    find_risk_groups,
+    fit_pairwise_risk_groups,
+    fit_risk_groups,
+)
 from .optimization import (
     OptimizationResult,
     optimize_cutoffs,
@@ -22,18 +28,33 @@ from .performance import (
     summarize_results,
 )
 from .policy import CreditPolicy
-from .sample_data import generate_sample_data
-from .screening import ScreeningRecipe, ScreeningResult, fit_risk_segments, screen_risk_segments
-from .simulation import CreditSimResults, run_simulation
+from .sample_data import (
+    LEGACY_APPROVAL_QUANTILE,
+    generate_sample_data,
+    generate_standalone_sample_data,
+)
+from .screening import (
+    HardFilterSuggestion,
+    ScreeningRecipe,
+    ScreeningResult,
+    fit_risk_segments,
+    screen_risk_segments,
+    suggest_hard_filters,
+)
+from .simulation import (
+    CalibrationReliabilityWarning,
+    CreditSimResults,
+    run_simulation,
+)
 from .stages import CutoffStage, FilterStage, RateStage, Stage, register_callable
 from .stress import AggravationStress, CustomStress, MonotonicStress, StressScenario
 from .visualization import (
     plot_crash_test,
+    plot_funnel,
+    plot_optimization,
     plot_tradeoffs,
     plot_vintage_stability,
-    plot_optimization,
     visualize_tradeoffs,
-    plot_funnel,
 )
 
 __all__ = [
@@ -54,6 +75,7 @@ __all__ = [
     "CreditPolicy",
     "CreditSimResults",
     "run_simulation",
+    "CalibrationReliabilityWarning",
     "DeploymentPolicy",
     "summarize_results",
     "compare_policies",
@@ -72,9 +94,13 @@ __all__ = [
     "fit_pairwise_risk_groups",
     "fit_risk_segments",
     "screen_risk_segments",
+    "suggest_hard_filters",
+    "HardFilterSuggestion",
     "ScreeningResult",
     "ScreeningRecipe",
     "generate_sample_data",
+    "generate_standalone_sample_data",
+    "LEGACY_APPROVAL_QUANTILE",
     "col",
     "Expression",
     "TradeoffAnalyzer",
