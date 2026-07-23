@@ -28,8 +28,10 @@ a mask).
 - **`approved_pre_rate`** — passed all filter/cutoff stages, **before** any take-up/rate
   stage. The underwriting decision. Drives the **approval rate**.
 - **take-up rate** — conversion from approved to contracted. Applies to swap-ins (drawn /
-  weighted by the rate). Keep-in take-up is **observed, not drawn** — sourced from what the
-  data records (`observed_col`); absent a record, its contribution is taken as given.
+  weighted by the rate). Keep-in take-up is **observed, not drawn** — sourced from
+  `current_hired_col`, read by the core (ADR 0011). An approved-but-never-hired keep-in gets
+  contract weight `0`. Absent a declared take-up the engine still warns and falls back to the
+  legacy `1.0` (a `DeprecationWarning`); it becomes a hard error in a follow-up (#106).
 - **`new_approval`** — the **contract weight**, a float in `[0, 1]` (stochastic emits
   exactly `0.0`/`1.0`). This is *contracted*, not *approved*. Drives **contracted volume**
   (`Hired`) and the **default-rate denominator**.
