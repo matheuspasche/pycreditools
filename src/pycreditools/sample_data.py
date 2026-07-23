@@ -124,7 +124,7 @@ def _score_ladder(
 
     `c_noise` is shared across all scores, so the models correlate with each other the
     way real challenger models correlate with the incumbent. The per-score independent
-    noise is calibrated to land legacy KS ~25% and `score_5` KS ~31%.
+    noise is calibrated to land legacy KS ~25% and `score_5` KS ~33%.
     """
     n = len(df)
     s = -y
@@ -139,7 +139,7 @@ def _score_ladder(
         "score_2": 1.25,
         "score_3": 1.10,
         "score_4": 0.95,
-        "score_5": 0.80,
+        "score_5": 0.70,
     }.items():
         latent = s + c_noise + rng.normal(0, noise_std, n)
         z = (latent - latent.mean()) / latent.std()
