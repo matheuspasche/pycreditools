@@ -113,6 +113,5 @@ if __name__ == "__main__":
     print(f"  manifest         -> {manifest_path}")
 
     if args.xlsx:
-        # true_pd rides along as a curiosity column only (never an invariant).
         df.to_excel(args.xlsx, index=False)
         print(f"  xlsx gabarito    -> {args.xlsx}")

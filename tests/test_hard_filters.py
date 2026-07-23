@@ -189,13 +189,15 @@ def test_zero_inflated_column_produces_candidates(incumbent: pd.DataFrame) -> No
 def test_continuous_bad_col_same_table_shape() -> None:
     """A continuous PD bad_col yields the same table shape as a 0/1 flag."""
     df = generate_standalone_sample_data(n_applicants=20_000, seed=42)
+    # Any continuous [0,1] column exercises the branch; a synthetic PD proxy will do.
+    df = df.assign(model_pd=1.0 - df["score_5"] / 1000.0)
     directions = {"vl_negativacao": "lte", "vl_protestos": "lte"}
 
     flag = _suggest(
         df, bad_col="actual_default", directions=directions, hf_approval_floor=0.40
     )
     pd_col = _suggest(
-        df, bad_col="true_pd", directions=directions, hf_approval_floor=0.40
+        df, bad_col="model_pd", directions=directions, hf_approval_floor=0.40
     )
     assert list(flag.table.columns) == list(pd_col.table.columns)
     assert not pd_col.table.empty

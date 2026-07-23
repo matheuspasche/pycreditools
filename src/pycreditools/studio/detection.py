@@ -17,7 +17,7 @@ _DEFAULT_NAMES = {"actual_default", "default", "target", "bad", "inadimplente"}
 _HIRED_NAMES = {"hired", "contratou", "contracted"}
 _TIME_NAMES = {"safra", "vintage", "date", "mes"}
 _SEGMENT_NAMES = {"region", "loja", "segment", "uf"}
-_ESTIMATED_NAMES = {"estimated_default", "pd", "true_pd", "est_pd"}
+_ESTIMATED_NAMES = {"estimated_default", "pd", "est_pd"}
 
 _SAFRA_PATTERN = re.compile(r"^\d{4}-\d{2}$")
 

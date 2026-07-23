@@ -21,7 +21,7 @@ def test_detect_roles_on_sample_data(sample_df):
     assert roles.current_hired_col == "hired"
     assert roles.time_col == "safra"
     assert roles.segment_col == "region"
-    assert roles.estimated_default_col == "true_pd"
+    assert roles.estimated_default_col is None
     assert roles.oot_date == "2025-01"
 
 

@@ -146,9 +146,10 @@ def test_session_aggravation_game_matches_the_studio_analyses_wrapper_directly(s
 
 def test_aggravation_game_with_estimated_pd_produces_non_flat_curve(sample_df, roles):
     """When estimated_default_col is set the curve must respond to the factor (#49)."""
-    assert roles.estimated_default_col is not None, "fixture must have estimated_default_col set"
-    subset = population_filter(sample_df, roles, "Todos").head(1000)
-    policy = build_policy(roles, v14_quickfill_rows(subset.columns))
+    est_df = sample_df.assign(model_pd=1.0 - sample_df["score_5"] / 1000.0)
+    est_roles = dataclasses.replace(roles, estimated_default_col="model_pd")
+    subset = population_filter(est_df, est_roles, "Todos").head(1000)
+    policy = build_policy(est_roles, v14_quickfill_rows(subset.columns))
 
     result = analyses.aggravation_game(subset, policy, current_factor=1.0, base_bad_rate=None)
 
@@ -160,9 +161,10 @@ def test_aggravation_game_with_estimated_pd_produces_non_flat_curve(sample_df, r
 
 def test_aggravation_game_with_estimated_pd_sets_flag(sample_df, roles):
     """Result must have has_estimated_pd=True when policy uses estimated_default_col (#49)."""
-    assert roles.estimated_default_col is not None
-    subset = population_filter(sample_df, roles, "Todos").head(500)
-    policy = build_policy(roles, v14_quickfill_rows(subset.columns))
+    est_df = sample_df.assign(model_pd=1.0 - sample_df["score_5"] / 1000.0)
+    est_roles = dataclasses.replace(roles, estimated_default_col="model_pd")
+    subset = population_filter(est_df, est_roles, "Todos").head(500)
+    policy = build_policy(est_roles, v14_quickfill_rows(subset.columns))
 
     result = analyses.aggravation_game(subset, policy, current_factor=1.0, base_bad_rate=None)
 

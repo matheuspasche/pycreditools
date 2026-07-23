@@ -139,17 +139,6 @@ def stressed_default(sim_data: pd.DataFrame, factor: float) -> float:
     return _assert_undiluted(_wmean(sd, d["new_approval"]), sd, d["new_approval"], f"stressed_default({factor})")
 
 
-def true_default(sim_data: pd.DataFrame) -> float:
-    """Oracle blended default: true_pd weighted by contracted volume."""
-    if "true_pd" not in sim_data.columns:
-        return float("nan")
-    d = sim_data
-    contracted = float(d["new_approval"].sum())
-    if not contracted:
-        return float("nan")
-    return float((d["true_pd"] * d["new_approval"]).sum()) / contracted
-
-
 def quadrant_table(sim_data: pd.DataFrame, actual_default_col: str = "actual_default") -> dict:
     out = {}
     for scen, grp in sim_data.groupby("scenario"):
@@ -159,8 +148,6 @@ def quadrant_table(sim_data: pd.DataFrame, actual_default_col: str = "actual_def
             # sim: masked to the observed book — no-outcome keep-ins carry NaN and
             # must leave both numerator and denominator (#97).
             row["sim"] = _wmean(grp["simulated_default"], grp["new_approval"])
-            if "true_pd" in grp.columns:
-                row["true"] = float((grp["true_pd"] * grp["new_approval"]).sum()) / vol
         actual = grp[actual_default_col]
         if actual.notna().any():
             row["actual"] = float(actual.mean())
@@ -217,7 +204,6 @@ def measure(
     note(msgs)
     inc = kpis(inc_data)
     inc["legacy_contract"] = kpis_legacy_contract(inc_data)
-    inc["default_true"] = true_default(inc_data)
     inc["quadrants"] = quadrant_table(inc_data)
     result["incumbent"] = inc
 
@@ -259,7 +245,6 @@ def measure(
         row = kpis(sim_data)
         row["default_nostress"] = row["default"]
         row["cutoff"] = cut
-        row["default_true"] = true_default(sim_data)
         for f in STRESS_FACTORS[1:]:
             row[f"default_stress_{f}"] = stressed_default(sim_data, f)
         row["default"] = row["default_stress_1.5"]
@@ -300,7 +285,6 @@ def measure(
     champ = kpis(champ_data)
     champ["cutoff"] = iso_appr_cut
     champ["default_nostress"] = champ["default"]
-    champ["default_true"] = true_default(champ_data)
     for f in STRESS_FACTORS[1:]:
         champ[f"default_stress_{f}"] = stressed_default(champ_data, f)
     champ["default"] = champ["default_stress_1.5"]
@@ -326,13 +310,7 @@ def measure(
     si = champ_data[champ_data["scenario"] == "swap_in"]
     w = si["new_approval"]
     baseline = float((si["simulated_default"] * w).sum() / w.sum()) if float(w.sum()) else float("nan")
-    dial = {
-        "swap_in_pd_true": (
-            float((si["true_pd"] * w).sum() / w.sum())
-            if "true_pd" in si.columns and float(w.sum())
-            else float("nan")
-        )
-    }
+    dial = {}
     for f in STRESS_FACTORS:
         dial[f"swap_in_pd_stress_{f}"] = float(np.clip(si["simulated_default"] * f, 0, 1).mul(w).sum() / w.sum()) if float(w.sum()) else float("nan")
     dial["swap_in_pd_imputed"] = baseline
@@ -410,7 +388,6 @@ def measure(
     ff["default_nostress"] = ff["default"]
     ff["default"] = stressed_default(full_data, 1.5)  # stress x1.5 always
     ff["cutoff"] = iso_appr_cut
-    ff["default_true"] = true_default(full_data)
     ff["quadrants"] = quadrant_table(full_data)
     # Conversion gradient: contracted-weighted take-up by score_5 quintile of
     # the approved population — proves the stage discriminates by score.
@@ -470,7 +447,6 @@ def measure(
             opt["resimulated"] = kpis(sim_data)
             opt["resimulated"]["default_nostress"] = opt["resimulated"]["default"]
             opt["resimulated"]["default"] = stressed_default(sim_data, 1.5)
-            opt["resimulated"]["default_true"] = true_default(sim_data)
         result["optimizer_check"] = opt
     except Exception as exc:
         result["optimizer_check"] = {"error": f"{type(exc).__name__}: {exc}"}

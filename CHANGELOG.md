@@ -64,12 +64,21 @@ versions may carry breaking changes.
   the obvious value to hand to `observed_col`) and no longer drives any engine
   branch.
 
+- **`true_pd` removed from the sample generators** (#76). The synthetic oracle
+  column carried no client-facing meaning and had grown consumers across the
+  notebooks, tests and studio detection. Both bases now expose only observable
+  columns; `market_default` remains the observed outcome for rejects on the
+  incumbent base.
+
 ### Added
 
-- **A short quickstart notebook** (#75), `src/pycreditools/examples/quickstart.ipynb`.
-  English throughout, ~15 cells: it opens on the standalone base (one `CutoffStage`
-  with a declared `gte` direction, `take_up_rate` = 1.0), then moves to the incumbent
-  base (hard filters, the legacy cutoff, and a take-up `RateStage`) where `take_up_rate`
-  becomes a real number and `default_rate` moves — the one place ADR 0008's denominators
-  are shown to matter before they are named. Points at the masterclass (#76) for swap
-  analysis, rating, P&L, and the calibration problem.
+- **Masterclass notebook rebuilt on the v14 executive arc** (#76),
+  `src/pycreditools/examples/tutorial_masterclass.ipynb`. Twelve sections from the
+  incumbent panorama to a deployable policy JSON — KS on the contracted book, the
+  bureau funnel, the efficient frontier via `TradeoffAnalyzer`, three executive
+  propositions, per-region cutoffs via the sweep engine, out-of-time rating
+  validation, rating-angled swap-in stress, the swap dissection, the P&L delta and
+  the crash test. Uses the package's own surfaces (`TradeoffAnalyzer`,
+  `optimize_cutoffs`, `print_delta_table`, `print_quadrant_summary`,
+  `fit_risk_groups`) rather than hand-rolled equivalents. The standalone quickstart
+  was dropped — the masterclass is the single canonical example.

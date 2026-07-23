@@ -43,7 +43,6 @@ def test_incumbent_has_the_documented_columns(incumbent):
         "score_3",
         "score_4",
         "score_5",
-        "true_pd",
         "approved",
         "passed_antifraud",
         "hired",
@@ -77,7 +76,8 @@ def test_market_default_is_wider_than_the_book_but_tracks_the_same_risk(incumben
     # The market is wider than one lender's product, so a contracted client defaults
     # somewhere in the market more often than on this book — but not implausibly so.
     assert book_rate < market_rate < 4 * book_rate
-    assert incumbent["market_default"].corr(incumbent["true_pd"]) > 0.5
+    # The flag must track the same risk the scores rank: higher score, less market default.
+    assert incumbent["market_default"].corr(incumbent["score_5"]) < -0.3
 
 
 def test_no_propensity_or_take_up_column(incumbent):
@@ -109,8 +109,8 @@ def test_legacy_cut_is_recomputable_by_the_caller(incumbent):
 def test_antifraud_is_independent_of_risk(incumbent):
     rate = incumbent["passed_antifraud"].mean()
     assert 0.88 < rate < 0.92
-    by_flag = incumbent.groupby("passed_antifraud")["true_pd"].mean()
-    assert abs(by_flag.loc[0] - by_flag.loc[1]) < 0.02
+    by_flag = incumbent.groupby("passed_antifraud")["score_5"].mean()
+    assert abs(by_flag.loc[0] - by_flag.loc[1]) < 10
 
 
 def test_sample_splits_dev_and_oot(incumbent):
@@ -136,7 +136,7 @@ def test_standalone_outcome_is_observed_for_everyone(standalone):
     assert set(standalone["actual_default"].unique()) == {0, 1}
 
 
-def test_standalone_keeps_features_scores_and_the_oracle(standalone):
+def test_standalone_keeps_features_and_scores(standalone):
     expected = {
         "applicant_id",
         "safra",
@@ -152,7 +152,6 @@ def test_standalone_keeps_features_scores_and_the_oracle(standalone):
         "score_3",
         "score_4",
         "score_5",
-        "true_pd",
         "actual_default",
     }
     assert set(standalone.columns) == expected

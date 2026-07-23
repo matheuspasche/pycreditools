@@ -42,7 +42,7 @@ df columns, pre-filled by auto-detection (user can override). Roles (Master §6)
 | `current_hired_col` | selectbox | no | binary 0/1, name in {hired, contratou, contracted} |
 | `time_col` | selectbox | no | values like "YYYY-MM" or datetime, name in {safra, vintage, date, mes} |
 | `segment_col` | selectbox | no | low-cardinality categorical, name in {region, loja, segment, uf} |
-| `estimated_default_col` | selectbox | no | float in [0,1], name in {estimated_default, pd, true_pd, est_pd} |
+| `estimated_default_col` | selectbox | no | float in [0,1], name in {estimated_default, pd, est_pd} |
 | `oot_date` | text/select | no | if `time_col` set: default to min OOT boundary or "2025-01"; offer the sorted unique values |
 
 - Implement detection in `data_access.detect_roles(df) -> ColumnRoles`.
