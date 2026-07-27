@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from pycreditools.skills_utils import installer
+from pycreditools._skills_utils import installer
 
 
 def main() -> None:

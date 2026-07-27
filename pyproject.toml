@@ -70,7 +70,7 @@ Issues = "https://github.com/matheuspasche/pycreditools/issues"
 
 [project.scripts]
 pycreditools-studio = "pycreditools.gui:run_studio"
-pasche-utils = "pycreditools.skills_utils.cli:main"
+pasche-utils = "pycreditools._skills_utils.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pycreditools"]
