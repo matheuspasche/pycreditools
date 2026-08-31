@@ -21,6 +21,11 @@ O que ele mostra (não descreve):
 
   PARTE C — as três perguntas que o #145 manda o protótipo forçar.
 
+  PARTE D — O VERBO DA MESA. O #121 fechou a semântica do estágio probabilístico
+  de decisão e delegou o verbo ao #129; o #129 fechou sem nomeá-lo. As quatro
+  formas candidatas escritas lado a lado, todas rodando, com o custo de cada uma
+  medido contra as regras já fixadas.
+
 O que está FIXO pelo #129 e o protótipo não reabre: `.cutoff` morre; `.filter`
 sobre a AST é o verbo único; condição é AST na entrada, string só na saída;
 label único com default estrutural; `Stage` vira Protocol de dois membros;
@@ -39,6 +44,14 @@ ONDE O ADAPTADOR FINGE (declarado, para ninguém ler número que não existe):
   3. `applicant_id_col` / `score_cols` estão mortos pelo #118. O adaptador
      preenche o que o `CreditPolicy` de hoje exige e nada mais — nenhuma
      superfície nova os menciona.
+  4. O sorteio da mesa (PARTE D). O motor de hoje não tem estágio probabilístico
+     de decisão: só `FilterStage` (determinístico, vetor decision) e `RateStage`
+     (vetor contract). Em `materialize()` o sorteio acontece FORA do motor e
+     entra como coluna, que o `.filter` então lê como máscara dura. É o maior
+     fingimento do adaptador — e é exatamente o que a decisão de verbo tornaria
+     nativo. A mecânica em si (observado leva o 0/1 real, o resto estima no
+     mesmo `bins` da premissa, sorteio por linha chaveado a semente × posição ×
+     nome) é a do #121 §6/§7 e do #127, não invenção daqui.
 """
 
 from __future__ import annotations
@@ -51,6 +64,7 @@ import numpy as np
 import pandas as pd
 
 from pycreditools import CalibrationReliabilityWarning, generate_sample_data
+from pycreditools._kernels import calibrate_by_score_bins
 from pycreditools.expressions import BinaryExpr, ColumnExpr, Expression, col
 from pycreditools.policy import CreditPolicy
 from pycreditools.stages import FilterStage, RateStage
@@ -87,12 +101,44 @@ def structural_label(expr: object) -> str | None:
     return names[0] if len(names) == 1 else None
 
 
-class Rule:
-    """Um estágio: uma condição/probabilidade, um vetor declarado (#116), um label."""
+class ChanceExpr(Expression):
+    """FORMA D — candidato NOVO, não está entre os três do #121.
 
-    def __init__(self, expr: object, vector: str, label: str | None):
+    O sorteio como nó da AST, não como argumento do verbo: `chance(expr)` diz
+    "sorteie-me com esta probabilidade". Vetor segue com o verbo, mecanismo
+    segue na árvore, e o `.filter`/`.rate` de um argumento do #129 fica intacto.
+    """
+
+    def __init__(self, expr: Expression):
+        self.expr = expr
+
+    def eval(self, df: pd.DataFrame) -> pd.Series:
+        return self.expr.eval(df)  # o sorteio é do motor; aqui é só a probabilidade
+
+    def get_columns(self) -> list[str]:
+        return self.expr.get_columns()
+
+    def __repr__(self) -> str:
+        return f"chance({self.expr!r})"
+
+
+def chance(expr: Expression) -> ChanceExpr:
+    return ChanceExpr(expr)
+
+
+class Rule:
+    """Um estágio: dois eixos independentes (#121 §1) — vetor e mecanismo.
+
+    vector: onde a Series aterrissa (#116). mechanism: como o estágio decide.
+    O #121 mandou descolar os dois; as quatro formas da PARTE D diferem só em
+    ONDE cada eixo é escrito.
+    """
+
+    def __init__(self, expr: object, vector: str, label: str | None,
+                 mechanism: str = "deterministic"):
         self.expr = expr
         self.vector = vector  # "decision" | "contract"
+        self.mechanism = mechanism  # "deterministic" | "drawn"
         self.label = label
         self.label_was_written = label is not None
 
@@ -126,14 +172,31 @@ class Policy:
     def __init__(self, rules: tuple[Rule, ...] = ()):
         self.rules = rules
 
-    def filter(self, condition: Expression, label: str | None = None) -> Policy:
+    def filter(self, condition: Expression, label: str | None = None,
+               prob: bool = False) -> Policy:
+        """`prob=True` é a FORMA B: mesmo verbo, e o argumento muda de tipo
+        (nó booleano -> nó numérico em [0,1])."""
         if not isinstance(condition, Expression):
             raise TypeError("condição de .filter é um nó da AST (#120 matou callable/str na entrada)")
-        return Policy(self.rules + (Rule(condition, "decision", label),))
+        drawn = prob or isinstance(condition, ChanceExpr)  # FORMA D
+        mechanism = "drawn" if drawn else "deterministic"
+        return Policy(self.rules + (Rule(condition, "decision", label, mechanism),))
 
-    def rate(self, probability: object, label: str | None = None) -> Policy:
-        """Uma probabilidade: escalar ou nó da AST. Um argumento (#129)."""
-        return Policy(self.rules + (Rule(probability, "contract", label),))
+    def rate(self, probability: object, label: str | None = None,
+             to: str = "contract") -> Policy:
+        """Uma probabilidade: escalar ou nó da AST. Um argumento (#129).
+
+        `to="decision"` é a FORMA C: o vetor vira argumento, com default
+        estrutural invisível no caso comum.
+        """
+        if to not in ("contract", "decision"):
+            raise ValueError(f"to= é 'contract' ou 'decision', não {to!r}")
+        mechanism = "drawn" if to == "decision" else "deterministic"
+        return Policy(self.rules + (Rule(probability, to, label, mechanism),))
+
+    def review(self, observed: Expression, label: str | None = None) -> Policy:
+        """FORMA A: verbo próprio. Vetor e mecanismo, os dois, no nome."""
+        return Policy(self.rules + (Rule(observed, "decision", label, "drawn"),))
 
     # -- bind ---------------------------------------------------------------
 
@@ -176,11 +239,110 @@ class Premise:
 SCHEMA = {"approved": "approved", "hired": "hired", "outcome": "actual_default"}
 
 
+DRAW_PREFIX = "__drawn_"
+
+
+class DeskBindError(ValueError):
+    """Erro duro de bind do desfecho de mesa (#121 §5)."""
+
+
+def validate_desk_outcome(df: pd.DataFrame, column: str, label: str) -> dict[str, int]:
+    """As duas amarras do #121 §5, e a cobertura como número.
+
+    - valores fora de {0, 1, null} = erro duro;
+    - observado não-nulo exige `approved == 1` = erro duro.
+    """
+    values = df[column]
+    bad = values.dropna()
+    outside = bad[~bad.isin([0, 1])]
+    if len(outside):
+        sample = ", ".join(f"{float(v):g}" for v in sorted(outside.unique())[:3])
+        raise DeskBindError(
+            f"estágio '{label}': {len(outside)} valor(es) fora de {{0, 1, null}} em "
+            f"'{column}' (ex.: {sample})."
+        )
+    spurious = df[values.notna() & (df[SCHEMA["approved"]] != 1)]
+    if len(spurious):
+        raise DeskBindError(
+            f"estágio '{label}': {len(spurious)} linhas com desfecho de mesa observado "
+            f"mas `approved != 1` — quem nunca foi aprovado no livro antigo não pode "
+            f"ter desfecho de mesa."
+        )
+    return {"observado": int(values.notna().sum()), "sem_observacao": int(values.isna().sum())}
+
+
+def drawn_decision_column(
+    df: pd.DataFrame, rule: Rule, label: str, premise: Premise, seed: int
+) -> pd.Series:
+    """A mecânica probabilística do #121, uma só, compartilhada com o take-up.
+
+    1. quem tem desfecho observado leva o 0/1 real (bypass por construção: p ∈ {0,1});
+    2. quem não tem, leva a estimativa por faixa de score, no MESMO `bins` da
+       premissa (#121 §7 — "uma config serve todo eixo", zero campo novo);
+    3. sorteia-se por linha, chaveado a (semente do estudo, posição da linha,
+       nome do sorteio) — #127 —, inclusive no analítico (#121 §6), para
+       `decision` ficar 0/1 duro.
+
+    A inflação de stress NÃO incide: stress é premissa sobre inadimplência,
+    não sobre propensão de aprovação (#121 §7).
+    """
+    inner = rule.expr.expr if isinstance(rule.expr, ChanceExpr) else rule.expr
+    observed = inner.eval(df).astype(float)
+
+    known = observed.notna()
+    estimate = calibrate_by_score_bins(
+        cal_scores=df.loc[known, premise.score],
+        cal_values=observed[known],
+        ref_scores=df.loc[known, premise.score],
+        target_scores=df[premise.score],
+        bins=premise.bins,
+        global_fallback=float(observed[known].mean()) if known.any() else 0.0,
+    )
+    probs = observed.where(known, estimate).fillna(0.0).clip(0.0, 1.0)
+
+    # (semente do estudo, nome do sorteio) chaveiam o gerador; a posição da
+    # linha na base ligada é o índice do vetor. #127.
+    rng = np.random.default_rng([seed, *(ord(c) for c in label)])
+    return (rng.random(len(df)) < probs.to_numpy()).astype(int)
+
+
+def materialize(
+    policy: Policy, premise: Premise, df: pd.DataFrame, seed: int = 7
+) -> tuple[pd.DataFrame, dict[str, dict[str, int]]]:
+    """Pré-computa a coluna sorteada de todo estágio probabilístico de decisão.
+
+    O motor de hoje não tem esse estágio — ele só conhece `FilterStage`
+    (determinístico, vetor decision) e `RateStage` (vetor contract). O sorteio
+    acontece aqui, fora do motor, e entra como coluna. É o maior fingimento
+    do adaptador, e é o que a decisão de verbo tornaria nativo.
+    """
+    out = df.copy()
+    coverage = {}
+    for label, rule in zip(policy.labels(), policy.rules):
+        if rule.mechanism != "drawn" or rule.vector != "decision":
+            continue
+        inner = rule.expr.expr if isinstance(rule.expr, ChanceExpr) else rule.expr
+        if isinstance(inner, ColumnExpr):
+            coverage[label] = validate_desk_outcome(out, inner.name, label)
+        out[DRAW_PREFIX + label] = drawn_decision_column(out, rule, label, premise, seed)
+    return out, coverage
+
+
+def run(policy: Policy, premise: Premise, df: pd.DataFrame, seed: int = 7):
+    """`simulate(study, df)` do #117, emulado: materializa, compila, simula."""
+    bound, coverage = materialize(policy, premise, df, seed)
+    sim = compile_to_engine(policy, premise).simulate(bound, method="analytical")
+    return sim, coverage
+
+
 def compile_to_engine(policy: Policy, premise: Premise) -> CreditPolicy:
     labels = policy.labels()
     stages = []
     for label, rule in zip(labels, policy.rules):
-        if rule.vector == "decision":
+        if rule.vector == "decision" and rule.mechanism == "drawn":
+            # o sorteio já virou coluna em materialize(); aqui é máscara dura
+            stages.append(FilterStage(name=label, condition=col(DRAW_PREFIX + label) == 1))
+        elif rule.vector == "decision":
             stages.append(FilterStage(name=label, condition=rule.expr))
         elif isinstance(rule.expr, ColumnExpr):
             # `.rate(col("hired"))`: a probabilidade de contrato é lida nessa
@@ -755,6 +917,208 @@ def part_c(score_cut: float) -> None:
        duro cai sobre quem escreveu a política mais óbvia possível.""")
 
 
+# ---------------------------------------------------------------------------
+# PARTE D — o verbo do estágio probabilístico de decisão (a mesa)
+# ---------------------------------------------------------------------------
+
+DESK_COL = "desk_outcome"
+
+
+def desk_book(df: pd.DataFrame) -> pd.DataFrame:
+    """O desfecho de mesa como o livro antigo o registra: observado só para quem
+    de fato foi à mesa (aprovado), null para todo o resto — que é a amarra de
+    bind do #121 §5, e a razão de a cobertura virar número."""
+    out = df.copy()
+    out[DESK_COL] = np.where(out["approved"] == 1, out["passed_antifraud"], np.nan)
+    return out
+
+
+def desk_forms(score_cut: float) -> dict[str, tuple[str, Policy]]:
+    """A MESMA política, com a mesa escrita de quatro jeitos."""
+    def base() -> Policy:
+        return (
+            Policy()
+            .filter(col("cpf_valido") == True)  # noqa: E712
+            .filter(col("vl_negativacao") <= 1500)
+            .filter(col("score_5") >= score_cut)
+        )
+
+    return {
+        "A — verbo próprio": (
+            '.review(col("desk_outcome"))',
+            base().review(col(DESK_COL), label="Mesa").rate(col("hired")),
+        ),
+        "B — filter com flag": (
+            '.filter(col("desk_outcome"), prob=True)',
+            base().filter(col(DESK_COL), label="Mesa", prob=True).rate(col("hired")),
+        ),
+        "C — rate com destino": (
+            '.rate(col("desk_outcome"), to="decision")',
+            base().rate(col(DESK_COL), label="Mesa", to="decision").rate(col("hired")),
+        ),
+        "D — sorteio na AST": (
+            '.filter(chance(col("desk_outcome")))',
+            base().filter(chance(col(DESK_COL)), label="Mesa").rate(col("hired")),
+        ),
+    }
+
+
+SOURCE_DESK = """\
+policy = (
+    Policy()
+    .filter(col("cpf_valido") == True)
+    .filter(col("vl_negativacao") <= 1500)
+    .filter(col("score_5") >= CUT)
+    {MESA}
+    .rate(col("hired"))
+)\
+"""
+
+
+def part_d(df: pd.DataFrame, score_cut: float) -> None:
+    rule("PARTE D — o verbo da mesa (quinta pergunta; #121 delegou, #129 não entregou)")
+
+    print("""\
+D.0 — o que as quatro formas têm que expressar (semântica já fechada no #121)
+
+  · a mesa é DECISÃO probabilística: alimenta `decision`, logo a taxa de
+    aprovação publicada INCLUI a mesa (§8);
+  · sorteia mesmo no analítico, para `decision` ficar 0/1 duro (§6);
+  · elegibilidade é POSIÇÃO NO FUNIL, não máscara declarada (§3);
+  · quem tem desfecho observado leva o 0/1 real; quem não tem, estima no MESMO
+    `bins` da premissa — a mecânica probabilística é uma só, compartilhada com
+    o take-up (§7);
+  · o nome da coluna observada é REFERÊNCIA da regra, mora no estágio (§4).
+
+  Nada disso está em disputa. Em disputa está uma coisa só: ONDE se declara que
+  esta probabilidade aterrissa em `decision` e não em `contract`.""")
+
+    forms = desk_forms(score_cut)
+    bound = desk_book(df)
+
+    print("\n\nD.1 — as quatro escritas\n")
+    for name, (mesa, _) in forms.items():
+        print(f"  {name}")
+        print("  " + "-" * len(name))
+        for line in SOURCE_DESK.replace("{MESA}", mesa).splitlines():
+            print(f"    {line}")
+        print()
+
+    print("\nD.2 — as quatro rodam, e dão o MESMO número\n")
+    results = {}
+    for name, (_, policy) in forms.items():
+        sim, coverage = run(policy, MASTERCLASS_PREMISE, bound)
+        data = sim.data
+        results[name] = (
+            data["approved_pre_rate"].sum() / len(bound),
+            float(data["new_approval"].sum()),
+            coverage.get("Mesa", {}),
+        )
+
+    print(f"{'forma':<24} {'aprovação (inclui mesa)':>24} {'contratados':>14}")
+    print("-" * 66)
+    for name, (app, contracted, _) in results.items():
+        print(f"{name:<24} {app:>23.8%} {contracted:>14.4f}")
+    apps = {round(v[0], 12) for v in results.values()}
+    print(f"\n  -> {'IDÊNTICAS' if len(apps) == 1 else 'DIVERGEM'}: as quatro são a mesma")
+    print("     semântica escrita de quatro jeitos. A escolha é 100% de escrita.")
+
+    cov = next(iter(results.values()))[2]
+    total = cov["observado"] + cov["sem_observacao"]
+    print(f"\n  cobertura como número (#121 §5): {cov['observado']:,} linhas com desfecho "
+          f"de mesa observado, {cov['sem_observacao']:,} sem ({cov['sem_observacao'] / total:.1%} "
+          f"estimadas).")
+
+    # A mesa dentro do funil: a aprovação publicada a inclui (#121 §8).
+    sim, _ = run(forms["A — verbo próprio"][1], MASTERCLASS_PREMISE, bound)
+    funnel = sim.to_funnel_dataframe()
+    print("\n  o funil, com a mesa dentro dele:\n")
+    for _, r in funnel.iterrows():
+        print(f"    {str(r['Stage'])[:44]:<46} {r['Passed']:>9,}")
+
+    # #121 §8: reprovado na mesa é reprovado, e o número publicado diz isso.
+    no_desk = (
+        Policy()
+        .filter(col("cpf_valido") == True)  # noqa: E712
+        .filter(col("vl_negativacao") <= 1500)
+        .filter(col("score_5") >= score_cut)
+        .rate(col("hired"))
+    )
+    sim_no_desk, _ = run(no_desk, MASTERCLASS_PREMISE, bound)
+    app_with = sim.data["approved_pre_rate"].sum() / len(bound)
+    app_without = sim_no_desk.data["approved_pre_rate"].sum() / len(bound)
+    print(f"\n  aprovação publicada COM a mesa .... {app_with:.2%}")
+    print(f"  aprovação publicada SEM a mesa .... {app_without:.2%}")
+    print(f"  a mesa reprova {app_without - app_with:.2%} da base, e o número publicado")
+    print("  diz isso (#121 §8) — hoje `approved_pre_rate` excluiria a mesa por ser rate.")
+
+    print("\n\nD.3 — os erros duros de bind do #121 §5, exercidos\n")
+    for description, mutate in [
+        ("valor fora de {0, 1, null}",
+         lambda d: d.assign(**{DESK_COL: d[DESK_COL].mask(d.index == d.index[0], 0.5)})),
+        ("observado com approved == 0",
+         lambda d: d.assign(**{DESK_COL: d[DESK_COL].mask(d["approved"] == 0, 1.0)})),
+    ]:
+        try:
+            run(forms["A — verbo próprio"][1], MASTERCLASS_PREMISE, mutate(bound))
+            print(f"  {description:<32} -> PASSOU (não devia)")
+        except DeskBindError as e:
+            print(f"  {description:<32} -> erro duro:")
+            print(f"  {'':<32}    {e}")
+
+    print("""\
+
+
+D.4 — o que cada forma custa (medido contra as regras já fixadas)
+
+  A — .review(col("desk_outcome"))
+      + os dois eixos ficam no nome, e o caso raro não polui o caso comum;
+      + `.filter`/`.rate` de UM argumento sobrevivem intactos (a manchete do #129);
+      - TERCEIRO verbo, contra o insumo do dono no #121 §2 ("inclinação a matar
+        o `.cutoff` também — não quer encher de verbos"): o #129 tirou um verbo
+        e esta forma repõe;
+      - o nome não generaliza. Mesa, antifraude, formalização são todos "decisão
+        probabilística"; `.review` nomeia UM deles. Nomear a mecânica em vez do
+        evento (`.draw`, `.chance`) devolve a vagueza;
+      - o #118 fixou varredura como `ranges=` no verbo: com três verbos, é preciso
+        dizer em quais `ranges=` aponta.
+
+  B — .filter(col("desk_outcome"), prob=True)
+      + é a ÚNICA forma que separa os dois eixos como o #121 §1 pede: o verbo
+        nomeia o VETOR (`.filter` -> decision, `.rate` -> contract) e o argumento
+        nomeia o MECANISMO. Nas outras três o verbo carrega os dois, ou nenhum;
+      + dois verbos, contagem intacta;
+      - a flag RE-TIPA o argumento posicional: sem ela um nó booleano, com ela um
+        nó numérico em [0,1]. É a pior espécie de flag booleana;
+      - fere a régua de UX que o próprio #121 §2 invocou (tipo de saída
+        previsível): o mesmo verbo às vezes joga moeda.
+
+  C — .rate(col("desk_outcome"), to="decision")
+      + o vetor fica ESCRITO, que é literalmente o que o #121 §1 pediu;
+      + default estrutural invisível: o caso comum (`contract`) não escreve nada,
+        só o raro escreve — mesma lógica do label do #129;
+      - reabre o colapso do `.rate` para UM argumento, que é a manchete do #129
+        ("de cinco argumentos para um"). Volta a dois;
+      - inverte os eixos em relação a B: o verbo passa a nomear o MECANISMO
+        (probabilidade) e o argumento o VETOR. Fica difícil dizer o que `.filter`
+        e `.rate` são, se não são os vetores.
+
+  D — .filter(chance(col("desk_outcome")))   [NOVO — não é dos três do #121]
+      + um argumento, dois verbos, zero flag: o mecanismo vira NÓ, e o #129 já
+        decidiu que tudo que descreve a regra mora na AST;
+      + o vetor segue com o verbo (`.filter` -> decision), então os dois eixos
+        ficam separados como em B, sem re-tipar nada: `chance(x)` é um nó, e o
+        argumento continua sendo "um nó";
+      + `serialize_expression` ganha um caso e o round-trip do #120 fecha sozinho;
+      + o caminho rápido enxerga `chance(...)` e sabe que não é máscara dura —
+        a elegibilidade do rechaveamento (PARTE B) se lê na árvore, como o resto;
+      - um conceito novo na AST, que até aqui só tinha colunas, operadores e
+        literais: `chance` não é uma função sobre valores, é uma instrução ao
+        motor. A árvore deixa de ser puramente declarativa;
+      - `chance(col("hired"))` num `.rate` seria redundante ou contraditório —
+        precisa de regra dizendo onde `chance` é legal.""")
+
+
 def main() -> None:
     df = generate_sample_data(20_000, seed=42)
     score_cut = float(np.quantile(df["score_5"], 0.55))
@@ -766,6 +1130,7 @@ def main() -> None:
     part_a3(df)
     part_b(df, score_cut)
     part_c(score_cut)
+    part_d(df, score_cut)
 
 
 if __name__ == "__main__":
