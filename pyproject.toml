@@ -75,6 +75,15 @@ pasche-utils = "pycreditools._skills_utils.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/pycreditools"]
 
+# The skills have a single home at .claude/skills (the only path Claude Code
+# discovers). Map it into the package at build time so `pasche-utils
+# install-skills` finds it at runtime, instead of keeping a second copy in src/.
+[tool.hatch.build.targets.wheel.force-include]
+".claude/skills" = "pycreditools/_skills_utils/skills/mattpocock"
+
+[tool.hatch.build.targets.sdist.force-include]
+".claude/skills" = "pycreditools/_skills_utils/skills/mattpocock"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
