@@ -8,6 +8,38 @@ terms land here when a decision actually resolves them, not upfront.
 
 Use these exact terms in issues, tests, and proposals. Don't drift to synonyms.
 
+### Language of the code — English, names and values
+
+The engine speaks **one language: English**, in every emitted column name and every value
+that isn't presentation. pt-BR is a presentation concern and lives outside the core, on the
+far side of the calculate/present boundary (**#127**).
+
+If the engine emits the name, it's English. That's the whole rule — there's no list to keep.
+
+**Dead vocabulary, measured, never to be reintroduced.** These pt-BR column names are
+promised by `to_decision_dataframe`'s docstring (`simulation.py:169-171`) and written by
+**no code path** — 0 emissions each, measured on `release/v0.6`:
+
+| dead | use |
+|---|---|
+| `decisao` | `decision` |
+| `motivo` | `reason` |
+| `contratou` | `hired` |
+| `inadimplente` | `defaulted` |
+| `cenario` | `scenario` |
+
+Values follow the same rule: `'Aprovado'` / `'Reprovado'` are presentation, not engine
+values.
+
+**One more duplicate, not pt-BR.** `Rating` (capitalized, `deployment.py`) and `rating`
+(`simulation.py`) are the same column written by two modules — the letter label,
+`risk_rating.map({i: chr(64 + i)})`. The name is **`rating`**, lowercase, like every other
+output column. `risk_rating` is *not* a third spelling of it: that's the numeric group id
+emitted by `GroupingRecipe`, a different column with a different meaning.
+
+Decided in **#131**, ratifying the naming **#116** already used. The v0.6 renames themselves
+ship with v0.6; the rule governs new code from now on.
+
 ### Quadrants (membership is by **decision**, never by contract)
 
 An applicant is classified by comparing the incumbent decision (`current_approval_col`)
