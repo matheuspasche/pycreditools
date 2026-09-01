@@ -26,6 +26,23 @@ O que ele mostra (não descreve):
   formas candidatas escritas lado a lado, todas rodando, com o custo de cada uma
   medido contra as regras já fixadas.
 
+DECIDIDO em 2026-08-31 (sessão de grilling do #145), e já aplicado aqui:
+
+  1. Verbo da mesa = FORMA B, `.filter(expr, draw=True)`. O verbo nomeia o
+     VETOR, o argumento nomeia o MECANISMO — os dois eixos do #121 §1. A forma
+     D (`chance()` na AST) cai porque `.calibrated()` morre na v0.6 e a AST
+     fica pura; `chance` seria a única instrução-nó, categoria que a v0.6
+     acabou de remover.
+  2. Colisão de faixa: mantém o erro duro, muda só a mensagem. Medido (B.3):
+     dois estágios nomeados dão dois dials varríveis; a faixa fundida num
+     estágio dá zero. O erro empurra pra escrita que também é a varrível.
+  3. Estágio não endereçável: ERRO DURO no `ranges=`, não no bind. Não é
+     lentidão, é ambiguidade — a versão anterior deste protótipo trocava todos
+     os literais pelo mesmo valor e devolvia lixo em silêncio.
+  4. Exibição: DUAS colunas (Stage, Rule) com render de LEITURA. `__repr__`
+     segue sendo o render de Python; `pretty()` é só apresentação e nunca é
+     parseado de volta.
+
 O que está FIXO pelo #129 e o protótipo não reabre: `.cutoff` morre; `.filter`
 sobre a AST é o verbo único; condição é AST na entrada, string só na saída;
 label único com default estrutural; `Stage` vira Protocol de dois membros;
@@ -126,6 +143,33 @@ def chance(expr: Expression) -> ChanceExpr:
     return ChanceExpr(expr)
 
 
+def pretty(expr: object, connective_parent: bool = False) -> str:
+    """Render de LEITURA: `vl_negativacao <= 1500`, não `(col('x') <= 1500)`.
+
+    O `__repr__` continua sendo o render de Python (round-trippável, colável).
+    Este é o de apresentação — o #129 disse "string só na saída", não disse que
+    a saída é Python. Parênteses só onde carregam informação: comparação dentro
+    de um `&`/`|`.
+    """
+    if isinstance(expr, ColumnExpr):
+        return expr.name
+    if isinstance(expr, ChanceExpr):
+        return f"chance({pretty(expr.expr)})"
+    if isinstance(expr, UnaryExpr):
+        return f"not {pretty(expr.expr, connective_parent=True)}"
+    if isinstance(expr, BinaryExpr):
+        is_connective = expr.op in ("&", "|")
+        left = pretty(expr.left, connective_parent=is_connective)
+        right = pretty(expr.right, connective_parent=is_connective)
+        body = f"{left} {expr.op} {right}"
+        return f"({body})" if connective_parent else body
+    if isinstance(expr, bool):
+        return str(expr)
+    if isinstance(expr, float) and expr.is_integer():
+        return str(int(expr))
+    return repr(expr)
+
+
 class Rule:
     """Um estágio: dois eixos independentes (#121 §1) — vetor e mecanismo.
 
@@ -154,16 +198,20 @@ class Rule:
         return auto
 
     def render(self) -> str:
-        """String só na saída (#129). `BinaryExpr.__repr__` já monta o render."""
+        """O render de PYTHON: round-trippável, colável, companheiro do
+        `serialize_expression` do #120. Nunca é o que o funil mostra."""
         return repr(self.expr)
 
-    def display(self) -> str:
-        """O que aparece no funil: o label mais o render, e o render só quando a
-        regra não se explica sozinha."""
-        label = self.resolved_label()
-        if self.label_was_written:
-            return f"{label} — {self.render()}"
-        return self.render()
+    def display(self) -> tuple[str, str]:
+        """DECIDIDO em 2026-08-31: o funil mostra DUAS COLUNAS — (Stage, Rule).
+
+        `Stage` carrega o label só quando ele foi escrito; fica em branco quando
+        a estrutura nomeou, e o branco é a informação (a régua do #129: um nome
+        escrito só quando a regra não se explica sozinha). `Rule` carrega sempre
+        o render de LEITURA, nunca o `__repr__`.
+        """
+        label = self.resolved_label() if self.label_was_written else ""
+        return label, pretty(self.expr)
 
 
 class Policy:
@@ -173,12 +221,18 @@ class Policy:
         self.rules = rules
 
     def filter(self, condition: Expression, label: str | None = None,
-               prob: bool = False) -> Policy:
-        """`prob=True` é a FORMA B: mesmo verbo, e o argumento muda de tipo
-        (nó booleano -> nó numérico em [0,1])."""
+               draw: bool = False) -> Policy:
+        """FORMA B, DECIDIDA em 2026-08-31: o verbo nomeia o VETOR (decision),
+        o argumento nomeia o MECANISMO. `draw=True` diz o que faz — sorteia —,
+        contra `prob=True`, que dizia só que o argumento é uma probabilidade.
+
+        O preço aceito: a flag re-tipa o argumento posicional (nó booleano sem
+        ela, nó numérico em [0,1] com ela). A saída NÃO muda de tipo — `.filter`
+        entrega máscara 0/1 dura sorteada ou não, garantido pelo #121 §6.
+        """
         if not isinstance(condition, Expression):
             raise TypeError("condição de .filter é um nó da AST (#120 matou callable/str na entrada)")
-        drawn = prob or isinstance(condition, ChanceExpr)  # FORMA D
+        drawn = draw or isinstance(condition, ChanceExpr)  # FORMA D, descartada
         mechanism = "drawn" if drawn else "deterministic"
         return Policy(self.rules + (Rule(condition, "decision", label, mechanism),))
 
@@ -211,8 +265,10 @@ class Policy:
                 raise LabelRequired(f"regra #{i}: {e}") from None
             if label in seen:
                 raise LabelRequired(
-                    f"regra #{i} colide com a regra #{seen[label]} no label "
-                    f"{label!r} ({rule.render()}): declare label=."
+                    f"regra #{i} ({pretty(rule.expr)}) colide com a regra "
+                    f"#{seen[label]} no label {label!r}. Uma faixa são DUAS regras: "
+                    f"nomeie os dois lados (label=\"piso\" / label=\"teto\") e cada "
+                    f"um vira um dial próprio de `ranges=`."
                 )
             seen[label] = i
             out.append(label)
@@ -401,26 +457,71 @@ class FastPathPlan:
         self.op = op
 
 
-def plan_fast_path(policy: Policy, label: str) -> FastPathPlan | None:
-    """O caminho rápido vale quando o nó variado é o literal de uma comparação
-    numérica dentro de uma máscara dura. Senão: re-simulação.
+class RangesError(ValueError):
+    """`ranges=` endereçou um estágio sem nó variável (decisão de 2026-08-31).
+
+    O label endereça o ESTÁGIO; a varredura precisa do NÓ. Quando os dois não
+    coincidem, não existe resposta certa — e a versão anterior deste protótipo
+    trocava TODOS os literais pelo mesmo valor, produzindo lixo em silêncio.
+    Erro duro no `ranges=`, não no bind: o estágio composto segue legal de
+    escrever, só não é endereçável para varrer.
+    """
+
+
+def swept_node(policy: Policy, label: str) -> tuple[int, Expression, str, str]:
+    """O nó que `ranges={label: ...}` varia — ou erro duro dizendo por que não há.
+
+    Devolve (índice da regra, nó variado, coluna, operador).
     """
     labels = policy.labels()
     if label not in labels:
-        raise KeyError(f"nenhuma regra com label {label!r}; labels: {labels}")
+        raise RangesError(f"nenhuma regra com label {label!r}; labels: {labels}")
     idx = labels.index(label)
     target = policy.rules[idx]
 
     if target.vector != "decision":
-        return None  # vetor contract: muda probabilidade por linha, re-simula
+        raise RangesError(
+            f"o estágio {label!r} declara o vetor 'contract'; `ranges=` varre "
+            f"literal de máscara dura. Uma probabilidade não tem corte para variar."
+        )
 
     parts = conjuncts(target.expr) if isinstance(target.expr, Expression) else []
     varied = [p for p in parts if numeric_comparison(p) is not None]
-    if len(varied) != 1:
-        return None  # a estrutura não aponta um literal só
-
+    if not varied:
+        raise RangesError(
+            f"o estágio {label!r} ({pretty(target.expr)}) não tem literal numérico "
+            f"para variar — compara colunas entre si."
+        )
+    if len(varied) > 1:
+        listed = "; ".join(pretty(p) for p in varied)
+        raise RangesError(
+            f"o estágio {label!r} tem {len(varied)} comparações numéricas ({listed}); "
+            f"`ranges=` não sabe qual variar. Separe em estágios nomeados — cada um "
+            f"vira um dial próprio."
+        )
     column, op = numeric_comparison(varied[0])
-    fixed = [p for p in parts if p is not varied[0]]
+    return idx, varied[0], column, op
+
+
+def addressable(policy: Policy, label: str) -> bool:
+    """Só para o protótipo enumerar a fronteira sem estourar."""
+    try:
+        swept_node(policy, label)
+        return True
+    except RangesError:
+        return False
+
+
+def plan_fast_path(policy: Policy, label: str) -> FastPathPlan:
+    """O caminho rápido vale quando o nó variado é o literal de uma comparação
+    numérica dentro de uma máscara dura — que agora é a MESMA condição de o
+    estágio ser endereçável por `ranges=`. Não há mais caso "endereçável porém
+    lento": o que não é rápido é erro duro.
+    """
+    idx, node, column, op = swept_node(policy, label)
+    target = policy.rules[idx]
+    parts = conjuncts(target.expr)
+    fixed = [p for p in parts if p is not node]
 
     # A baseline é a política menos o nó variado. Os conjuntos fixos da mesma
     # regra continuam ligando — eles não variam.
@@ -435,34 +536,26 @@ def plan_fast_path(policy: Policy, label: str) -> FastPathPlan | None:
     return FastPathPlan(Policy(tuple(rules)), column, op)
 
 
-def plan_fast_path_multi(policy: Policy, labels: list[str]) -> dict[str, FastPathPlan] | None:
+def plan_fast_path_multi(policy: Policy, labels: list[str]) -> dict[str, FastPathPlan]:
     """O caso real do `optimize_cutoffs`: N nós variados na mesma grade.
 
-    Cada label tem que ser elegível sozinho, e a baseline é a política menos
+    Cada label tem que ser endereçável sozinho, e a baseline é a política menos
     TODOS os nós variados.
     """
-    plans = {}
+    plans = {label: plan_fast_path(policy, label) for label in labels}
     baseline = policy
     for label in labels:
-        plan = plan_fast_path(policy, label)
-        if plan is None:
-            return None
-        plans[label] = plan
-    for label in labels:
-        stripped = plan_fast_path(baseline, label)
-        if stripped is None:
-            return None
-        baseline = stripped.baseline
-    for label in labels:
-        plans[label] = FastPathPlan(baseline, plans[label].column, plans[label].op)
-    return plans
+        baseline = plan_fast_path(baseline, label).baseline
+    return {
+        label: FastPathPlan(baseline, plan.column, plan.op)
+        for label, plan in plans.items()
+    }
 
 
 def sweep_fast(
     data: pd.DataFrame, policy: Policy, premise: Premise, ranges: dict[str, list[float]]
 ) -> pd.DataFrame:
     plans = plan_fast_path_multi(policy, list(ranges))
-    assert plans is not None
     baseline = next(iter(plans.values())).baseline
     sim_df = compile_to_engine(baseline, premise).simulate(data, method="analytical").data
     actual = _actual_defaults_array(data, compile_to_engine(policy, premise))
@@ -480,14 +573,17 @@ def sweep_fast(
 
 
 def with_literal(policy: Policy, label: str, value: float) -> Policy:
-    """A mesma regra com o literal trocado — a via lenta, para conferir o rápido."""
-    labels = policy.labels()
-    idx = labels.index(label)
+    """A mesma regra com o literal trocado — a via lenta, para conferir o rápido.
+
+    Passa pelo MESMO `swept_node`, então herda o erro duro: a via lenta não pode
+    responder o que a rápida recusa. (Na versão anterior ela trocava todos os
+    literais pelo mesmo valor e devolvia lixo — o defeito que motivou a decisão.)
+    """
+    idx, node, _, _ = swept_node(policy, label)
     target = policy.rules[idx]
-    parts = conjuncts(target.expr)
     rebuilt = None
-    for p in parts:
-        if numeric_comparison(p) is not None:
+    for p in conjuncts(target.expr):
+        if p is node:
             p = BinaryExpr(p.left, p.op, value)
         rebuilt = p if rebuilt is None else (rebuilt & p)
     rules = list(policy.rules)
@@ -648,22 +744,25 @@ def part_a(df: pd.DataFrame, score_cut: float) -> None:
     f_today = sim_today.to_funnel_dataframe()
     f_new = sim_new.to_funnel_dataframe()
 
-    print(f"{'HOJE — nome escrito à mão':<45} {'passa':>9}   "
-          f"{'#129 — label (só quando escrito) + render':<56} {'passa':>9}")
-    print("-" * 126)
-    # O funil do motor rotula os estágios como "i: <label>"; troca-se o label
-    # pelo display() do #129 e deixam-se as linhas de resumo (Total, Approved).
+    # DECIDIDO em 2026-08-31: o funil do #129 é DUAS colunas, e o render é o de
+    # leitura. O `Stage` em branco é a informação — a estrutura nomeou sozinha.
+    print(f"{'HOJE — um nome, escrito à mão':<30} {'passa':>9}    "
+          f"{'#129 — Stage':<25} {'Rule':<26} {'passa':>9}")
+    print("-" * 106)
     by_label = {r.resolved_label(): r for r in new.rules}
     for i in range(max(len(f_today), len(f_new))):
         lt = str(f_today.iloc[i]["Stage"]) if i < len(f_today) else ""
         pt = f"{f_today.iloc[i]['Passed']:,}" if i < len(f_today) else ""
-        ln = str(f_new.iloc[i]["Stage"]) if i < len(f_new) else ""
+        raw = str(f_new.iloc[i]["Stage"]) if i < len(f_new) else ""
         pn = f"{f_new.iloc[i]['Passed']:,}" if i < len(f_new) else ""
-        if ": " in ln:
-            prefix, label = ln.split(": ", 1)
+        stage, rule_text = raw, ""
+        if ": " in raw:
+            prefix, label = raw.split(": ", 1)
             if label in by_label:
-                ln = f"{prefix}: {by_label[label].display()}"
-        print(f"{lt[:44]:<45} {pt:>9}   {ln[:55]:<56} {pn:>9}")
+                written, rendered = by_label[label].display()
+                stage = f"{prefix}: {written}" if written else prefix + ":"
+                rule_text = rendered
+        print(f"{lt[:29]:<30} {pt:>9}    {stage[:24]:<25} {rule_text[:25]:<26} {pn:>9}")
 
     a_t = sim_today.data["approved_pre_rate"].sum() / len(df)
     a_n = sim_new.data["approved_pre_rate"].sum() / len(df)
@@ -844,33 +943,37 @@ def part_b(df: pd.DataFrame, score_cut: float) -> None:
     print(f"\n  AST vs re-simulação ....... {ms_slow2 / ms_fast2:>7.1f}x")
     print(f"  AST vs fast path de hoje .. {ms_today2 / ms_fast2:>7.2f}x")
 
-    print("\nB.3 — a fronteira do rechaveamento (o que cai para re-simulação)\n")
+    print("\nB.3 — a fronteira: o que `ranges=` endereça, e o que ele RECUSA\n")
+    print("  DECIDIDO em 2026-08-31: erro duro no `ranges=`, não no bind. Antes desta")
+    print("  decisão o protótipo caía para re-simulação — e isso estava ERRADO, não")
+    print("  só lento: `with_literal` trocava TODOS os literais pelo mesmo valor e")
+    print("  devolvia número sem significado. Não é performance, é ambiguidade.\n")
     cases = [
-        ("um literal numérico numa máscara dura", masterclass_new(score_cut), "score_5", "esperado rápido"),
-        ("vetor contract (.rate) — muda prob por linha", masterclass_new(score_cut), "hired", "esperado re-simula"),
-        ("comparação contra outra COLUNA (o gate regional)",
-         Policy().filter(col("score_5") >= col("region_cutoff"), label="regional"), "regional",
-         "esperado re-simula"),
+        ("um literal numérico numa máscara dura", masterclass_new(score_cut), "score_5"),
         ("um literal + um conjunto FIXO na mesma regra",
          Policy().filter(col("cpf_valido") == True)  # noqa: E712
                  .filter((col("score_5") >= 700) & (col("score_5") >= col("region_cutoff")),
                          label="misto"),
-         "misto", "esperado rápido"),
+         "misto"),
+        ("vetor contract (.rate) — não tem corte", masterclass_new(score_cut), "hired"),
+        ("comparação contra outra COLUNA (o gate regional)",
+         Policy().filter(col("score_5") >= col("region_cutoff"), label="regional"), "regional"),
         ("DOIS literais na mesma regra (o label não desambigua)",
-         Policy().filter((col("score_5") >= 700) & (col("score_4") >= 500), label="dois"), "dois",
-         "esperado re-simula"),
+         Policy().filter((col("score_5") >= 700) & (col("score_4") >= 500), label="dois"), "dois"),
     ]
-    for name, pol, label, expected in cases:
-        plan = plan_fast_path(pol, label)
-        verdict = "rápido" if plan else "RE-SIMULA"
-        extra = f"  (baseline: {len(plan.baseline.rules)} regra(s))" if plan else ""
-        print(f"  {name:<52} -> {verdict:<10}{extra}")
-    print("\n  O último caso é a consequência que o #129 não enumerou: o label endereça o")
-    print("  ESTÁGIO, e o caminho rápido precisa endereçar o NÓ. Enquanto cada regra")
+    for name, pol, label in cases:
+        try:
+            plan = plan_fast_path(pol, label)
+            print(f"  {name:<52} -> endereçável  (baseline: {len(plan.baseline.rules)} regra(s))")
+        except RangesError as e:
+            print(f"  {name:<52} -> ERRO DURO")
+            print(f"  {'':<52}    {e}")
+    print("\n  O label endereça o ESTÁGIO; a varredura precisa do NÓ. Enquanto cada regra")
     print("  carregar um literal só, os dois coincidem — e a masterclass escreve assim")
-    print("  (\"Each shield is its own stage\"). Duas comparações numéricas num `.filter`")
-    print("  só tornam o estágio invarrível, em silêncio. Hoje isso não acontece porque")
-    print("  o endereço é a COLUNA (`cutoffs: dict`), não o estágio.")
+    print("  (\"Each shield is its own stage\"), e a decisão da colisão de faixa empurra")
+    print("  pra lá também. Quando não coincidem, não há resposta certa a dar: o erro")
+    print("  nasce onde a ambiguidade nasce, e o estágio composto segue legal de")
+    print("  escrever — só não é endereçável para varrer.")
 
 
 def part_c(score_cut: float) -> None:
@@ -879,21 +982,25 @@ def part_c(score_cut: float) -> None:
     hand = ["Valid CPF", "Negativation <= 1500", "SCR arrears <= 3000",
             "Protests <= 500", "Incumbent score gate", "National score cutoff"]
     new = masterclass_new(score_cut)
-    renders = [r.display() for r in new.rules if r.vector == "decision"]
+    shown = [r.display() for r in new.rules if r.vector == "decision"]
     w_hand = max(len(s) for s in hand)
-    w_new = max(len(s) for s in renders)
+    w_stage = max(len(a) for a, _ in shown)
+    w_rule = max(len(b) for _, b in shown)
 
     print(f"""\
 1. O default estrutural produz nome legível no funil, ou o render vira ruído
    numa política de 5+ estágios?
-       Ver A.2. Não vira ruído por ILEGIBILIDADE — vira por LARGURA. Em 4 dos 6
-       estágios de decisão o nome de hoje só repetia a regra à mão (e podia
-       mentir); o render não pode. Mas a coluna cresce: nome escrito no pior
-       caso {w_hand} caracteres, display do #129 {w_new} ({w_new / w_hand:.1f}x), contra as 25
-       colunas que `print_funnel_table` reserva hoje (simulation.py:144). O
-       funil precisa de largura nova, ou de truncar o render — decisão de
-       apresentação, não de arquitetura, mas é onde o defeito de escrita
-       apareceria primeiro.
+       RESOLVIDA em 2026-08-31. Não vira ruído: o feio era a concatenação, e
+       o `__repr__` do Python. Duas mudanças, e a largura para de ser
+       argumento — o funil vira DUAS colunas (Stage, Rule) e o render vira de
+       LEITURA (`vl_negativacao <= 1500`, não `(col('...') <= 1500)`). Ver A.2:
+       a coluna Stage fica quase toda em branco, e o branco é a informação —
+       a régua do #129 à vista. Medido: coluna Stage {w_stage}, coluna Rule {w_rule},
+       contra {w_hand} do nome à mão de hoje — a informação toda cabe, e cada
+       coluna sozinha é da ordem do que hoje já se imprime, carregando a regra
+       em vez de um nome que pode mentir. O `__repr__` segue existindo como render de Python
+       (round-trip do #120); `pretty()` é só apresentação e nunca é parseado
+       de volta — é a regra que impede os dois de divergirem.
 
 2. `.rate(col("hired"))` simétrico ao `.filter` se lê, ou fica mágico demais?
        Ver A.1/A.2. Escreve-se e roda, com número idêntico. O que ele não diz
@@ -913,8 +1020,12 @@ def part_c(score_cut: float) -> None:
        são justamente estágios cujo nome de hoje já carregava informação nova.
        Mas o bind achou uma TERCEIRA classe que o #129 não enumerou: colisão
        na mesma coluna — uma faixa `>= 600` e `<= 900` escrita como dois
-       `.filter` colide no default `score_5`. É escrita plausível, e o erro
-       duro cai sobre quem escreveu a política mais óbvia possível.""")
+       `.filter` colide no default `score_5`. RESOLVIDA em 2026-08-31:
+       mantém o erro duro, muda a mensagem. Eu tinha lido isso como defeito;
+       a medição virou o argumento (ver B.3): dois estágios nomeados dão DOIS
+       dials varríveis; a faixa fundida num estágio só dá ZERO. O erro duro
+       não é pedra no caminho — é o que empurra pra escrita que também é a
+       varrível.""")
 
 
 # ---------------------------------------------------------------------------
@@ -948,9 +1059,9 @@ def desk_forms(score_cut: float) -> dict[str, tuple[str, Policy]]:
             '.review(col("desk_outcome"))',
             base().review(col(DESK_COL), label="Mesa").rate(col("hired")),
         ),
-        "B — filter com flag": (
-            '.filter(col("desk_outcome"), prob=True)',
-            base().filter(col(DESK_COL), label="Mesa", prob=True).rate(col("hired")),
+        "B — filter com flag  <- DECIDIDA": (
+            '.filter(col("desk_outcome"), draw=True)',
+            base().filter(col(DESK_COL), label="Mesa", draw=True).rate(col("hired")),
         ),
         "C — rate com destino": (
             '.rate(col("desk_outcome"), to="decision")',
@@ -1135,35 +1246,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-# ---------------------------------------------------------------------------
-# PARTE E — o render de leitura (pedido do dono, 2026-08-31)
-# ---------------------------------------------------------------------------
-
-
-def pretty(expr: object, connective_parent: bool = False) -> str:
-    """Render de LEITURA: `vl_negativacao <= 1500`, não `(col('x') <= 1500)`.
-
-    O `__repr__` continua sendo o render de Python (round-trippável, colável).
-    Este é o de apresentação — o #129 disse "string só na saída", não disse que
-    a saída é Python. Parênteses só onde carregam informação: comparação dentro
-    de um `&`/`|`.
-    """
-    if isinstance(expr, ColumnExpr):
-        return expr.name
-    if isinstance(expr, ChanceExpr):
-        return f"chance({pretty(expr.expr)})"
-    if isinstance(expr, UnaryExpr):
-        return f"not {pretty(expr.expr, connective_parent=True)}"
-    if isinstance(expr, BinaryExpr):
-        is_connective = expr.op in ("&", "|")
-        left = pretty(expr.left, connective_parent=is_connective)
-        right = pretty(expr.right, connective_parent=is_connective)
-        body = f"{left} {expr.op} {right}"
-        return f"({body})" if connective_parent else body
-    if isinstance(expr, bool):
-        return str(expr)
-    if isinstance(expr, float) and expr.is_integer():
-        return str(int(expr))
-    return repr(expr)
