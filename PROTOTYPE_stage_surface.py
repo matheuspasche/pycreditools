@@ -65,7 +65,7 @@ import pandas as pd
 
 from pycreditools import CalibrationReliabilityWarning, generate_sample_data
 from pycreditools._kernels import calibrate_by_score_bins
-from pycreditools.expressions import BinaryExpr, ColumnExpr, Expression, col
+from pycreditools.expressions import BinaryExpr, ColumnExpr, Expression, UnaryExpr, col
 from pycreditools.policy import CreditPolicy
 from pycreditools.stages import FilterStage, RateStage
 from pycreditools.stress import AggravationStress
@@ -1135,3 +1135,35 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# ---------------------------------------------------------------------------
+# PARTE E — o render de leitura (pedido do dono, 2026-08-31)
+# ---------------------------------------------------------------------------
+
+
+def pretty(expr: object, connective_parent: bool = False) -> str:
+    """Render de LEITURA: `vl_negativacao <= 1500`, não `(col('x') <= 1500)`.
+
+    O `__repr__` continua sendo o render de Python (round-trippável, colável).
+    Este é o de apresentação — o #129 disse "string só na saída", não disse que
+    a saída é Python. Parênteses só onde carregam informação: comparação dentro
+    de um `&`/`|`.
+    """
+    if isinstance(expr, ColumnExpr):
+        return expr.name
+    if isinstance(expr, ChanceExpr):
+        return f"chance({pretty(expr.expr)})"
+    if isinstance(expr, UnaryExpr):
+        return f"not {pretty(expr.expr, connective_parent=True)}"
+    if isinstance(expr, BinaryExpr):
+        is_connective = expr.op in ("&", "|")
+        left = pretty(expr.left, connective_parent=is_connective)
+        right = pretty(expr.right, connective_parent=is_connective)
+        body = f"{left} {expr.op} {right}"
+        return f"({body})" if connective_parent else body
+    if isinstance(expr, bool):
+        return str(expr)
+    if isinstance(expr, float) and expr.is_integer():
+        return str(int(expr))
+    return repr(expr)
