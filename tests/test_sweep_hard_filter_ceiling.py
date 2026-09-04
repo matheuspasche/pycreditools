@@ -13,6 +13,12 @@ swept scores, ``lte``, and the re-simulation path entered by a swept stress or
 ``base_rate`` -- the swept approval rate reaches the survivor share and stops
 there, to the last digit, on both methods.
 
+The sharpest statement of the contract is the owner's own: shields that cut
+exactly half the base, drawn independently of the score, then a cutoff of 0 --
+which gates nobody. The reported approval reads **50.0000%**, to the digit, on
+both methods. The negative control gives the test teeth: the same grid point
+with the shields removed reads 100%, which is what a leak would look like.
+
 What the symptom actually is: the plateau lies outside the grid.
 ``optimize_cutoffs`` bounds its default grid at the 5th-95th percentiles of the
 score, so its loosest point still gates 5% of the base away -- 2.33 p.p. shy of
@@ -86,6 +92,58 @@ def _incumbent_policy(**kwargs) -> CreditPolicy:
         calibration_bins=10,
         **kwargs,
     )
+
+
+@pytest.mark.filterwarnings("ignore")
+@pytest.mark.parametrize("method", ["analytical", "stochastic"])
+def test_shields_cutting_half_the_base_plateau_at_half(greenfield, method):
+    """The owner's protocol: shields that cut exactly half, then a null cutoff.
+
+    Two shields drawn from a permutation independent of the score keep exactly
+    50% of the base. ``score_5`` has a minimum of 0, so a cutoff of 0 gates
+    nobody -- the reported approval must be 50%, to the digit. Above it means
+    the grid approved past the shields; below it means the grid cut something
+    the policy never declared. The negative control pins what a leak would look
+    like: the same grid point without the shields reads 100%.
+    """
+    df = greenfield.copy()
+    n = len(df)
+    assert n % 4 == 0
+    u = np.random.default_rng(7).permutation(n)
+    df["hf_a"] = (u >= n // 4).astype(int)  # keeps 75%
+    df["hf_b"] = np.where(u >= n // 4, (u - n // 4) >= (3 * n // 4) / 3, 0).astype(int)
+
+    ceiling = float(((df["hf_a"] == 1) & (df["hf_b"] == 1)).mean())
+    assert ceiling == 0.5, "the fixture is built to cut exactly half"
+    assert float(df["score_5"].min()) >= 0.0, "a cutoff of 0 must gate nobody"
+
+    policy = (
+        CreditPolicy(
+            applicant_id_col="applicant_id",
+            score_cols=("score_5",),
+            actual_default_col="actual_default",
+        )
+        .filter("HF A", col("hf_a") == 1)
+        .filter("HF B", col("hf_b") == 1)
+    )
+
+    out = run_sweep(df, policy, cutoff_grid={"score_5": [0.0, 50.0, 300.0]}, method=method)
+    at_null = float(out.loc[out["score_5"] == 0.0, "overall_approval_rate"].iat[0])
+
+    assert at_null == 0.5
+    assert (out["overall_approval_rate"] <= 0.5 + 1e-12).all()
+
+    unshielded = run_sweep(
+        df,
+        CreditPolicy(
+            applicant_id_col="applicant_id",
+            score_cols=("score_5",),
+            actual_default_col="actual_default",
+        ),
+        cutoff_grid={"score_5": [0.0]},
+        method=method,
+    )
+    assert float(unshielded["overall_approval_rate"].iat[0]) == 1.0
 
 
 @pytest.mark.filterwarnings("ignore")
