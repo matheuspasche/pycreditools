@@ -61,6 +61,9 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "ruff>=0.4",
+    # The engine suite imports plotly (tests/test_improvements_prd.py); without it
+    # `pip install -e ".[dev]"` leaves the suite one ImportError short of green.
+    "plotly>=5.0",
 ]
 
 [project.urls]
