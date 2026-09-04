@@ -17,7 +17,10 @@ The sharpest statement of the contract is the owner's own: shields that cut
 exactly half the base, drawn independently of the score, then a cutoff of 0 --
 which gates nobody. The reported approval reads **50.0000%**, to the digit, on
 both methods. The negative control gives the test teeth: the same grid point
-with the shields removed reads 100%, which is what a leak would look like.
+with the shields removed reads 100%, which is what a leak would look like. The
+protocol runs through the two verbs the report named as well -- the grid, the
+Pareto frontier and the best pick of ``optimize_cutoffs``, and the ``tradeoff``
+curve -- because a thin layer over the engine still has to carry the guarantee.
 
 What the symptom actually is: the plateau lies outside the grid.
 ``optimize_cutoffs`` bounds its default grid at the 5th-95th percentiles of the
@@ -40,6 +43,7 @@ import pytest
 
 from pycreditools import CreditPolicy, col
 from pycreditools.sample_data import generate_sample_data, generate_standalone_sample_data
+from pycreditools.analysis import TradeoffAnalyzer
 from pycreditools.optimization import optimize_cutoffs
 from pycreditools.sweep import run_sweep
 
@@ -83,6 +87,35 @@ def _below_minimum(df: pd.DataFrame, score: str = "score_5") -> float:
     return float(df[score].min()) - 100.0
 
 
+def _greenfield_policy() -> CreditPolicy:
+    return CreditPolicy(
+        applicant_id_col="applicant_id",
+        score_cols=("score_5",),
+        actual_default_col="actual_default",
+    )
+
+
+def _halve(df: pd.DataFrame) -> pd.DataFrame:
+    """Two shields keeping exactly half the base, drawn independently of the score.
+
+    The first keeps 75%, the second two thirds of those. Nothing about the draw
+    knows the score, so the plateau it imposes is purely the shields'.
+    """
+    df = df.copy()
+    n = len(df)
+    assert n % 4 == 0
+    u = np.random.default_rng(7).permutation(n)
+    df["hf_a"] = (u >= n // 4).astype(int)
+    df["hf_b"] = np.where(u >= n // 4, (u - n // 4) >= (3 * n // 4) / 3, 0).astype(int)
+    assert float(((df["hf_a"] == 1) & (df["hf_b"] == 1)).mean()) == 0.5
+    assert float(df["score_5"].min()) >= 0.0, "a cutoff of 0 must gate nobody"
+    return df
+
+
+def _shielded(policy: CreditPolicy) -> CreditPolicy:
+    return policy.filter("HF A", col("hf_a") == 1).filter("HF B", col("hf_b") == 1)
+
+
 def _incumbent_policy(**kwargs) -> CreditPolicy:
     return CreditPolicy(
         applicant_id_col="applicant_id",
@@ -106,26 +139,8 @@ def test_shields_cutting_half_the_base_plateau_at_half(greenfield, method):
     the policy never declared. The negative control pins what a leak would look
     like: the same grid point without the shields reads 100%.
     """
-    df = greenfield.copy()
-    n = len(df)
-    assert n % 4 == 0
-    u = np.random.default_rng(7).permutation(n)
-    df["hf_a"] = (u >= n // 4).astype(int)  # keeps 75%
-    df["hf_b"] = np.where(u >= n // 4, (u - n // 4) >= (3 * n // 4) / 3, 0).astype(int)
-
-    ceiling = float(((df["hf_a"] == 1) & (df["hf_b"] == 1)).mean())
-    assert ceiling == 0.5, "the fixture is built to cut exactly half"
-    assert float(df["score_5"].min()) >= 0.0, "a cutoff of 0 must gate nobody"
-
-    policy = (
-        CreditPolicy(
-            applicant_id_col="applicant_id",
-            score_cols=("score_5",),
-            actual_default_col="actual_default",
-        )
-        .filter("HF A", col("hf_a") == 1)
-        .filter("HF B", col("hf_b") == 1)
-    )
+    df = _halve(greenfield)
+    policy = _shielded(_greenfield_policy())
 
     out = run_sweep(df, policy, cutoff_grid={"score_5": [0.0, 50.0, 300.0]}, method=method)
     at_null = float(out.loc[out["score_5"] == 0.0, "overall_approval_rate"].iat[0])
@@ -134,14 +149,7 @@ def test_shields_cutting_half_the_base_plateau_at_half(greenfield, method):
     assert (out["overall_approval_rate"] <= 0.5 + 1e-12).all()
 
     unshielded = run_sweep(
-        df,
-        CreditPolicy(
-            applicant_id_col="applicant_id",
-            score_cols=("score_5",),
-            actual_default_col="actual_default",
-        ),
-        cutoff_grid={"score_5": [0.0]},
-        method=method,
+        df, _greenfield_policy(), cutoff_grid={"score_5": [0.0]}, method=method
     )
     assert float(unshielded["overall_approval_rate"].iat[0]) == 1.0
 
@@ -299,3 +307,80 @@ def test_a_screen_declared_as_a_rate_stage_does_not_cap_approval(incumbent):
 
     assert as_filter["overall_approval_rate"].max() == pytest.approx(screen_share, abs=1e-12)
     assert as_rate["overall_approval_rate"].max() == pytest.approx(1.0, abs=1e-12)
+
+
+@pytest.mark.filterwarnings("ignore")
+def test_the_public_verbs_hold_the_ceiling(greenfield):
+    """The same 50% protocol through the two verbs the report actually named.
+
+    ``optimize_cutoffs`` and ``tradeoff`` are thin layers over ``run_sweep``, so
+    the guarantee has to survive the layer: the grid, the Pareto frontier and
+    the best pick all sit at or below the shields' survivors, and a null cutoff
+    reads exactly half. Stripped of the shields, both verbs read 100% at the
+    same grid point -- the leak they are accused of.
+    """
+    df = _halve(greenfield)
+    grid = [0.0, 50.0, 300.0, 600.0]
+
+    opt = optimize_cutoffs(
+        df,
+        _shielded(_greenfield_policy()),
+        cutoff_ranges={"score_5": grid},
+        target_default_rate=0.5,
+        min_approval_rate=0.01,
+    )
+    results = opt.all_results
+    assert float(results.loc[results["score_5"] == 0.0, "overall_approval_rate"].iat[0]) == 0.5
+    assert (results["overall_approval_rate"] <= 0.5 + 1e-12).all()
+    assert (opt.pareto_frontier["overall_approval_rate"] <= 0.5 + 1e-12).all()
+    assert opt.metrics["overall_approval_rate"] <= 0.5 + 1e-12
+
+    curve = (
+        TradeoffAnalyzer(_shielded(_greenfield_policy()))
+        .vary_cutoff("score_5", grid, direction="gte")
+        .run(df)
+    )
+    assert float(curve.loc[curve["score_5_cutoff"] == 0.0, "approval_rate"].iat[0]) == 0.5
+    assert (curve["approval_rate"] <= 0.5 + 1e-12).all()
+
+    bare_opt = optimize_cutoffs(
+        df,
+        _greenfield_policy(),
+        cutoff_ranges={"score_5": [0.0]},
+        target_default_rate=0.5,
+        min_approval_rate=0.01,
+    )
+    bare_curve = (
+        TradeoffAnalyzer(_greenfield_policy())
+        .vary_cutoff("score_5", [0.0], direction="gte")
+        .run(df)
+    )
+    assert float(bare_opt.all_results["overall_approval_rate"].iat[0]) == 1.0
+    assert float(bare_curve["approval_rate"].iat[0]) == 1.0
+
+
+@pytest.mark.filterwarnings("ignore")
+def test_the_public_verbs_hold_the_ceiling_on_the_swap_book(incumbent):
+    """And on the shape the report came from: keep-ins, observed take-up, stress."""
+    df = _halve(incumbent)
+    policy = (
+        _shielded(_incumbent_policy(current_hired_col="hired"))
+        .rate("Take-up", base_rate=1.0, observed_col="hired", calibrate_by="score")
+        .stress(1.2)
+    )
+    grid = [0.0, 50.0, 300.0]
+
+    opt = optimize_cutoffs(
+        df,
+        policy,
+        cutoff_ranges={"score_5": grid},
+        target_default_rate=0.5,
+        min_approval_rate=0.01,
+    )
+    curve = TradeoffAnalyzer(policy).vary_cutoff("score_5", grid, direction="gte").run(df)
+    results = opt.all_results
+
+    assert float(results.loc[results["score_5"] == 0.0, "overall_approval_rate"].iat[0]) == 0.5
+    assert float(curve.loc[curve["score_5_cutoff"] == 0.0, "approval_rate"].iat[0]) == 0.5
+    assert (results["overall_approval_rate"] <= 0.5 + 1e-12).all()
+    assert (curve["approval_rate"] <= 0.5 + 1e-12).all()
