@@ -55,7 +55,22 @@ Fechadas pelo dono no [#152](https://github.com/matheuspasche/pycreditools/issue
 > **Método declara, função livre calcula.**
 > Nenhum método toca a base; toda função livre recebe primeiro aquilo sobre o que age, e devolve tabela.
 
-A primeira é o critério **"muda quando"** de `docs/research/architecture-critique.md` §1 — a crítica que originou o mapa —, e depois do #155 ela é **exata**: os três vetores de saída do #116 moram em três lugares, e cada lugar diz de quem é a decisão.
+#### Os dois usos, e é deles que a forma sai
+
+O pacote serve a duas coisas, e a superfície inteira se explica por essa divisão:
+
+| uso | como se escreve | o que se leva embora |
+|---|---|---|
+| **criar regras** — *"já sei o que quero"* | um `Study`, tudo declarado | `export_rules` — a unidade de deploy |
+| **estudar cenários** — *"quero estressar e ver o que acontece"* | **`for` sobre N `Study`**, lendo a tabela longa pela coluna `study` | `export_study` — a unidade de reprodutibilidade |
+
+**As duas unidades de serialização são exatamente esses dois usos.** É por isso que a de deploy não carrega premissa (decidir aprovar não assume nada sobre não-observado) e a de estudo não carrega base nem nome (o que se reproduz é a declaração, não a rodada).
+
+E é por isso que **variar premissa é outro `Study`, nunca outra dimensão da grade**: no primeiro uso não há o que variar; no segundo, cada variação é uma pergunta própria, e dois pontos sob premissas diferentes não são comparáveis.
+
+#### A regra de onde as coisas moram
+
+A primeira linha é o critério **"muda quando"** de `docs/research/architecture-critique.md` §1 — a crítica que originou o mapa —, e depois do #155 ela é **exata**: os três vetores de saída do #116 moram em três lugares, e cada lugar diz de quem é a decisão.
 
 | vetor | onde se declara | natureza |
 |---|---|---|
@@ -82,6 +97,7 @@ policy = (
 )
 
 premise = pct.Premise(
+    lens         = col("score_5"), # o eixo de risco: contínuo vira bin, discreto usa como está
     bins         = 5,
     calibrate_on = "global",      # "global" (default) | "keep_in"
     take_up      = "binned",      # "binned" | escalar | nó da AST
@@ -394,6 +410,7 @@ O label **acompanha** o render, não o substitui — a leitura alternativa perde
 ```python
 Premise(
     *,
+    lens: Expression,
     bins: int = 5,
     calibrate_on: Literal["global", "keep_in"] = "global",
     take_up: Literal["binned"] | float | Expression = "binned",
@@ -416,9 +433,28 @@ Dois fatos que fecharam:
 
 **A premissa é declarativa e inerte.** Quem executa é o motor — exatamente como já acontece com a inflação hoje (`simulation.py:657`). **Nenhum membro de premissa ganha método.**
 
+#### `lens` — o eixo de risco, e ele é obrigatório
+
+**Uma coluna. O tipo dela decide o tratamento.**
+
+| coluna | tratamento | `bins` |
+|---|---|---|
+| **contínua** (um score) | vira balde por quantil | aplica |
+| **discreta** (um rating) | **usa como está** — as categorias são os baldes | **declarar `bins` junto é erro duro** |
+
+**Quem produz a coluna discreta é o sugestor, ou o cliente.** `suggest_rating(df, score=(a, b))` matricia dois ou três scores e devolve a regra; `apply_rating` materializa a coluna; a premissa se liga a ela. **A matriciação fica a montante** — é o `mutate` antes do `filter`, e é a regra que o #126 já fixou: *a regra é o produto do verbo*.
+
+> **O motor não matricia.** Ele recebe **um** eixo já pronto. Isso mantém `Premise` com uma coisa só para declarar e põe a combinação de scores onde ela pertence — no sugestor, que é quem sabe combinar.
+
+**Por que obrigatório:** não existe default honesto. Um default aqui esconderia a **existência** do mecanismo, que é exatamente a regra da §4.11. E a medição do #117 fecha o caso: o critério de uma boa lente é **suporte comum entre keep-in e swap-in**, o que exige **um score em que a política antiga não selecionou** — julgamento sobre a base, que só o usuário faz. O card mediu o critério (**92,4% dos swap-ins fora do suporte** no eixo em que o incumbente selecionou) e removeu a única forma de agir sobre ele.
+
+**Isto não é a cascata com outro nome.** A cascata era *procurar até achar*, em silêncio, e o #117 pesou apenas duas formas — *cascata* × *cliente do contexto* —, descartando as duas. **A terceira, o usuário declarar, nunca esteve na mesa.** Declarado e obrigatório é degrau 2 da escada; a cascata era degrau zero.
+
+**A morte do `.cutoff` levou junto metade de um ruling.** O #117 fixou que *"corte e lente são eixos independentes"* e que *"cortar por `score_1` e simular sob `score_2` é caso legítimo"*. Ele foi escrito **contra a cascata**, cujo primeiro fallback era a última coluna de `CutoffStage`. Sem `.cutoff` e sem cascata, **a metade normativa perde o adversário**: nada mais propõe inferir a lente do corte. **O que sobrevive é o fato** — a configuração mista continua exprimível, porque a política é uma lista de `.filter` e pode referenciar dois scores. O que impede o motor de sobrepor a lente sozinho passa a ser a escada, não aquele ruling.
+
 #### `bins`
 
-Discretização. **Uma config serve todo eixo sem marcação** — não há `bins` de take-up e `bins` de PD.
+Quantos baldes, quando a lente é contínua. **Uma config serve todo eixo sem marcação** — não há `bins` de take-up e `bins` de PD.
 
 #### `calibrate_on` — de que população sai a régua
 
@@ -463,10 +499,12 @@ O terceiro modo preserva a capacidade que o `RateStage.variable` tem hoje (`stag
 | valor | significado |
 |---|---|
 | escalar (`1.8`) | *"o negado é 1,8× pior que o aprovado comparável"* |
-| escada (`[1.2, 1.35, 1.5, 1.65, 1.8]`) | um fator **por bin**, na ordem dos `bins`; comprimento tem que bater com `bins`, senão erro duro |
+| escada (`[1.2, 1.35, 1.5, 1.65, 1.8]`) | um fator **por balde da lente**, na ordem deles; comprimento diferente do número de baldes é erro duro |
 | nó da AST (`col("fator_setorial")`) | um fator **por linha**, vindo de coluna |
 
 **A escada é o caso da masterclass**, escrito como valor: *"para o melhor decil estresso 20%, para o pior 80%"*.
+
+**A escada indexa os baldes da LENTE, não uma faixa própria.** Com lente contínua são os quantis; **com lente discreta são as categorias, na ordem declarada**. Isso é o que faz o `angled_by_rating` da masterclass virar escada **sem mecanismo novo**: quando a lente é o rating, angular por rating **é** angular por balde.
 
 **O terceiro modo existe porque a escada não cobria tudo.** Inventário do que existe hoje, medido:
 
@@ -474,7 +512,7 @@ O terceiro modo preserva a capacidade que o `RateStage.variable` tem hoje (`stag
 |---|---|---|
 | `AggravationStress(factor=1.5)` | `pd × 1.5` | **escalar** |
 | `AggravationStress(factor_col="f")` | `pd × df["f"]` — fator **por linha**, coluna arbitrária | **nó da AST** |
-| `CustomStress(angled_by_rating)` | callable; é o que a masterclass usa | **escada** (angula por rating, que é faixa de score) |
+| `CustomStress(angled_by_rating)` | callable; é o que a masterclass usa | **escada**, quando a lente é o rating; **nó**, quando não é |
 | `MonotonicStress(score_col, baseline, factor)` | `baseline − (score/1000) × factor` | **nenhum, e de propósito** — ver abaixo |
 
 **`MonotonicStress` não é stress.** Ele **ignora `pd_col` inteiro** (`stress.py:96-97`): não multiplica nada, **substitui** a PD por uma reta sobre o score. É um **modelo de PD vestido de stress**, e o endereço dele na v0.6 é `outcome_from` com um nó — quem quer aquela reta calcula a coluna e a entrega. É o `mutate` antes do `filter`.
@@ -484,7 +522,7 @@ Com os três modos, a família `AggravationStress`/`MonotonicStress`/`CustomStre
 **Por que essa forma e não os tipos:**
 
 - **É valor.** Frozen, comparável por igualdade, round-trippável — as três coisas que `CustomStress` quebrava por construção (`to_dict` devolvia `str(fn)`, `from_dict` levantava de propósito).
-- **É a mesma grade que o resto da premissa usa.** A escada não inventa faixa própria; ela indexa os `bins` que `calibrate_on` já particiona. Zero mecanismo novo.
+- **É a mesma grade que o resto da premissa usa.** A escada não inventa faixa própria; ela indexa os baldes da `lens`. Zero mecanismo novo.
 - **O nó não reintroduz o callable.** `col("f")` é AST — serializa, compara por igualdade, faz round-trip. O que morre é a **função opaca**, não o fator por linha.
 - **Continua sendo UMA inflação, sem agregador.** `WorstCase(1.3, 1.8)` morre: sobre escalares o agregador é cerimônia com resposta predeterminada (`max(pd×1.3, pd×1.8) = pd×1.8` sempre); quando as hipóteses se cruzam é pior — o `max` por linha monta uma curva que **não corresponde a hipótese nenhuma**, medido custando **+70%** (0,0963 → 0,1643).
 - **N hipóteses são N `Study`s**, comparados pelo verbo de leitura. Isso dissolve o `max(axis=1)` de `simulation.py:571-583` **por construção**, e o `UserWarning` dele morre junto com o caso que o gerava.
@@ -544,16 +582,53 @@ Study(schema, policy, premise, *, seed: int, name: str | None = None)
 ```
 <Study challenger>
   Schema:  approved / hired / actual_default
-  Policy:  4 filter (1 draw)
-  Premise: bins=5, calibrate_on="global", take_up="binned", stress=1.8
+  Policy:  4 filter (1 draw)  ·  age, vl_negativacao, score_5, desk_outcome
+  Premise: lens=score_5, bins=5, calibrate_on="global", take_up="binned", stress=1.8
   Seed:    7
 ```
+
+**O `repr` lista as colunas que a política referencia, ao lado da lente** — e quando a lente **não** está entre elas, ele diz o fato, não o julgamento:
+
+```
+  Premise: lens=score_c  (não referenciada pela política), bins=10, …
+```
+
+Isso não é aviso, e não podia ser: o #132 proibiu `UserWarning` sobre dado, e **remédio silenciável é remédio silencioso**. Erro duro também não serve — mataria a configuração mista, que continua legítima. **O `repr` é o degrau 3 aplicado à composição: reporta, não avisa, não recusa, e não há o que silenciar.** Custo: uma linha num `repr` que já existe.
 
 Front-loading dói porque nada diz onde você está. O `repr` responde isso **sem tirar nenhuma declaração do caminho**.
 
 **Recusa honesta, registrada:** não existe API fluente que crie o `Study` do nada. `DataSchema` e `CreditPolicy` são **irredutíveis** — são o que a ferramenta existe para tornar explícito. O "uau" do dplyr é começar no dado porque **no dplyr o dado é a única coisa declarada**; aqui há três papéis e um funil, e fingir o contrário compraria fluência com inferência silenciosa.
 
 **Variação de premissa é outro estudo, não outra dimensão.** Esta regra fechou quatro forks: a lente, o stress no `vary`, o agregador de inflação e o take-up.
+
+#### Comparar N scores: o `for` é sobre `Study`, e a lente anda junto
+
+> **Quando o score é a coisa que está sendo comparada, ele é o eixo do corte E a lente da premissa, no mesmo `Study`.**
+> Um `for` que varie o corte **reusando uma premissa** não compara scores — compara **cortes sob uma lente só**. **N scores = N `Study`.**
+
+```python
+estudos = [
+    pct.Study(
+        schema,
+        pct.CreditPolicy().filter(col(s) >= 600, label="corte"),
+        pct.Premise(lens=col(s), bins=10, calibrate_on="global", stress=1.8),
+        seed=7, name=s,
+    )
+    for s in ("score_a", "score_b", "score_c")
+]
+
+grid = pd.concat([pct.tradeoff(e, df, ranges={"corte": faixa}) for e in estudos])
+best = pct.choose(grid, criterion="pareto")
+```
+
+**Correção a um snippet do #118.** O card ilustrou *"rodar N scores"* como `[tradeoff(study, base, ranges={s: …}) for s in scores]` — o `for` correndo sobre **`ranges`**, reusando **um** `study`. Um `Study` carrega **uma** `Premise`, logo **uma** lente: aquele snippet corta por A, B e C **sob a lente de um só**. O conteúdo da decisão do #118 está certo (*N curvas = `for` sobre N `Study`*); **o exemplo dela é que contradiz o próprio texto.**
+
+Duas propriedades que caem de graça, e que a spec declara para que ninguém as desfaça:
+
+- **A coluna de coordenada é o LABEL, não o nome do score** — `corte`, nos três. As três curvas **empilham alinhadas** e se separam por `study`. Se a coordenada saísse com o nome do score, o `concat` produziria três colunas esparsas.
+- **O literal do `.filter` é placeholder**, substituído pelo `ranges=`. É o *"número que é mentira"* que o #118 já aceitou como custo ao matar o *varre-o-declarado*: ele deixou de ser load-bearing, mas continua sendo escrito. **Escreva um valor plausível, não `0`** — senão lê como regra.
+
+**Até onde isto blinda, declarado.** Não dá para tornar inexprimível nem erro duro sem matar a configuração mista. O que muda, e é grande: hoje **o motor** ancora no score errado sozinho e em silêncio — bug do pacote, medido em **−0,70 p.p.**; amanhã o pior caso é um estudo mal montado, **escrito na chamada e visível no `repr`**. Sai de degrau zero para uma escolha à vista.
 
 ### 4.6 O motor
 
@@ -1291,10 +1366,14 @@ Quatro. As três primeiras são rulings do dono de 2026-09-07; a quarta é escri
 | 4 | **A escada de `stress` indexa os mesmos `bins`**, e comprimento diferente de `bins` é erro duro | escrita de spec — decorre de *"uma config serve todo eixo"* e da escada não poder inventar faixa própria |
 | 5 | **`outcome_from` aceita nó da AST — probabilidade por linha** —, distinguido da coluna 0/1 **pelo tipo**: string é observado e não sorteia, nó é hipótese e sorteia | **re-aloja o eixo de desfecho do #118**, que o card deu ao verbo `.rate` e que evaporou quando o `.rate` colapsou (#129), saiu da política (#155) e virou `take_up` (#152). **Nenhum card decidiu matar esse caminho** — ele foi perdido por atrito entre três decisões corretas. Pela regra de precedência, o #118 vence o #117 nesse ponto |
 | 6 | **`MonotonicStress` não é stress e não ganha modo próprio** | ele **ignora `pd_col`** (`stress.py:96-97`) e **substitui** a PD por uma reta sobre o score. É modelo de PD, não inflação; o endereço dele é `outcome_from` com um nó |
+| 7 | **`lens` — o eixo de risco, uma coluna, obrigatório; contínua vira bin, discreta usa como está. A matriciação fica no sugestor** | **fecha o buraco que o #118 abriu sem ver.** O #117 matou o *ponteiro* da lente e o #118 declarou que a pergunta *"dissolvia"* — mas `bins` é *quantos baldes* e `calibrate_on` é *quais linhas*; **nada dizia sobre qual eixo o `qcut` corre**, e o kernel exige `ref_scores` (`_kernels/calibration.py`). O #117 já reconhecia a forma discreta (*"`Match` é caso discreto de parcelling com rating pré-definido"*), sem lhe dar campo |
+| 8 | **N scores = N `Study`, com a lente andando junto do corte** — e o snippet do #118 vai corrigido | o **texto** do #118 (*"N curvas = `for` sobre N `Study`"*) está certo e não muda; **o exemplo dele** corre o `for` sobre `ranges` reusando um `study`, o que corta por A, B e C sob uma lente só. Emenda ao exemplo, não à decisão |
 
 **Consequência da 1 para a lista de nomes públicos:** `compare_policies` já estava na lista de mortos; o que muda é que **nada nasce no lugar** — `simulate` ganha um overload, não um irmão.
 
 **Consequência da 2, 3, 5 e 6 para a whitelist:** nenhuma. Os três modos novos **reproduzem caminho que já existe** — a escada reproduz a angulação por faixa, o nó de `stress` reproduz `AggravationStress(factor_col=)`, o nó de `take_up` reproduz `RateStage.variable`, e o nó de `outcome_from` reproduz o `estimated_default_col` lido como probabilidade (`simulation.py:548-550`). Onde o usuário usava **callable**, o número muda de propósito e **já estava contabilizado** na morte do callable.
+
+**Consequência da 7 e 8 para a whitelist:** nenhuma **por decisão**, mas atenção na execução — a lente declarada **substitui a cascata**, cuja divergência **já está whitelistada** e medida (até 0,93 p.p., não uniforme por forma de política). O que a decisão 7 faz é dar ao usuário como **escolher** o eixo; o delta contra a v0.5 continua sendo o da morte da cascata, já contabilizado.
 
 **Regularidade que as decisões 2, 3 e 5 compram junto:** os três campos que respondem *"de onde vem o número"* — `take_up`, `stress`, `outcome_from` — passam a aceitar **a mesma coisa**: um sentinela que nomeia o mecanismo, um valor concreto, ou um nó da AST. Isso não era desenho intencional; caiu quando o inventário do código forçou o terceiro modo em dois deles.
 
@@ -1302,7 +1381,8 @@ Quatro. As três primeiras são rulings do dono de 2026-09-07; a quarta é escri
 
 | # | item | por quê está aberto, e não escondido |
 |---|---|---|
-| 1 | **Se a distinção string × nó no `outcome_from` é legível o bastante** | Ela é **semântica e correta** — observado não sorteia, hipótese sorteia — mas é distinção **por tipo**, não por palavra. Nenhum card a validou porque nenhum card sabia que os dois modos coexistiriam. Se ela se mostrar sutil demais na masterclass reescrita, a alternativa é nomear o mecanismo (`outcome_from=("model_pd", col(...))`), ao custo de perder a simetria com `take_up`. **Não bloqueia a v0.6.0** |
+| 1 | **Se `lens` é o nome certo** | É a palavra que o mapa usou em prosa o tempo todo para exatamente isto, e **nunca foi identificador**, então não colide. O risco é de leitura: o #117 diz *"a lente foi dissolvida"* — foi a **cascata** que morreu, e o ADR tem que dizer isso em uma linha, senão uma sessão futura lê como decisão revogada. Alternativas pesadas e descartadas: `calibrate_by=` (ressuscita nome morto, e `by` já significa *"um por grupo"*) e `risk_axis=` (vocabulário novo, ausente do `CONTEXT.md`) |
+| 2 | **Se a distinção string × nó no `outcome_from` é legível o bastante** | Ela é **semântica e correta** — observado não sorteia, hipótese sorteia — mas é distinção **por tipo**, não por palavra. Nenhum card a validou porque nenhum card sabia que os dois modos coexistiriam. Se ela se mostrar sutil demais na masterclass reescrita, a alternativa é nomear o mecanismo (`outcome_from=("model_pd", col(...))`), ao custo de perder a simetria com `take_up`. **Não bloqueia a v0.6.0** |
 
 **A dúvida do dono sobre *"quantos verbos o stress precisa"* está respondida: zero tipos, um campo com três modos.**
 
@@ -1332,6 +1412,7 @@ Levantado ao escrever esta spec. **Não é decisão pendente; é execução que 
 - **O caminho rápido é exato quando o eixo varrido é o eixo que gerou o livro** — varrer o score pelo qual o incumbente aprovou não produz swap-out até o corte passar do quantil de aprovação dele, a população de keep-ins não muda, e o erro mede **+0,0000 p.p.** O defeito exige que o eixo varrido seja **ortogonal** ao que gerou o livro — **que é o caso interessante e o caso da masterclass**.
 - **Os números de custo de grade de 50 mil linhas não transportam para 3 MM em valor absoluto; só a razão (~53×) transporta.** O modelo a 3 MM é **≈ 6,5 s fixos + ~80 ms/ponto**.
 - **Recalibrar por ponto não reduz o erro — elimina**, até a precisão de ponto flutuante (`+0,000000 p.p.` em cinco cortes cobrindo 24% a 76% de aprovação).
+- **O kernel de calibração sempre precisou de um eixo, e o mapa nunca o nomeou.** `calibrate_by_score_bins` exige `ref_scores` e `target_scores` (`_kernels/calibration.py`), hoje resolvidos por `resolve_calibration_score_col` (`simulation.py:723`, `:735`, `:743`, `:755`). O #118 declarou a pergunta *"dissolvida"* — dissolveu o **ponteiro**, não o **eixo**. Quem ler *"a cascata morre sem substituto"* e concluir que o eixo não existe vai reescrever o kernel sem argumento.
 - **`MonotonicStress` nunca foi um stress.** `stress.py:96-97` computa `baseline − (score/1000) × factor` **sem tocar `pd_col`** — ele **substitui** a PD, não a multiplica. Quem o classificar como inflação ao ler o nome vai errar a migração dele.
 - **A curva de ρ do protótipo de lente é inválida** e não deve ser citada: o eixo "correlação entre scores" ficou confundido com "quanto sinal o segundo score carrega".
 - **`parallel=True` não reproduz sob semente** (0,41 p.p.) — **característica, não bug**. E **quebra com filtro callable** (`PicklingError`, porque o pickle vem **antes** da resolução) — o que **morre junto com a classe de casos**, quando callable virar inexprimível. **O repasse é verificação, não conserto:** confirmar que a inexprimibilidade fecha o caso, em vez de deixar um caminho lateral que ainda aceite callable e ainda quebre em paralelo.
