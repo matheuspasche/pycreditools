@@ -85,8 +85,8 @@ premise = pct.Premise(
     bins         = 5,
     calibrate_on = "global",      # "global" (default) | "keep_in"
     take_up      = "binned",      # "binned" | escalar | nó da AST
-    stress       = 1.8,           # escalar | escada por bin
-    outcome_from = "parcelling",  # "parcelling" (default) | nome da sua coluna 0/1
+    stress       = 1.8,           # escalar | escada por bin | nó da AST
+    outcome_from = "parcelling",  # "parcelling" | nome de coluna 0/1 | nó da AST
 )
 
 study = pct.Study(schema, policy, premise, seed=7, name="challenger")
@@ -397,8 +397,8 @@ Premise(
     bins: int = 5,
     calibrate_on: Literal["global", "keep_in"] = "global",
     take_up: Literal["binned"] | float | Expression = "binned",
-    stress: float | Sequence[float] = 1.0,
-    outcome_from: Literal["parcelling"] | str = "parcelling",
+    stress: float | Sequence[float] | Expression = 1.0,
+    outcome_from: Literal["parcelling"] | str | Expression = "parcelling",
 )
 ```
 
@@ -463,31 +463,57 @@ O terceiro modo preserva a capacidade que o `RateStage.variable` tem hoje (`stag
 | valor | significado |
 |---|---|
 | escalar (`1.8`) | *"o negado é 1,8× pior que o aprovado comparável"* |
-| escada (`[0.2, 0.4, 0.6, 0.8, 1.0]`) | um fator **por bin**, na ordem dos `bins`; comprimento tem que bater com `bins`, senão erro duro |
+| escada (`[1.2, 1.35, 1.5, 1.65, 1.8]`) | um fator **por bin**, na ordem dos `bins`; comprimento tem que bater com `bins`, senão erro duro |
+| nó da AST (`col("fator_setorial")`) | um fator **por linha**, vindo de coluna |
 
-**A escada é o caso da masterclass**, escrito como valor: *"para o melhor decil estresso 20%, para o pior 80%"*. Ela substitui a família `AggravationStress`/`MonotonicStress`/`CustomStress` **inteira** — três tipos e um callable viram um campo que aceita um número ou uma sequência de números.
+**A escada é o caso da masterclass**, escrito como valor: *"para o melhor decil estresso 20%, para o pior 80%"*.
+
+**O terceiro modo existe porque a escada não cobria tudo.** Inventário do que existe hoje, medido:
+
+| forma de hoje | o que faz | coberto por |
+|---|---|---|
+| `AggravationStress(factor=1.5)` | `pd × 1.5` | **escalar** |
+| `AggravationStress(factor_col="f")` | `pd × df["f"]` — fator **por linha**, coluna arbitrária | **nó da AST** |
+| `CustomStress(angled_by_rating)` | callable; é o que a masterclass usa | **escada** (angula por rating, que é faixa de score) |
+| `MonotonicStress(score_col, baseline, factor)` | `baseline − (score/1000) × factor` | **nenhum, e de propósito** — ver abaixo |
+
+**`MonotonicStress` não é stress.** Ele **ignora `pd_col` inteiro** (`stress.py:96-97`): não multiplica nada, **substitui** a PD por uma reta sobre o score. É um **modelo de PD vestido de stress**, e o endereço dele na v0.6 é `outcome_from` com um nó — quem quer aquela reta calcula a coluna e a entrega. É o `mutate` antes do `filter`.
+
+Com os três modos, a família `AggravationStress`/`MonotonicStress`/`CustomStress` — **três tipos e um callable** — vira **um campo com três modos, e nenhuma capacidade se perde**.
 
 **Por que essa forma e não os tipos:**
 
 - **É valor.** Frozen, comparável por igualdade, round-trippável — as três coisas que `CustomStress` quebrava por construção (`to_dict` devolvia `str(fn)`, `from_dict` levantava de propósito).
 - **É a mesma grade que o resto da premissa usa.** A escada não inventa faixa própria; ela indexa os `bins` que `calibrate_on` já particiona. Zero mecanismo novo.
+- **O nó não reintroduz o callable.** `col("f")` é AST — serializa, compara por igualdade, faz round-trip. O que morre é a **função opaca**, não o fator por linha.
 - **Continua sendo UMA inflação, sem agregador.** `WorstCase(1.3, 1.8)` morre: sobre escalares o agregador é cerimônia com resposta predeterminada (`max(pd×1.3, pd×1.8) = pd×1.8` sempre); quando as hipóteses se cruzam é pior — o `max` por linha monta uma curva que **não corresponde a hipótese nenhuma**, medido custando **+70%** (0,0963 → 0,1643).
 - **N hipóteses são N `Study`s**, comparados pelo verbo de leitura. Isso dissolve o `max(axis=1)` de `simulation.py:571-583` **por construção**, e o `UserWarning` dele morre junto com o caso que o gerava.
 
 **`stress` e não `inflation`:** o pacote já tem a palavra (`stress.py`, `StressScenario`, `AggravationStress`), e já ficou decidido que **o stress *é* a inflação** — verificado: ele incide **só** em `swap_ins.index` (`simulation.py:657`); keep-in recebe `actual_default` intocado (`:625`). **Nunca foi cenário macro de livro.** `inflation` seria a segunda palavra para o mesmo conceito. **Morre o tipo, não a palavra.**
 
-**[aberto — decidido nesta sessão, registrar como emenda]** A escada como *sequência sobre `bins`* é a forma que esta spec fixa a partir do ruling do dono de 2026-09-07 (*"escalar ou a família \*stress… uma escadinha"*). Ela **emenda** a decisão 8 do #152, que dizia apenas *"morre o tipo, não a palavra"* sem dizer que forma o valor toma. Se a angulação por uma coluna **que não é o score de calibração** for necessária, isso é capacidade nova e não está coberta aqui.
+**Decidido nesta sessão, registrado como emenda (§9.1):** os três modos saem do ruling do dono de 2026-09-07 (*"escalar ou a família \*stress… uma escadinha"*) mais a constatação, ao inventariar o código, de que a escada sozinha **perdia o `factor_col`**. Isso **emenda** a decisão 8 do #152, que dizia apenas *"morre o tipo, não a palavra"* sem dizer que forma o valor toma.
 
 #### `outcome_from` — de onde vem o desfecho
 
-| valor | significado |
-|---|---|
-| `"parcelling"` (default) | discretiza em `bins`, transfere a taxa do aprovado no balde, aplica `stress` |
-| nome de coluna | o desfecho **realizado** dos negados vem de fora — bureau, ou modelo já materializado |
+| valor | tipo | significado | sorteia? |
+|---|---|---|---|
+| `"parcelling"` (default) | sentinela | discretiza em `bins`, transfere a taxa do aprovado no balde, aplica `stress` | **sim** |
+| `"flag_bureau"` | **string** | o desfecho **realizado** vem de fora — coluna 0/1 | **não** |
+| `col("pd_modelo")` | **nó da AST** | **probabilidade por linha**, vinda de um modelo | **sim** |
+
+**O tipo distingue as duas colunas, e a distinção é semântica, não estética.** Pela regra *"sorteia-se sempre o que não foi observado"*: a flag de bureau é **fato** — não há o que sortear; a PD de modelo é **hipótese** — é uma probabilidade, e probabilidade se sorteia. **String é nome de coluna observada; nó é expressão que produz probabilidade.** Nenhuma flag é necessária para separá-las.
+
+Cada uma com seu erro duro: **string cuja coluna não é 0/1 levanta no bind**; **nó cujo valor sai de `[0,1]` levanta**.
+
+> **Por que os dois caminhos existem, e a temporalidade que decide.** O #117 matou a coluna de PD por linha (*"quem tem PD de modelo materializa em 0/1 antes de entregar"*). O **#118, no mesmo dia e depois**, reinstalou: `estimated_default_col` viraria o eixo de desfecho recebendo **probabilidade por linha**, e o card diz textualmente que **não colide** com o caminho 0/1 — *"aquele é desfecho realizado dos negados, coluna 0/1; **este é probabilidade por linha**"*. **Pela regra de precedência deste documento, o #118 vence.**
+>
+> A casa que o #118 deu a esse caminho era o verbo `.rate` no eixo de desfecho. Esse verbo colapsou no #129, saiu da política no #155 e virou `take_up` no #152 — e **ninguém re-alojou o eixo de desfecho**. O terceiro modo acima é essa re-alojagem, e sem ele a v0.6 perderia um caminho que **nenhum card decidiu matar**.
 
 - **O default literal nomeia o mecanismo na assinatura.** `outcome_from="parcelling"` aparece no `help()` dizendo que há parcelling rodando — a regra "nenhum default esconde a existência de um mecanismo" na forma mais forte, sem depender de o leitor inferir o mecanismo de `bins` e `stress` estarem por perto.
-- **A coluna é 0/1, com erro duro no bind.** Hoje ela é tratada como **probabilidade** (`simulation.py:548-550`, ligando `use_stochastic_draw` de lado). Passar a 0/1 derruba três coisas: **some o sorteio nesse caminho**; *"não infla"* deixa de ser regra e vira **aritmética** (`1 × 1.8` clipa em 1, `0 × 1.8` = 0); e bureau e modelo colapsam num caminho só. Sem o erro duro, quem hoje passa `0.07` recebe o float lido como desfecho e a inadimplência despenca — **mudança silenciosa de semântica**.
-- **`stress` junto com coluna é ERRO DURO**, com mensagem óbvia (*"o desfecho veio de coluna; não há o que inflar"*). Com dois tipos isso era inexprimível; com o tipo único é degrau 2. **Preço declarado da união.**
+- **O modo string exige 0/1, com erro duro no bind, e é o que o #117 decidiu.** Hoje a coluna é tratada como **probabilidade** sem distinção (`simulation.py:548-550`, ligando `use_stochastic_draw` de lado). Separar os dois modos derruba a ambiguidade: **quem entrega fato entrega 0/1 e não sorteia; quem entrega hipótese entrega nó e sorteia.** Sem o erro duro no modo string, quem hoje passa `0.07` recebe o float lido como **desfecho realizado** e a inadimplência despenca — **mudança silenciosa de semântica**.
+  **O que sobrevive do argumento do #117 e o que cai:** sobrevive que *"não infla"* vira **aritmética** sobre 0/1 (`1 × 1.8` clipa em 1, `0 × 1.8` = 0) e que a coluna 0/1 dispensa sorteio. **Cai** *"bureau e modelo colapsam num caminho só"* — o #118 mediu que **não colapsam**, e é a leitura mais recente.
+- **`stress` junto com desfecho vindo de fora é ERRO DURO**, com mensagem óbvia (*"o desfecho veio de coluna; não há o que inflar"*), nos dois modos externos. Com dois tipos isso era inexprimível; com o tipo único é degrau 2. **Preço declarado da união.**
+  Sobre o modo 0/1 a regra é aritmética antes de ser política: `1 × 1.8` clipa em 1 e `0 × 1.8` = 0. Sobre o modo probabilidade ela é modelagem: inflar a PD de um modelo é sobrescrever a hipótese de quem entregou o modelo.
 - `outcome=` está tomado: o `DataSchema` usa `outcome` para a coluna **observada**.
 
 #### O que a premissa faz morrer
@@ -1260,20 +1286,25 @@ Quatro. As três primeiras são rulings do dono de 2026-09-07; a quarta é escri
 | # | decisão | emenda a |
 |---|---|---|
 | 1 | **Comparar-N não precisa de verbo.** `simulate` aceita coleção; `delta_table(results, baseline=)` lê. **`compare` não nasce** | a decisão de que comparar-N é verbo de primeira classe — **o conteúdo dela sobrevive inteiro** (tabela longa, uma linha por estudo, sem tipo contêiner); muda **qual verbo a produz** |
-| 2 | **`stress` aceita escalar OU escada por bin** (sequência de comprimento `bins`) | a decisão *"morre o tipo, não a palavra"*, que **não dizia que forma o valor toma**. A família `*Stress` inteira — três tipos e um callable — vira **um campo que aceita um número ou uma sequência de números** |
+| 2 | **`stress` aceita escalar, escada por bin OU nó da AST** | a decisão *"morre o tipo, não a palavra"*, que **não dizia que forma o valor toma**. A família `*Stress` inteira — três tipos e um callable — vira **um campo com três modos, sem perda de capacidade** |
 | 3 | **`take_up` aceita `"binned"`, escalar OU nó da AST** | o registro explícito de que *"ninguém escreveu como o campo aceita nó da AST"*. Preserva a capacidade que `RateStage.variable` tem hoje |
 | 4 | **A escada de `stress` indexa os mesmos `bins`**, e comprimento diferente de `bins` é erro duro | escrita de spec — decorre de *"uma config serve todo eixo"* e da escada não poder inventar faixa própria |
+| 5 | **`outcome_from` aceita nó da AST — probabilidade por linha** —, distinguido da coluna 0/1 **pelo tipo**: string é observado e não sorteia, nó é hipótese e sorteia | **re-aloja o eixo de desfecho do #118**, que o card deu ao verbo `.rate` e que evaporou quando o `.rate` colapsou (#129), saiu da política (#155) e virou `take_up` (#152). **Nenhum card decidiu matar esse caminho** — ele foi perdido por atrito entre três decisões corretas. Pela regra de precedência, o #118 vence o #117 nesse ponto |
+| 6 | **`MonotonicStress` não é stress e não ganha modo próprio** | ele **ignora `pd_col`** (`stress.py:96-97`) e **substitui** a PD por uma reta sobre o score. É modelo de PD, não inflação; o endereço dele é `outcome_from` com um nó |
 
 **Consequência da 1 para a lista de nomes públicos:** `compare_policies` já estava na lista de mortos; o que muda é que **nada nasce no lugar** — `simulate` ganha um overload, não um irmão.
 
-**Consequência da 2 e 3 para a whitelist:** nenhuma. A escada reproduz o que `AggravationStress(factor_col=)` faz hoje quando o fator é constante por faixa, e o nó de `take_up` reproduz `RateStage.variable`. Onde o usuário usava callable, o número muda **de propósito e já estava contabilizado** na morte do callable.
+**Consequência da 2, 3, 5 e 6 para a whitelist:** nenhuma. Os três modos novos **reproduzem caminho que já existe** — a escada reproduz a angulação por faixa, o nó de `stress` reproduz `AggravationStress(factor_col=)`, o nó de `take_up` reproduz `RateStage.variable`, e o nó de `outcome_from` reproduz o `estimated_default_col` lido como probabilidade (`simulation.py:548-550`). Onde o usuário usava **callable**, o número muda de propósito e **já estava contabilizado** na morte do callable.
+
+**Regularidade que as decisões 2, 3 e 5 compram junto:** os três campos que respondem *"de onde vem o número"* — `take_up`, `stress`, `outcome_from` — passam a aceitar **a mesma coisa**: um sentinela que nomeia o mecanismo, um valor concreto, ou um nó da AST. Isso não era desenho intencional; caiu quando o inventário do código forçou o terceiro modo em dois deles.
 
 ### 9.2 O que continua **[aberto]**
 
 | # | item | por quê está aberto, e não escondido |
 |---|---|---|
-| 1 | **Angulação de `stress` por uma coluna que não é o score de calibração** | A escada cobre a angulação por faixa, que é o caso da masterclass. Angular por uma coluna arbitrária seria **capacidade nova**, e nenhum card a mediu. **Não bloqueia a v0.6.0** |
-| 2 | **Quantos "verbos" o stress ainda precisa** | O dono registrou a dúvida (*"não sei se precisa de tantos verbos no stress"*). Esta spec responde **zero tipos, um campo com dois modos**. Se a execução achar um caso que a escada não expressa, a resposta volta à mesa |
+| 1 | **Se a distinção string × nó no `outcome_from` é legível o bastante** | Ela é **semântica e correta** — observado não sorteia, hipótese sorteia — mas é distinção **por tipo**, não por palavra. Nenhum card a validou porque nenhum card sabia que os dois modos coexistiriam. Se ela se mostrar sutil demais na masterclass reescrita, a alternativa é nomear o mecanismo (`outcome_from=("model_pd", col(...))`), ao custo de perder a simetria com `take_up`. **Não bloqueia a v0.6.0** |
+
+**A dúvida do dono sobre *"quantos verbos o stress precisa"* está respondida: zero tipos, um campo com três modos.**
 
 **Nada mais está aberto.** As duas entradas de névoa que o mapa carregava foram fechadas: as seis superfícies não olhadas saíram por ruling (§8), e a invariância de coeteris paribus está registrada como **levantada e não adotada** (§8), não como pendência.
 
@@ -1301,6 +1332,7 @@ Levantado ao escrever esta spec. **Não é decisão pendente; é execução que 
 - **O caminho rápido é exato quando o eixo varrido é o eixo que gerou o livro** — varrer o score pelo qual o incumbente aprovou não produz swap-out até o corte passar do quantil de aprovação dele, a população de keep-ins não muda, e o erro mede **+0,0000 p.p.** O defeito exige que o eixo varrido seja **ortogonal** ao que gerou o livro — **que é o caso interessante e o caso da masterclass**.
 - **Os números de custo de grade de 50 mil linhas não transportam para 3 MM em valor absoluto; só a razão (~53×) transporta.** O modelo a 3 MM é **≈ 6,5 s fixos + ~80 ms/ponto**.
 - **Recalibrar por ponto não reduz o erro — elimina**, até a precisão de ponto flutuante (`+0,000000 p.p.` em cinco cortes cobrindo 24% a 76% de aprovação).
+- **`MonotonicStress` nunca foi um stress.** `stress.py:96-97` computa `baseline − (score/1000) × factor` **sem tocar `pd_col`** — ele **substitui** a PD, não a multiplica. Quem o classificar como inflação ao ler o nome vai errar a migração dele.
 - **A curva de ρ do protótipo de lente é inválida** e não deve ser citada: o eixo "correlação entre scores" ficou confundido com "quanto sinal o segundo score carrega".
 - **`parallel=True` não reproduz sob semente** (0,41 p.p.) — **característica, não bug**. E **quebra com filtro callable** (`PicklingError`, porque o pickle vem **antes** da resolução) — o que **morre junto com a classe de casos**, quando callable virar inexprimível. **O repasse é verificação, não conserto:** confirmar que a inexprimibilidade fecha o caso, em vez de deixar um caminho lateral que ainda aceite callable e ainda quebre em paralelo.
 
