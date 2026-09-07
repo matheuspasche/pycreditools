@@ -442,6 +442,13 @@ Dois fatos que fecharam:
 | **contínua** (um score) | vira balde por quantil | aplica |
 | **discreta** (um rating) | **usa como está** — as categorias são os baldes | **declarar `bins` junto é erro duro** |
 
+**Obrigatória por amarra, não sempre** — mesma forma da entrada amarrada do #116 (*declarou `approved`, `hired` vira obrigatório*):
+
+> **`lens` é obrigatória quando algum eixo discretiza** — `take_up="binned"` **ou** `outcome_from="parcelling"`.
+> **Declará-la quando nenhum dos dois discretiza é erro duro**, dizendo que nada a consome.
+
+Exigi-la sempre reproduziria um defeito que o mapa já matou **duas vezes**: o `RateStage.base_rate`, cuja própria docstring dizia *"Ignored when `observed_col` is set"* e que o #129 mediu ser **inerte nos únicos usos vivos**; e o `params: dict` do #126, medido **write-only**. **Argumento obrigatório e inerte é a patologia, não a cerimônia.**
+
 **Quem produz a coluna discreta é o sugestor, ou o cliente.** `suggest_rating(df, score=(a, b))` matricia dois ou três scores e devolve a regra; `apply_rating` materializa a coluna; a premissa se liga a ela. **A matriciação fica a montante** — é o `mutate` antes do `filter`, e é a regra que o #126 já fixou: *a regra é o produto do verbo*.
 
 > **O motor não matricia.** Ele recebe **um** eixo já pronto. Isso mantém `Premise` com uma coisa só para declarar e põe a combinação de scores onde ela pertence — no sugestor, que é quem sabe combinar.
@@ -554,6 +561,34 @@ Cada uma com seu erro duro: **string cuja coluna não é 0/1 levanta no bind**; 
   Sobre o modo 0/1 a regra é aritmética antes de ser política: `1 × 1.8` clipa em 1 e `0 × 1.8` = 0. Sobre o modo probabilidade ela é modelagem: inflar a PD de um modelo é sobrescrever a hipótese de quem entregou o modelo.
 - `outcome=` está tomado: o `DataSchema` usa `outcome` para a coluna **observada**.
 
+**As três formas do desfecho vindo de fora, escritas.** Note que `schema.outcome` e `premise.outcome_from` **não são a mesma coluna**: o primeiro é o desfecho observado **do livro do incumbente** (nulo em quem não contratou); o segundo existe para **toda linha, inclusive para quem foi reprovado**. A cadeia de domínio continua mandando — a coluna de fora fornece o **valor**, o `contract` decide **quem recebe um**.
+
+```python
+# A — bureau puro: desfecho observado de fora, take-up declarado
+pct.Premise(take_up=0.7, outcome_from="market_default")
+#   sem `lens`, sem `bins`, sem `stress` — nada aqui discretiza nada
+
+# B — bureau para o desfecho, mas o take-up ainda é estimado
+pct.Premise(lens=col("score_5"), bins=10, calibrate_on="global",
+            take_up="binned", outcome_from="market_default")
+#   a `lens` reaparece porque o EIXO DE CONTRATO a consome;
+#   `calibrate_on` governa a curva de take-up, e o eixo de desfecho nem passa por lá
+
+# C — PD de modelo em vez de flag de bureau
+pct.Premise(take_up=0.7, outcome_from=col("pd_modelo"))
+#   nó → probabilidade por linha, e por isso SORTEIA
+```
+
+Os dois erros duros, com a mensagem:
+
+```python
+pct.Premise(take_up=0.7, outcome_from="market_default", stress=1.8)
+# PremiseError: o desfecho veio de fora; não há o que inflar
+
+pct.Premise(lens=col("rating"), bins=10, take_up="binned", outcome_from="market_default")
+# PremiseError: `lens` é discreta; as categorias já são os baldes — remova `bins`
+```
+
 #### O que a premissa faz morrer
 
 A **cadeia de precedência silenciosa dos três caminhos de inferência** — `simulation.py:682` (coluna declarada) → `:691` (`rating_recipe`, com **`except Exception: pass`**) → `:723` (a cascata de score). Não era só o *score* que era inferido em silêncio: **o método também**.
@@ -606,20 +641,103 @@ Front-loading dói porque nada diz onde você está. O `repr` responde isso **se
 > **Quando o score é a coisa que está sendo comparada, ele é o eixo do corte E a lente da premissa, no mesmo `Study`.**
 > Um `for` que varie o corte **reusando uma premissa** não compara scores — compara **cortes sob uma lente só**. **N scores = N `Study`.**
 
+**O andaime comum aos quatro cenários abaixo:**
+
+```python
+from itertools import product
+import pandas as pd
+import pycreditools as pct
+from pycreditools import col
+
+schema = pct.DataSchema(approved="approved", hired="hired", outcome="actual_default")
+faixa  = range(600, 800, 10)
+SEED   = 7   # o MESMO em todos: pareia os sorteios, e a diferença vira regra, não ruído
+
+def politica(score):
+    return (pct.CreditPolicy()
+              .filter(col("vl_negativacao") <= 0, label="antifraude")
+              .filter(col(score) >= 600,          label="corte"))
+```
+
+**1 — N scores, com parcelling.** A lente anda junto do corte:
+
 ```python
 estudos = [
     pct.Study(
         schema,
-        pct.CreditPolicy().filter(col(s) >= 600, label="corte"),
-        pct.Premise(lens=col(s), bins=10, calibrate_on="global", stress=1.8),
-        seed=7, name=s,
+        politica(s),
+        pct.Premise(lens=col(s), bins=10, calibrate_on="global",
+                    take_up="binned", stress=1.8),
+        seed=SEED, name=s,
     )
     for s in ("score_a", "score_b", "score_c")
 ]
 
-grid = pd.concat([pct.tradeoff(e, df, ranges={"corte": faixa}) for e in estudos])
+grid = pd.concat(pct.tradeoff(e, df, ranges={"corte": faixa}) for e in estudos)
 best = pct.choose(grid, criterion="pareto")
 ```
+
+**2 — N scores, com desfecho de bureau.** A premissa é **score-agnóstica** e pode ser a mesma instância nos três, porque **sem `lens` não há o que manter em sincronia**. A regra *"a lente anda junto do corte"* só morde quando existe lente:
+
+```python
+bureau = pct.Premise(take_up=0.7, outcome_from="market_default")
+
+estudos = [
+    pct.Study(schema, politica(s), bureau, seed=SEED, name=s)
+    for s in ("score_a", "score_b", "score_c")
+]
+
+grid = pd.concat(pct.tradeoff(e, df, ranges={"corte": faixa}) for e in estudos)
+```
+
+**3 — um score, N fatores de agravamento.** `stress` é campo de premissa, **não entra em `ranges=`** — `ranges=` só endereça label de estágio. Variar premissa é variar `Study`:
+
+```python
+SCORE = "score_5"
+
+estudos = [
+    pct.Study(
+        schema,
+        politica(SCORE),
+        pct.Premise(lens=col(SCORE), bins=10, calibrate_on="global",
+                    take_up="binned", stress=k),
+        seed=SEED, name=f"stress={k}",
+    )
+    for k in (1.0, 1.2, 1.5, 1.8, 2.2)
+]
+
+grid = pd.concat(pct.tradeoff(e, df, ranges={"corte": faixa}) for e in estudos)
+```
+
+**4 — N scores × N fatores.** Produto cartesiano de `Study`, e **o nome carrega as duas dimensões** porque duplicata é erro duro:
+
+```python
+combos  = list(product(("score_a", "score_b", "score_c"), (1.2, 1.8, 2.2)))
+
+estudos = [
+    pct.Study(
+        schema,
+        politica(s),
+        pct.Premise(lens=col(s), bins=10, calibrate_on="global",
+                    take_up="binned", stress=k),
+        seed=SEED, name=f"{s}|stress={k}",
+    )
+    for s, k in combos
+]
+
+grid = pd.concat(pct.tradeoff(e, df, ranges={"corte": faixa}) for e in estudos)
+```
+
+**Ler um estudo multidimensional.** A grade carrega `study`, e **nenhuma coluna de premissa** — o contrato do #146 é fechado, e o #131 fixou que nada além do ponto de montagem escreve na frame. Para plotar por `stress` ou por score, o leitor junta a sua própria tabela de parâmetros:
+
+```python
+params = pd.DataFrame(
+    [{"study": f"{s}|stress={k}", "score": s, "stress": k} for s, k in combos]
+)
+grid = grid.merge(params, on="study")
+```
+
+**Fricção declarada:** num estudo de duas ou mais dimensões, o `study` é **um rótulo composto**, e recuperar as dimensões é um `merge` do leitor. É consequência direta de *"identidade é do `Study`, sem tipo contêiner"* e de *"a tabela é a interface"* — as duas decisões estão certas, e o preço é este. **A alternativa (a grade publicar colunas de premissa) contradiz os dois contratos e não é adotada.**
 
 **Correção a um snippet do #118.** O card ilustrou *"rodar N scores"* como `[tradeoff(study, base, ranges={s: …}) for s in scores]` — o `for` correndo sobre **`ranges`**, reusando **um** `study`. Um `Study` carrega **uma** `Premise`, logo **uma** lente: aquele snippet corta por A, B e C **sob a lente de um só**. O conteúdo da decisão do #118 está certo (*N curvas = `for` sobre N `Study`*); **o exemplo dela é que contradiz o próprio texto.**
 
@@ -1367,6 +1485,7 @@ Quatro. As três primeiras são rulings do dono de 2026-09-07; a quarta é escri
 | 5 | **`outcome_from` aceita nó da AST — probabilidade por linha** —, distinguido da coluna 0/1 **pelo tipo**: string é observado e não sorteia, nó é hipótese e sorteia | **re-aloja o eixo de desfecho do #118**, que o card deu ao verbo `.rate` e que evaporou quando o `.rate` colapsou (#129), saiu da política (#155) e virou `take_up` (#152). **Nenhum card decidiu matar esse caminho** — ele foi perdido por atrito entre três decisões corretas. Pela regra de precedência, o #118 vence o #117 nesse ponto |
 | 6 | **`MonotonicStress` não é stress e não ganha modo próprio** | ele **ignora `pd_col`** (`stress.py:96-97`) e **substitui** a PD por uma reta sobre o score. É modelo de PD, não inflação; o endereço dele é `outcome_from` com um nó |
 | 7 | **`lens` — o eixo de risco, uma coluna, obrigatório; contínua vira bin, discreta usa como está. A matriciação fica no sugestor** | **fecha o buraco que o #118 abriu sem ver.** O #117 matou o *ponteiro* da lente e o #118 declarou que a pergunta *"dissolvia"* — mas `bins` é *quantos baldes* e `calibrate_on` é *quais linhas*; **nada dizia sobre qual eixo o `qcut` corre**, e o kernel exige `ref_scores` (`_kernels/calibration.py`). O #117 já reconhecia a forma discreta (*"`Match` é caso discreto de parcelling com rating pré-definido"*), sem lhe dar campo |
+| 8b | **`lens` é obrigatória por AMARRA, não sempre** — só quando `take_up="binned"` ou `outcome_from="parcelling"`; declará-la sem consumidor é erro duro | escrita de spec, e ela evita reproduzir defeito que o mapa já matou duas vezes: o `base_rate` *"Ignored when `observed_col` is set"* (inerte nos únicos usos vivos, #129) e o `params: dict` write-only (#126) |
 | 8 | **N scores = N `Study`, com a lente andando junto do corte** — e o snippet do #118 vai corrigido | o **texto** do #118 (*"N curvas = `for` sobre N `Study`"*) está certo e não muda; **o exemplo dele** corre o `for` sobre `ranges` reusando um `study`, o que corta por A, B e C sob uma lente só. Emenda ao exemplo, não à decisão |
 
 **Consequência da 1 para a lista de nomes públicos:** `compare_policies` já estava na lista de mortos; o que muda é que **nada nasce no lugar** — `simulate` ganha um overload, não um irmão.
