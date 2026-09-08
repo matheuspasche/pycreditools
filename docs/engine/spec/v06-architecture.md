@@ -35,13 +35,13 @@ e responde a 23 métodos que cobrem construção, serialização, validação, e
 |---|---|---|
 | A âncora da calibração é **posição**, não decisão — a ordem da tupla de scores, a ordem das chaves do `dict` e a ordem dos estágios reancoram a régua score→PD | `stages.py:158` (`resolve_calibration_score_col`) | **−0,70 p.p.** na inadimplência a 3 MM, **24× o ruído**, sempre subestimando risco ([#137](https://github.com/matheuspasche/pycreditools/issues/137)) |
 | Varrer um campo **reconstrói o estágio pela metade** — 4 de 6 campos — e o resto cai para os defaults, sem aviso | `sweep.py:169` | **2,27 p.p.** de deriva no eixo varrido, **0,90 p.p.** num ponto ([#133](https://github.com/matheuspasche/pycreditools/issues/133)) |
-| O caminho rápido da grade **não recalibra** quando o corte muda quem é keep-in — e são os keep-ins que calibram o PD dos swap-ins | `sweep.py:284-305` (comentário `this is exact` é falso) | até **+1,00 p.p.**, **32× o ruído**, sem encolher com *n*, **máximo no meio da banda de decisão de 15–45%** ([#140](https://github.com/matheuspasche/pycreditools/issues/140), [#149](https://github.com/matheuspasche/pycreditools/issues/149)) |
+| O caminho rápido da grade **não recalibra** quando o corte muda quem é keep-in — e são os keep-ins que calibram o PD dos swap-ins | `sweep.py:283` (comentário `this is exact` é falso) | até **+1,00 p.p.**, **32× o ruído**, sem encolher com *n*, **máximo no meio da banda de decisão de 15–45%** ([#140](https://github.com/matheuspasche/pycreditools/issues/140), [#149](https://github.com/matheuspasche/pycreditools/issues/149)) |
 | A régua de imputação é aprendida **dentro** da simulação, então varrer sobre uma fatia calibra uma régua por fatia — **sem ninguém ter pedido** | `simulation.py:685` + `_kernels/calibration.py:18` | os **cinco cortes regionais** da §6 da masterclass (752/785/732/694/680) são produto disso ([#142](https://github.com/matheuspasche/pycreditools/issues/142)) |
 | Em standalone com desfecho mascarado, o motor **relê o último `RateStage` como probabilidade de calote** | `simulation.py:551-556` | PD média do aprovado **33,88% com** o estágio contra **9,42% sem** — **24,5 p.p.** ([#155](https://github.com/matheuspasche/pycreditools/issues/155)) |
 
 Os cinco são a **mesma classe**: o motor resolve alguma coisa sozinho, em silêncio, a partir de uma estrutura que não foi desenhada para carregar aquela decisão. Nenhum é um bug isolado a consertar; todos são consequência da fronteira ausente.
 
-**E a suíte não guardava nenhum deles.** Levantamento de 2026-08-14: 24 arquivos, 4.392 linhas, 190 funções de teste, **zero parametrizadas por método**, cobertura **~7:1** a favor do analítico — e toda a família de bugs de contrato keep-in (#97, #99, #103, #105, #106) testada **só** no analítico. Não existe `conftest.py` nem política de semente; `test_sweep.py:147` compara analítico com estocástico **sem semente**, n=4000, tolerância 0,05. Quando o #136 foi verificar se "todo estágio declarado liga em todo ponto da grade", descobriu que a garantia era **folclore**: nenhum teste a guardava, e o sintoma só pôde ser resolvido remedindo do zero.
+**E a suíte não guardava nenhum deles.** Levantamento de 2026-08-14: 24 arquivos, 4.392 linhas, 190 funções de teste, **zero parametrizadas por método**, cobertura **~7:1** a favor do analítico — e toda a família de bugs de contrato keep-in (#97, #99, #103, #105, #106) testada **só** no analítico. Não existe `conftest.py` para a suíte do núcleo (o único da árvore é `tests/studio/conftest.py`) nem política de semente; `test_sweep.py:147` compara analítico com estocástico **sem semente**, n=4000, tolerância 0,05. Quando o #136 foi verificar se "todo estágio declarado liga em todo ponto da grade", descobriu que a garantia era **folclore**: nenhum teste a guardava, e o sintoma só pôde ser resolvido remedindo do zero.
 
 ## 2. Solution
 
@@ -305,7 +305,7 @@ Depois da decomposição, `CreditPolicy` carrega **uma lista de estágios**. O n
 .filter(expr, *, draw: bool = False, label: str | None = None) -> CreditPolicy
 ```
 
-**`.cutoff` morre.** `CutoffStage.apply` e `FilterStage.apply` são a mesma função (máscara booleana → `fillna(False)` → cast). O que distinguia a classe **não era o cálculo** — era ser o **botão numérico endereçável** que a varredura lia por estrutura (`optimization.py:144-150`). A decisão preserva o caminho rápido **rechaveando-o na AST**: a condição é *"o nó variado é o literal de uma comparação numa máscara dura"* — propriedade estrutural que a classe só representava por acidente.
+**`.cutoff` morre.** `CutoffStage.apply` e `FilterStage.apply` são a mesma função (máscara booleana → `fillna(False)` → cast). O que distinguia a classe **não era o cálculo** — era ser o **botão numérico endereçável** que a varredura lia por estrutura (`optimization.py:144-151`). A decisão preserva o caminho rápido **rechaveando-o na AST**: a condição é *"o nó variado é o literal de uma comparação numa máscara dura"* — propriedade estrutural que a classe só representava por acidente.
 
 Morrem junto: `direction="gte"/"lte"` (o operador está no nó — mata os 53 literais medidos), `cutoffs: dict[coluna, valor]` multi-coluna, o enum `StageDirection` nunca usado, e **11 dos 20 `isinstance` sobre `Stage`**.
 
@@ -405,7 +405,7 @@ Incumbent score gate   legacy_score >= 600            7,255
 
 O label **acompanha** o render, não o substitui — a leitura alternativa perde o limiar exatamente na linha em que o label foi escrito *porque a regra não se explicava sozinha*. Medido: coluna Stage 20 caracteres, coluna Rule 22, contra 21 do nome à mão de hoje. **A coluna Stage fica quase toda em branco, e o branco é a informação.**
 
-### 4.4 `Premise` — um tipo, cinco campos
+### 4.4 `Premise` — um tipo, seis campos
 
 ```python
 Premise(
@@ -469,6 +469,15 @@ O remédio de sentinela — `bins=None` para distinguir *não passei* de *passei
 
 > Quando nenhum eixo discretiza, o `repr` da `Premise` marca `bins` como **não consumido**, com essa palavra.
 
+**E é no `repr` da `Premise`, não no do `Study` — os dois relatos do degrau 3 têm loci diferentes, e a razão é o que cada um precisa para ser decidível:**
+
+| relato | onde mora | por quê |
+|---|---|---|
+| `bins` não consumido | **`Premise.__repr__`** | é intra-premissa: `take_up` e `outcome_from` são campos dela |
+| `lens` não referenciada pela política (§4.5) | **`Study.__repr__`** | **só pode** ser lá — precisa da política para saber o que ela referencia |
+
+A `Premise` sozinha não sabe se a lente dela aparece na política; o `Study` sabe as duas coisas e por isso **repete a linha da premissa e acrescenta a sua**. Um `repr` de `Study` é o inventário completo; um de `Premise` é o que a premissa consegue saber sozinha.
+
 Isso é a escada funcionando como escrita, não exceção a ela: degrau 1 é impossível (o campo tem que existir), degrau 2 é indistinguível do default, **degrau 3 é o que sobra** — e ele cumpre a proibição do silêncio, que é o que a regra protege. Vale para `bins` e **só** para ele: é o único campo cujo default é obrigado a ser um literal visível.
 
 #### `calibrate_on` — de que população sai a régua
@@ -478,7 +487,7 @@ Isso é a escada funcionando como escrita, não exceção a ela: degrau 1 é imp
 | `"global"` (default) | todo o livro observado — os contratados do incumbente, independente de onde caem na decisão nova. **Invariante ao challenger.** |
 | `"keep_in"` | os que a política nova **também** aprova |
 
-**Um eixo só governa bordas e taxas.** Morre o `calibration_base`, que governava **apenas as bordas** (`simulation.py:745-748`, via `ref_scores`) enquanto as taxas saíam de `cal_scores=keep_in_scores` (`:751`), **cravado, sem parâmetro**. Nome que promete a calibração e entrega metade dela é a classe que o resto do mapa matou.
+**Um eixo só governa bordas e taxas.** Morre o `calibration_base`, que governava **apenas as bordas** (`simulation.py:742-745`, via `ref_scores`) enquanto as taxas saíam de `cal_scores=keep_in_scores` (`:752`), **cravado, sem parâmetro**. Nome que promete a calibração e entrega metade dela é a classe que o resto do mapa matou.
 
 **Consequências que valem escrever:**
 
@@ -942,7 +951,7 @@ A obrigação muda de lugar e vira **critério de aceite de documentação**:
 
 > A documentação diz que **todo número sai de um sorteio**, logo carrega margem — com os dois números medidos: **0,018 p.p.** em rodada única, e **0,41 p.p.** entre rodadas **semeadas** com `parallel=True`.
 
-O segundo é **23× o primeiro** e é o que efetivamente surpreende (*"pus semente e deu outro número"*). E o estado de hoje é **pior que omissão**: `README.md:419-423` diz que o pacote *"prevents stochastic noise"* — o leitor sai achando que ruído é coisa que o pacote **evita**.
+O segundo é **23× o primeiro** e é o que efetivamente surpreende (*"pus semente e deu outro número"*). E o estado de hoje é **pior que omissão**: `README.md:439` diz que o pacote *"prevents stochastic noise"* — o leitor sai achando que ruído é coisa que o pacote **evita**.
 
 ### 4.8 Grade e seleção
 
@@ -1312,7 +1321,7 @@ Nenhuma delas é ticket — as três são **critério de aceite que esta spec ca
 
 A v0.6 mexe em muita coisa ao mesmo tempo, então **nenhuma parte da suíte pode ser presumida ainda válida**. Um teste que continua verde depois da decomposição **pode estar verde por acidente**: pinando um nome que morreu, um caminho que virou default, ou um invariante que a nova fronteira já garante por construção.
 
-**Toda a malha é relida de ponta a ponta — não corrigida onde quebrar.** 190 funções, 4.392 linhas, 24 arquivos.
+**Toda a malha é relida de ponta a ponta — não corrigida onde quebrar.** Recontado nesta árvore: **26 arquivos, 5.012 linhas, 206 funções** (158 no nível do módulo + 48 métodos). O 190/4.392/24 é o levantamento de 2026-08-14 e **não é mais o tamanho do trabalho** — quem estimar por ele subestima.
 
 Insumo já levantado, com números: cobertura assimétrica **~7:1** a favor do analítico, **zero** testes parametrizados por método, **toda a família de bugs de contrato keep-in testada só no analítico**, ausência de `conftest.py` e de política de semente, e um flake latente em `test_sweep.py:147`.
 
@@ -1457,7 +1466,7 @@ A v0.6.0 **não sai** enquanto qualquer um destes estiver aberto:
 
 ### O corpo, medido
 
-**12.516 linhas de Python — núcleo 6.699 (53%), Studio+GUI 5.787 (47%).** Testes: 24 arquivos, 4.392 linhas, 190 funções.
+**12.516 linhas de Python — núcleo 6.699 (53%), Studio+GUI 5.787 (47%).** Testes: **26 arquivos, 5.012 linhas, 206 funções** (o 24/4.392/190 é o levantamento de 2026-08-14).
 
 Sítios que morrem ou mudam, por bloco: `score_cols` **137 src / 147 testes**; `current_hired_col` 39/24; `method=` 20 src / **130 testes** e 19 ramos; `print_` 15/31; **40 literais de coluna contra 13 usos** do módulo de tipos; `CutoffStage` 38; `optimize_cutoffs` 9/33; `TradeoffAnalyzer` 14/27; `OptimizationResult` 14/4; `calibration_` 54/64; **11 tipos com `to_dict`/`from_dict` à mão → 1 mecanismo**.
 
