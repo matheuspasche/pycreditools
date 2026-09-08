@@ -30,6 +30,26 @@
 
 ---
 
+## Publicado no tracker
+
+Os 17 são **sub-issues de #156** (a spec), criados em ordem de dependência para que cada aresta aponte um identificador real. Label `ready-for-agent` em todos — eles são agarráveis por construção.
+
+| ticket | issue | ticket | issue |
+|---|---|---|---|
+| 1 — ADRs | #157 | 10 — passada única | #169 |
+| 2 — semente | #158 | 11 — ler | #166 |
+| 3 — namespace | #159 | 12 — sugerir/publicar | #167 |
+| 4 — declarar | #161 | 13 — Studio fora do portão | #160 |
+| 5 — rodar | #162 | 14 — inventário | #170 |
+| 6 — livro do incumbente | #163 | 15 — paridade | #171 |
+| 7 — a mesa | #164 | 16 — contração | #172 |
+| 8 — `tradeoff` | #165 | 17 — release | #173 |
+| 9 — `choose` | #168 | | |
+
+**A frente do dia zero são quatro:** #157, #158, #159 e #160 — nenhum tem bloqueador.
+
+---
+
 ## Os tickets
 
 ### 1 — Os ADRs das decisões congeladas
