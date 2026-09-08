@@ -463,6 +463,14 @@ Exigi-la sempre reproduziria um defeito que o mapa já matou **duas vezes**: o `
 
 Quantos baldes, quando a lente é contínua. **Uma config serve todo eixo sem marcação** — não há `bins` de take-up e `bins` de PD.
 
+**`bins` inerte é reportado no `repr`, não é erro duro** — e a diferença em relação a `lens` é o default. `lens` não tem default: declará-la sem consumidor é um ato deliberado do usuário, e a escada manda parar no degrau 2. `bins` tem **o literal `5` na assinatura**, exigido por §4.4 e §4.11 para que o mecanismo apareça em `help()` — logo `bins` está **sempre** declarado, e barrar "declarou `bins` sem eixo que discretiza" barraria a premissa que ninguém escreveu.
+
+O remédio de sentinela — `bins=None` para distinguir *não passei* de *passei 5* — **compra a distinção pagando o literal**, e o literal é o requisito. Não dá para ter os dois; entre esconder o mecanismo de quem lê `help()` e deixar um número inerte passar calado, a spec escolhe **o degrau 3: o número é reportado no resultado**.
+
+> Quando nenhum eixo discretiza, o `repr` da `Premise` marca `bins` como **não consumido**, com essa palavra.
+
+Isso é a escada funcionando como escrita, não exceção a ela: degrau 1 é impossível (o campo tem que existir), degrau 2 é indistinguível do default, **degrau 3 é o que sobra** — e ele cumpre a proibição do silêncio, que é o que a regra protege. Vale para `bins` e **só** para ele: é o único campo cujo default é obrigado a ser um literal visível.
+
 #### `calibrate_on` — de que população sai a régua
 
 | valor | população, para **bordas E taxas** |
@@ -893,12 +901,21 @@ Isso mata de graça a docstring mentirosa de `to_decision_dataframe` (`simulatio
 | coluna | papel | dtype |
 |---|---|---|
 | `decision` | passou nos estágios — **0/1 sempre** | inteiro |
+| `reason` | **qual estágio barrou**; **nulo onde `decision == 1`** | `category` |
 | `contract` | contratou | inteiro |
 | `outcome` | desfecho; **nulo fora do domínio** | nullable |
 | `quadrant` | pertencimento **por decisão** | `category` |
 | `study` | identidade do estudo | `category` |
 
 `category` e nunca `object`: medido, **140 MB contra 5 MB em 5 MM de linhas (28×)**.
+
+**`reason` é do esquema do motor, e é aqui que ele para de ter dois donos.** O estado medido acima — *`decision`/`reason` escritos por dois caminhos independentes com o mesmo conteúdo, a borda recomputando o que o motor já calculou* — é exatamente o que a declaração obrigatória por construção fecha: quem sabe qual estágio barrou é o motor, no momento em que barra, e **não existe segundo lugar que escreva a coluna**. Deixá-lo fora do esquema do motor manteria a borda recomputando, que é o bug que a seção inteira existe para matar.
+
+**O valor é o label do estágio** — o mesmo label único de §4.2, com default estrutural — e não uma frase. Frase é apresentação, e apresentação vive fora do núcleo (§ *Língua única*): quem quiser texto legível resolve o label na borda.
+
+**Nulo onde `decision == 1`, e isso é contrato, não conveniência.** Aprovado não tem motivo de recusa; preencher com `""`, `"approved"` ou qualquer sentinela inventaria uma categoria que não é um estágio e faria `value_counts()` mentir sobre a distribuição de barreiras. A regra de leitura sai direto disto: **`reason` só se lê sob `decision == 0`**, e a soma dos `reason` não-nulos fecha com a contagem de recusados.
+
+**Primeiro estágio que barra, e só ele.** A cadeia é curto-circuito por construção (§4.6): uma linha barrada não é avaliada pelos estágios seguintes, então não existe *"barrou em dois"* a representar. Consequência que o teste tem que prender: **`reason` depende da ordem de declaração dos estágios**, e mudar a ordem muda a distribuição de `reason` **sem mudar `decision`** — é uma leitura, não uma decisão.
 
 **O da borda** acrescenta `rating` — o rótulo de letra, produzido **sob demanda** por `to_decision_dataframe` e `export_*`. Ele **não entra no esquema do motor**: a régua de rating **não toca o funil**, e pôr o rótulo lá plantaria coluna cheia de nulo para quem não declarou régua (hoje: `df["rating"] = None` em `simulation.py:275` e `:289`).
 
@@ -1170,9 +1187,15 @@ Estado medido: **nenhum `Stage` é dataclass**; as classes de stress são classe
 
 **Identidade é do `Study`** (§4.5). **Coluna `study` em toda tabela de verbo**, porque **`pd.concat` não preserva atributo de objeto nem `metadata`** — sem a coluna, o `for` sobre N estudos produz **pilha indistinguível**.
 
-**Comparar-N não precisa de verbo.** `simulate` aceita uma **coleção** de `Study` e devolve a tabela longa (uma linha por estudo); `delta_table(results, *, baseline=)` faz a leitura. Como a coluna `study` já existe **precisamente para o `pd.concat` funcionar**, um verbo `compare` seria a mesma pergunta feita duas vezes. **Morre `compare_policies`** — por posição, com recursão sem rótulo por item e colunas literais `"Old"`/`"New"`.
+**Comparar-N não precisa de verbo.** `simulate` aceita uma **coleção** de `Study`; `delta_table(results, *, baseline=)` faz a leitura e é ela que devolve a tabela longa. Como a coluna `study` já existe **precisamente para o `pd.concat` funcionar**, um verbo `compare` seria a mesma pergunta feita duas vezes. **Morre `compare_policies`** — por posição, com recursão sem rótulo por item e colunas literais `"Old"`/`"New"`.
 
-> **Emenda declarada:** isto **substitui** a decisão de que comparar-N é verbo de primeira classe. O conteúdo daquela decisão sobrevive inteiro (**tabela longa, uma linha por estudo, sem tipo contêiner**); o que muda é que o verbo que a produz é o `simulate`, não um `compare` irmão.
+> **`simulate` tem aridade de saída igual à de entrada.** Um `Study` entra, um `CreditSimResults` sai. Uma coleção de `Study` entra, **uma coleção de `CreditSimResults` sai, na mesma ordem**. `simulate` **não** achata para tabela longa.
+
+**Por que essa é a forma, e não a coleção virando tabela:** o achatamento é **leitura**, e leitura é dos verbos `_table` — é literalmente o que §4.7 escreve, cuja chamada canônica é `delta_table([res_a, res_b], baseline=res_hoje)`, **uma lista de portadores**. Se `simulate` já devolvesse a tabela longa, essa chamada não teria como existir e as **quatro** tabelas de leitura ficariam sem entrada no caso-N: `funnel_table`, `quadrant_table` e `swap_in_table` precisam do portador, não de um `delta` já reduzido. Achatar cedo obrigaria cada uma delas a **desfazer** o achatamento, ou a existir em duas versões — uma para o caso-1 e outra para o caso-N. **A aridade uniforme dá as quatro leituras de graça nos dois casos.**
+
+Custo aceito e declarado: `simulate(studies)` não é a linha única que imprime a comparação — precisa do verbo de leitura em seguida. **É o mesmo custo que o dplyr paga**, e pela mesma razão: o objeto que circula é homogêneo, e quem reduz é quem lê.
+
+> **Emenda declarada:** isto **substitui** a decisão de que comparar-N é verbo de primeira classe. O conteúdo daquela decisão sobrevive inteiro (**tabela longa, uma linha por estudo, sem tipo contêiner**); o que muda é **onde ela é produzida** — no verbo de leitura, não num `compare` irmão e não no `simulate`.
 
 **O baseline default é o cenário atual**, derivado da coluna `approved` — **não é um `Study` da coleção, é o que o livro já fez**. `baseline=` nomeado é override apontando um estudo **pelo nome**; nome inexistente = erro duro.
 
@@ -1315,10 +1338,12 @@ Nota de leitura registrada: o rebuild irmão `_without_cutoff_entries` (`sweep.p
 > 2. **Medido na fronteira, onde a garantia satura** — o ponto em que o invariante fica plano, **não o meio da curva**, onde qualquer número parece plausível.
 > 3. **Controle negativo** — a mesma medição **com a garantia removida**, mostrando o teste ficar vermelho. Sem ele, "50%" é só um número que o motor produziu; com ele, os 100% da política sem escudos **provam que o teste tem dente**.
 
-**Dois modelos executáveis já versionados:**
+**Dois modelos executáveis — e o segundo é dívida, não patrimônio:**
 
-- `tests/test_sweep_hard_filter_ceiling.py` — 13 testes; teto medido em pandas, cutoff nulo na fronteira, controle negativo pelas duas superfícies públicas.
-- `tests/test_swap_in_anchor_follows_declaration_order.py` — 5 verdes + 3 `xfail(strict=True)`; a referência em pandas bate com o motor **linha a linha** (`atol=1e-12`) e por isso **nomeia em qual score ele ancorou**, em vez de só mostrar que o número mexeu.
+- `tests/test_sweep_hard_filter_ceiling.py` — **versionado, verificado em `HEAD`**; 13 testes; teto medido em pandas, cutoff nulo na fronteira, controle negativo pelas duas superfícies públicas.
+- `tests/test_swap_in_anchor_follows_declaration_order.py` — 5 verdes + 3 `xfail(strict=True)`; a referência em pandas bate com o motor **linha a linha** (`atol=1e-12`) e por isso **nomeia em qual score ele ancorou**, em vez de só mostrar que o número mexeu. **Este arquivo NÃO está no `HEAD`.** Ele existe num commit só (`2725ac8`), alcançável apenas por `origin/claude/oie-5ffmh8`, que não foi integrada. **É dívida de artefato (§9.3), e portar o arquivo é pré-requisito de release, não conveniência.**
+
+**Uma versão anterior desta spec afirmava que os dois estavam "já versionados". Metade era falsa** — e a falha foi exatamente a que o portão 4 existe para pegar: uma citação plausível, escrita de memória, que ninguém abriu. **A correção não é escrever com mais cuidado; é o portão enumerar arquivos.**
 
 Esta DoD **emenda a primeira**: reler cada teste contra os contratos novos **e** exigir as três propriedades de todo teste que guarde garantia estrutural.
 
@@ -1386,7 +1411,18 @@ A v0.6.0 **não sai** enquanto qualquer um destes estiver aberto:
 1. **As três DoDs**, aplicadas.
 2. **Exatidão da grade** — *um ponto colhido da otimização bate com a mesma simulação feita à mão, montando as regras* — **e o teto de custo ≤ 1,25×** por ponto a 3 MM em grades ≥ 100 pontos. **Dois testes, não um:** sob `calibrate_on="global"` a exatidão sai de graça; sob `"keep_in"` ela exige recalibração por ponto.
 3. **Paridade na forma (B)**, parametrizada por forma de política, com o `validation/` reescrito, **e nenhuma entrada de categoria (a) sem faixa medida**.
-4. **Checagem de artefato** — o portão verifica que as seções de **língua única** e da **escada de remédios** **existem no `CONTEXT.md`**. Isto não é zelo: uma decisão foi dada como gravada citando um commit que **não existe em ref nenhuma**, e as seções tinham **0 ocorrências em todas as branches**. **Sem essa checagem, a v0.6 fecha com regras que nenhuma sessão futura consegue ler fora do histórico de issues.**
+4. **Checagem de artefato — o portão ENUMERA, nunca confia na citação.** Ele abre uma lista fechada de caminhos e falha em qualquer ausência. Isto não é zelo: uma decisão foi dada como gravada citando um commit que **não existe em ref nenhuma**; as seções tinham **0 ocorrências em todas as branches**; e **esta própria spec afirmou que um teste estava versionado quando ele só existia numa branch não integrada**. Três citações, três falsas — **a citação não é evidência, e o portão trata assim.** A lista:
+
+   | artefato | forma da checagem |
+   |---|---|
+   | `CONTEXT.md` § *Language of the code* | seção existe |
+   | `CONTEXT.md` § escada de remédios | seção existe |
+   | `tests/test_sweep_hard_filter_ceiling.py` | **arquivo existe no `HEAD`** |
+   | `tests/test_sweep_rebuild_preserves_stage_fields.py` | **arquivo existe no `HEAD`** |
+   | `tests/test_swap_in_anchor_follows_declaration_order.py` | **arquivo existe no `HEAD`** — hoje **não está**, é dívida aberta |
+   | cada ADR que o roadmap prometer | arquivo existe em `docs/adr/` |
+
+   **Existência de arquivo, verificada contra a árvore, e não menção em prosa.** Um caminho citado por qualquer documento da v0.6 e ausente do `HEAD` reprova o portão. **Sem essa checagem, a v0.6 fecha com regras e provas que nenhuma sessão futura consegue ler fora do histórico de issues.**
 5. **A nota de documentação sobre o sorteio**, com os dois números (0,018 p.p. e 0,41 p.p.) — hoje o `README` aponta para o lado errado.
 
 **Por que o teto de custo existe:** sem ele a implementação pode aterrissar a forma ingênua. Medido, **a distância entre a melhor e a pior forma de recalibrar (≈1,2× contra ≈5,8×) é MAIOR que a distância entre a melhor forma e não recalibrar**. O custo dominante da forma ingênua é um **sort por ponto**; ordenar a base uma vez torna os quantis posicionais e o sort some.
@@ -1523,6 +1559,7 @@ Levantado ao escrever esta spec. **Não é decisão pendente; é execução que 
 | Denylist mecânica do vocabulário morto, no `pre-commit` | ❌ o repo **não tem `pre-commit`** |
 | `docs/wayfinder/map-111-body.md` | ⚠️ **desatualizado** — 38 KB contra 57,7 KB do corpo real |
 | Pesquisas em branch efêmera, fora de `release/v0.6` | ⚠️ `verb-shape.md`, `contract-vector-address.md`, `fastpath-recalibration-cost.md`, `prototype-155-contract-axis.py` |
+| `tests/test_swap_in_anchor_follows_declaration_order.py` — o modelo executável da **DoD 3** | ❌ **fora do `HEAD`**. Existe num commit só (`2725ac8`), alcançável apenas por `origin/claude/oie-5ffmh8`. Uma versão anterior desta spec o deu como versionado; **era falso**. Portar é pré-requisito do portão 4 |
 
 ### 9.4 Fatos que uma sessão futura não deve reapurar
 
