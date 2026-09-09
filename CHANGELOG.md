@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/). Pre-1.0: minor
 versions may carry breaking changes.
 
-## [Unreleased] — v0.5
+## [0.5.0] — 2026-07-23
 
 ### Changed — BREAKING
 

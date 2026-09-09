@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pycreditools"
-version = "0.4.1"
+version = "0.5.1"
 description = "Credit Risk Simulation and Policy Optimization — Python edition of creditools"
 readme = "README.md"
 license = {text = "MIT"}
@@ -70,9 +70,19 @@ Issues = "https://github.com/matheuspasche/pycreditools/issues"
 
 [project.scripts]
 pycreditools-studio = "pycreditools.gui:run_studio"
+pasche-utils = "pycreditools._skills_utils.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pycreditools"]
+
+# The skills have a single home at .claude/skills (the only path Claude Code
+# discovers). Map it into the package at build time so `pasche-utils
+# install-skills` finds it at runtime, instead of keeping a second copy in src/.
+[tool.hatch.build.targets.wheel.force-include]
+".claude/skills" = "pycreditools/_skills_utils/skills/mattpocock"
+
+[tool.hatch.build.targets.sdist.force-include]
+".claude/skills" = "pycreditools/_skills_utils/skills/mattpocock"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
