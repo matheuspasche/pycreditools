@@ -53,18 +53,14 @@ scratch/
 docker/.env
 .ralph/
 
-# Caveman plugin skills — installed locally into .agents/skills/, not project skills
-.agents/skills/caveman/
-.agents/skills/caveman-commit/
-.agents/skills/caveman-compress/
-.agents/skills/caveman-help/
-.agents/skills/caveman-review/
-.agents/skills/caveman-stats/
-.agents/skills/cavecrew/
-
-# Claude Code local project dir (launch config, local skills cache, worktrees).
-# Layout decision deferred to #114; un-ignore there if project skills get versioned.
-.claude/
+# Caveman plugin skills — installed locally, never project skills
+.claude/skills/caveman/
+.claude/skills/caveman-commit/
+.claude/skills/caveman-compress/
+.claude/skills/caveman-help/
+.claude/skills/caveman-review/
+.claude/skills/caveman-stats/
+.claude/skills/cavecrew/
 
 # Validation scratch plots (generated artifacts)
 validation/*.png
