@@ -15,6 +15,11 @@
 # **At the contraction, widen `files:` to the whole tree.** By then the old
 # surface is gone and the scope costs nothing.
 #
+# The scope itself is declared in `scripts/check_dead_vocabulary.py`, and
+# `tests/test_dead_vocabulary_gate.py` fails if the pattern below drifts off it
+# — pre-commit skips a hook matching no files and reports a pass, so a pattern
+# that stops pointing at the surface stops guarding it with a green tick.
+#
 #     pip install -e ".[dev]" && pre-commit install
 
 repos:

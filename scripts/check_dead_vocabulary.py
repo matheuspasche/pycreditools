@@ -30,6 +30,14 @@ import pathlib
 import re
 import sys
 
+REPO = pathlib.Path(__file__).resolve().parent.parent
+
+# The scope, declared once. `.pre-commit-config.yaml` encodes the same two roots
+# in its `files:` pattern, and `tests/test_dead_vocabulary_gate.py` fails if the
+# two ever disagree — a hook whose pattern drifts off the surface it guards
+# covers nothing, and pre-commit reports that as a pass.
+SCOPE_ROOTS: tuple[str, ...] = ("src/pycreditools/engine", "tests/engine")
+
 # name -> what to write instead
 OUTPUT_VOCABULARY: dict[str, str] = {
     "decisao": "decision",
@@ -97,18 +105,57 @@ def check(path: pathlib.Path) -> list[str]:
     return findings
 
 
+def scope_files() -> tuple[list[pathlib.Path], list[str]]:
+    """Every .py file under the declared roots, plus the roots that don't exist yet."""
+    found: list[pathlib.Path] = []
+    absent: list[str] = []
+    for root in SCOPE_ROOTS:
+        directory = REPO / root
+        if directory.is_dir():
+            found.extend(sorted(directory.rglob("*.py")))
+        else:
+            absent.append(root)
+    return found, absent
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*", type=pathlib.Path)
+    parser.add_argument(
+        "--scope",
+        action="store_true",
+        help="walk the declared scope roots instead of taking filenames, and say what was covered",
+    )
     args = parser.parse_args(argv)
 
-    findings = [f for path in args.paths if path.is_file() for f in check(path)]
+    if args.scope:
+        paths, absent = scope_files()
+    else:
+        paths, absent = [p for p in args.paths if p.is_file()], []
+
+    findings = [f for path in paths for f in check(path)]
+
     if findings:
         print("\n".join(findings), file=sys.stderr)
+
+    # **Say what was covered, always.** A run over zero files is not a pass, and
+    # reporting it as one is the silence this repo's own ladder of remedies
+    # forbids. pre-commit skips a hook entirely when its `files:` pattern matches
+    # nothing, and prints "Passed" — so coverage has to be visible from here.
+    where = ", ".join(SCOPE_ROOTS)
+    print(f"dead-vocabulary: checked {len(paths)} file(s) across {where}.", file=sys.stderr)
+    for root in absent:
+        print(f"dead-vocabulary: {root}/ does not exist yet — nothing covered there.", file=sys.stderr)
+    if not paths:
         print(
-            f"\n{len(findings)} use(s) of dead vocabulary in the v0.6 surface.",
+            "dead-vocabulary: nothing was checked. If the v0.6 surface has files, "
+            "the scope in scripts/check_dead_vocabulary.py and .pre-commit-config.yaml "
+            "no longer points at it.",
             file=sys.stderr,
         )
+
+    if findings:
+        print(f"{len(findings)} use(s) of dead vocabulary in the v0.6 surface.", file=sys.stderr)
         return 1
     return 0
 
