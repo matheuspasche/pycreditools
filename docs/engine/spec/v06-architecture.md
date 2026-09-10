@@ -100,7 +100,7 @@ premise = pct.Premise(
     lens         = col("score_5"), # o eixo de risco: contínuo vira bin, discreto usa como está
     bins         = 5,
     calibrate_on = "global",      # "global" (default) | "keep_in"
-    take_up      = "binned",      # "binned" | escalar | nó da AST
+    take_up      = "binned",      # "binned" | escalar (default 1.0) | nó da AST
     stress       = 1.8,           # escalar | escada por bin | nó da AST
     outcome_from = "parcelling",  # "parcelling" | nome de coluna 0/1 | nó da AST
 )
@@ -379,6 +379,8 @@ Mesma gramática de derivação do `vary`; a diferença é guardada × descartá
 
 **A condição é a AST, não a string.** `expressions.py` já tem a árvore (`BinaryExpr(left, op, right)`), já anda nela (`get_columns()`) e já faz round-trip (`serialize_expression`/`deserialize_expression`) — então "achar o literal comparado a `score_a`" é **a mesma caminhada que já existe**, lida em ~6 linhas, não parsing.
 
+> **Emenda (ADR 0015, #177/#178):** a AST é a árvore **congelada** de `engine/_nodes.py`. `expressions.py` é o açúcar de escrita que o construtor converte — o `==` sobrecarregado (`expressions.py:31`) impede que os nós do builder congelem ou comparem por valor —, e na contração ele perde `eval`, `get_columns`, `CalibratedExpression` e o serializador próprio; o `to_dict` de `engine/_value.py` é o único. **A avaliação é função livre interna do motor**, não método do nó: *"nenhum método toca a base"* (#152).
+
 - **A string sai da entrada e fica na saída.** `df.eval` é opaco, sem nó para trocar — seria a única gambiarra real. `__repr__` monta o render.
 - **`.calibrated()` morre na v0.6.** Sobram `ColumnExpr`, `BinaryExpr` e `UnaryExpr` — **AST inteiramente pura**. (Ressalva registrada a favor de quem reabrir: `.calibrated()` precisava da **política** para avaliar — é a origem do `policy: Any` e do ciclo de import; um nó que precisasse só de semente e posição não reintroduziria o acoplamento, só a categoria.)
 - **Callable é inexprimível.** Não é "recusa alta no `to_dict`": deploy é parametrização de motor, e regra que não vira dado não é regra, é código de notebook. Recusar só na serialização cria a política que simula lindo e falha no export — descobrindo o defeito **depois** de a decisão de negócio já ter sido tomada em cima dela. **Falha no construtor é falha cedo.**
@@ -389,7 +391,7 @@ Mesma gramática de derivação do `vary`; a diferença é guardada × descartá
 
 | render | papel | round-trip |
 |---|---|---|
-| `__repr__` | render de Python, companheiro do `serialize_expression` | **sim** |
+| `__repr__` | render de Python, companheiro do `to_dict` (ADR 0015) | **sim** |
 | `pretty()` | apresentação, para o funil | **nunca é parseado de volta** |
 
 **Exibição do funil — duas colunas, não concatenação:**
@@ -413,7 +415,7 @@ Premise(
     lens: Expression,
     bins: int = 5,
     calibrate_on: Literal["global", "keep_in"] = "global",
-    take_up: Literal["binned"] | float | Expression = "binned",
+    take_up: Literal["binned"] | float | Expression = 1.0,
     stress: float | Sequence[float] | Expression = 1.0,
     outcome_from: Literal["parcelling"] | str | Expression = "parcelling",
 )
@@ -440,7 +442,7 @@ Dois fatos que fecharam:
 | coluna | tratamento | `bins` |
 |---|---|---|
 | **contínua** (um score) | vira balde por quantil | aplica |
-| **discreta** (um rating) | **usa como está** — as categorias são os baldes | **declarar `bins` junto é erro duro** |
+| **discreta** (um rating) | **usa como está** — as categorias são os baldes | **não consumido** — reportado no bind, não recusado (Adjudicação 3; ADR 0016) |
 
 **Obrigatória por amarra, não sempre** — mesma forma da entrada amarrada do #116 (*declarou `approved`, `hired` vira obrigatório*):
 
@@ -502,15 +504,15 @@ Isso é a escada funcionando como escrita, não exceção a ela: degrau 1 é imp
 
 | valor | significado |
 |---|---|
-| `"binned"` (default) | estimado por faixa, usando os mesmos `bins` e a população de `calibrate_on` |
-| escalar (`0.7`) | **flat** — não há o que calibrar |
+| `"binned"` | estimado por faixa, usando os mesmos `bins` e a população de `calibrate_on` |
+| escalar (`0.7`) — **default `1.0`** | **flat** — não há o que calibrar |
 | nó da AST (`col("p_contrata")`) | probabilidade por linha, vinda de coluna |
 
 `"binned"` e não `"observed"`: **`calibrate_on` já diz qual população; o que faltava anunciar é a granularidade** — e `bins=` está na mesma chamada, não numa nota de rodapé.
 
 O terceiro modo preserva a capacidade que o `RateStage.variable` tem hoje (`stages.py:290`, avaliado em `:340-350`) e mantém a fatoração `contract = decision × take_up` — **o nó descreve a probabilidade, e o motor multiplica.**
 
-**Take-up sem declaração é `1.0`, literal na assinatura, permanente e documentado.** Morre o `DeprecationWarning` de hoje. **Número idêntico ao de hoje — não entra na whitelist.**
+**Take-up sem declaração é `1.0`, literal na assinatura, permanente e documentado** (ADR 0016 — a assinatura desta seção dizia `"binned"`, e o #161 shipou essa leitura). Morre o `DeprecationWarning` de hoje. **Número idêntico ao de hoje — não entra na whitelist.**
 
 > **A spec diz em voz alta: o `1.0` é CONSERVADOR, não neutro.** Keep-ins entram na carteira só se contrataram; swap-ins entram todos. Como o swap-in é o público pior, o peso dele infla e **a inadimplência é empurrada para cima**.
 
@@ -596,15 +598,14 @@ pct.Premise(take_up=0.7, outcome_from=col("pd_modelo"))
 #   nó → probabilidade por linha, e por isso SORTEIA
 ```
 
-Os dois erros duros, com a mensagem:
+O erro duro, com a mensagem:
 
 ```python
 pct.Premise(take_up=0.7, outcome_from="market_default", stress=1.8)
 # PremiseError: o desfecho veio de fora; não há o que inflar
-
-pct.Premise(lens=col("rating"), bins=10, take_up="binned", outcome_from="market_default")
-# PremiseError: `lens` é discreta; as categorias já são os baldes — remova `bins`
 ```
+
+*Retirado (ADR 0016):* o segundo erro que esta seção listava — lente discreta com `bins` — barraria toda premissa de lente discreta, porque `bins` tem literal na assinatura e está **sempre** declarado. A Adjudicação 3 já manda reportar `bins` não consumido em vez de recusar; lente discreta é mais um caso, e só o bind sabe.
 
 #### O que a premissa faz morrer
 
@@ -1117,7 +1118,7 @@ Rodar global, chegar num cenário conhecido, usar a inadimplência pós-polític
 
 ```python
 suggest_rating(df, *, score, by=None, ...) -> RatingRule
-suggest_hard_filters(...)                          # já existe, intacto
+suggest_hard_filters(...)                          # já existe; perde o parâmetro policy (ADR 0018)
 apply_rating(rule, df, *, seed=None) -> DataFrame
 ```
 
@@ -1243,7 +1244,7 @@ O critério foi escolhido **por reproduzir seis rulings já tomados, sem exceç�
 
 Detecção por *"proporção de zeros implausível"* seria **inferir, a partir do dado, um julgamento sobre o dado** — o caso 1 outra vez. **A regra deste documento proíbe a detecção que ele mesmo poderia ter proposto.**
 
-**Suporte de calibração: mede e reporta como número; não avisa e não recusa.** Suporte é grau, não erro.
+**Suporte de calibração: mede e reporta como número; não avisa e não recusa.** Suporte é grau, não erro. **Inversões contam quantas vezes a curva de PD por faixa muda de sentido, sem direção declarada nem inferida; a conversão não tem diagnóstico de direção** — plana ou inclinada, as duas são comportamento legítimo do cliente (ADR 0017).
 
 **Casos residuais fechados pela regra:**
 
@@ -1582,16 +1583,30 @@ Levantado ao escrever esta spec. **Não é decisão pendente; é execução que 
 - **A curva de ρ do protótipo de lente é inválida** e não deve ser citada: o eixo "correlação entre scores" ficou confundido com "quanto sinal o segundo score carrega".
 - **`parallel=True` não reproduz sob semente** (0,41 p.p.) — **característica, não bug**. E **quebra com filtro callable** (`PicklingError`, porque o pickle vem **antes** da resolução) — o que **morre junto com a classe de casos**, quando callable virar inexprimível. **O repasse é verificação, não conserto:** confirmar que a inexprimibilidade fecha o caso, em vez de deixar um caminho lateral que ainda aceite callable e ainda quebre em paralelo.
 
-### 9.5 Duas decisões tomadas **contra** a recomendação de quem grilou
+### 9.5 Três decisões tomadas **contra** a recomendação de quem grilou
 
 Registradas porque a distinção entre escolha do dono e delegação já custou uma reversão de meio dia, e porque **o erro é insumo**:
 
 1. **O verbo de grade chama-se `tradeoff`, não `sweep`.** Recomendação: `sweep`, que é verbo de verdade e não cria vocabulário. **Preço aceito:** substantivo em posição de verbo.
 2. **A grade publica três métricas, não duas.** Recomendação: duas, para manter curta a lista de eixos. **O ganho é real** e a recomendação estava errada: sem o take-up o volume contratado **não é derivável da tabela**.
+3. **Take-up não declarado é `1.0`, não `"binned"`** (ADR 0016, 2026-09-10). Recomendação: `"binned"` — o exemplo do card mais recente, a assinatura desta spec, a estimativa mais bem suportada, e nenhuma mudança no código do #161. **Preço aceito:** um default enviesado para cima, de propósito; o ganho é o número idêntico ao da v0.5 e a base sem livro rodando sem declarar take-up.
 
 E **uma recomendação que a medição matou**: propôs-se colapsar a camada de seleção num verbo só (o Pareto), porque com o vigente como coluna os dois `hold_*` **pareciam** exprimíveis em pandas puro, por analogia com o apetite.
 
 > **O erro foi de geometria.** O apetite é um **semiplano**, monótono, cujo resultado escala com a pergunta; a banda iso é um **intervalo em torno de um ponto**, disputando espaço com o passo da grade. **Formas diferentes, respostas diferentes** — e a segunda devolve vazio em 5 de 5 regiões.
+
+### 9.6 Emendas registradas em ADR depois desta spec
+
+Sessão de decisão de 2026-09-10, sobre as seis issues que travavam os tickets 5, 6, 12 e 16. Cada linha emendada acima aponta o ADR.
+
+| ADR | decisão | emenda |
+|---|---|---|
+| 0015 | A árvore congelada é a AST; o builder vira açúcar de escrita na contração; a avaliação é função livre interna (#177, #178) | §4.3 |
+| 0016 | Take-up não declarado é `1.0`; o erro *"lente discreta + `bins`"* sai, pela Adjudicação 3 (#181) | §4.4 |
+| 0017 | Uma peça calcula PD e conversão juntas, com faixas próprias por eixo; nulo com cobertura em vez de taxa global; inversões sem direção, só no PD (#179) | §4.11 |
+| 0018 | `suggest_hard_filters` perde o parâmetro `policy` (#180) | §4.9 |
+
+**Não é emenda:** `calibrate_on="global"` (#182). A resolução final do #152 (decisão 7, dono) já o escolheu como emenda declarada ao #139; esta spec seguia o card vigente.
 
 ---
 

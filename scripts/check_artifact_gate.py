@@ -49,30 +49,47 @@ REQUIRED_FILES: list[str] = [
 # Ticket 1 enumerates fifteen source cards, plus the layout ADR — whose number
 # 0012 the roadmap reserved and the output contract took — plus the ADR of
 # "the choice criterion is not the package's", which §9.3 lists separately and
-# measures as "never written, though declared as a deliverable".
+# measures as "never written, though declared as a deliverable" — plus the two
+# amendments the ticket breakdown made to the spec: Adjudication 1 (the arity
+# of `simulate`) and Adjudication 5 (`reason`, the sixth column).
 #
-# NOTE: that totals SEVENTEEN. Ticket 3's prose says "the 16 ADRs of ticket 1",
-# which undercounts by one. The count is left at seventeen here because ticket 1
-# names each item explicitly and its enumeration is the authority; the "16" is
-# recorded as a discrepancy for the owner, not silently reconciled.
+# After the spec, five decision issues were grilled and closed by ADR (0015 to
+# 0018): #177 and #178 share one. They are promises of the same kind — a
+# decision recorded only in prose is the failure this gate exists for — so they
+# are listed here too.
+#
+# NOTE: that totals TWENTY-FOUR. Ticket 3's prose says "the 16 ADRs of ticket 1",
+# which undercounts ticket 1's own list (nineteen). The enumeration is the
+# authority; the "16" is recorded as a discrepancy, not silently reconciled.
+#
+# Labels are the subject of each source card's title. An earlier version of this
+# list had them shifted by one card (#119 labelled with #117's subject, #152 with
+# #155's, and so on); corrected on 2026-09-10 against `gh issue view`.
 PROMISED_ADRS: list[tuple[str, str]] = [
-    ("#117", "score_cols and the calibration cascade die"),
-    ("#118", "the outcome axis"),
-    ("#119", "types and the boundary"),
-    ("#120", "the schema, crossing two tickets"),
-    ("#121", "premises"),
-    ("#122", "truth values"),
-    ("#125", "the table (probabilistic decision stage)"),
-    ("#126", "rating"),
-    ("#127", "the functional core / calculate-present boundary"),
-    ("#129", "identity and the .rate collapse"),
-    ("#139", "the stage surface"),
-    ("#142", "the baseline population"),
-    ("#145", "by="),
-    ("#152", "the contract axis"),
-    ("#155", "the verb family"),
+    ("#117", "the type boundary — how many, which, and who executes"),
+    ("#118", "the schema — declared roles, no silent inference"),
+    ("#119", "study premises — what leaves the policy"),
+    ("#120", "truth values — immutability and round-trip, crossing two tickets"),
+    ("#121", "the probabilistic stage with eligibility — desk, greyzone, take-up"),
+    ("#122", "whether the optimizer needs a business parameter"),
+    ("#125", "policy and experiment identity"),
+    ("#126", "the fit/predict protocol — rating as a standalone suggester"),
+    ("#127", "the functional core / imperative shell boundary"),
+    ("#129", "each Stage redesigned — the .filter/.cutoff/.rate collapse"),
+    ("#139", "the population the PD-imputation baseline comes from"),
+    ("#142", "the segmented grid — by="),
+    ("#145", "the stage-surface prototype and the fast path"),
+    ("#152", "the verb family"),
+    ("#155", "the address of the contract vector"),
     ("layout", "the docs/engine + docs/studio layout — number 0012 was taken"),
     ("choice-criterion", "the choice criterion is not the package's"),
+    ("adjudication-1", "the arity of simulate — collection in, sequence out"),
+    ("adjudication-5", "reason, the sixth column of the engine schema"),
+    ("#177", "where evaluation of the frozen tree lives"),
+    ("#178", "one tree or two at the contraction"),
+    ("#179", "one calibration piece for both premise axes"),
+    ("#180", "suggest_hard_filters drops the policy"),
+    ("#181", "undeclared take-up is 1.0; discrete lens with bins is not an error"),
 ]
 
 ADR_DIR = "docs/adr"
