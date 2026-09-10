@@ -104,6 +104,56 @@ Guardrails this must satisfy (`tests/test_default_denominator_invariants.py`):
 breaks under external marking (all rows non-null). The robust form encodes contract status
 in `new_approval` itself. See ADR 0010's default-rate note and design issue **#101**.
 
+## The ladder of remedies
+
+The rule against silent inference. **Every case where the engine would resolve something on
+its own climbs to the highest rung that fits:**
+
+1. **Unexpressible by construction**
+2. **Hard error at bind**
+3. **A number reported in the result**
+
+**There is no fourth rung. Silence is forbidden.**
+
+**The rung is chosen by what the *remedy* needs to know** — three questions in order, the
+first "yes" fixes the rung:
+
+1. Can it be checked **without the data**? (an invalid combination of types or fields) → **1**
+2. Does it need the data, and is there an objective **right/wrong**? (a name that doesn't
+   exist; a value outside the domain) → **2**
+3. Does it need the data, but is it **degree, not error**? (coverage, support, group size) → **3**
+
+The criterion was chosen because it **reproduces six rulings already taken, without
+exception**. It is not a new rule imposed on old decisions — it is the rule that was already
+being applied, without a name.
+
+**The "warning" rung does not exist.** Of the core's 16 `warnings.warn`, **13 are about data
+and none survives**. `CalibrationReliabilityWarning` dies with them — the best-built
+mechanism in the package and still the wrong one. Its own docstring gives the design away:
+the dedicated category exists *"so a user can mute them with a single `filterwarnings`"*. It
+was **designed to be mutable, and a mutable remedy is, to the inattentive, a silent one**.
+
+> **The ruler: the test is not whether the attentive user is warned; it's whether the
+> inattentive one can get it wrong.**
+
+**Rung 3 is passive on purpose.** The answer to that is **not** to hang a warning on it — it
+is to **climb a rung**. A case that cannot tolerate passivity does not belong on rung 3.
+
+**No detection, in any form.** The zero-filled-within-domain case is not detected, and the
+package does not promise to detect it. The reason is a product boundary, not statistical
+caution: **not even the definition of "bad" is a single one** — FPD, SPD, ever60m6 are
+different outcomes, and the choice is the user's. There is no default to create, so there is
+nothing to infer from. Detection by *"implausible proportion of zeros"* would be inferring,
+from the data, a judgement about the data — case 1 again.
+
+**Calibration support is measured and reported as a number; it neither warns nor refuses.**
+Support is degree, not error.
+
+`DeprecationWarning` **about API** sits outside this rule — it is a migration tool, not
+inference.
+
+Decided in **#132**. The engine does not emit a `UserWarning` about data.
+
 ## Authoritative sources
 
 - **ADR 0008** — metric contract (approval / take-up / default), with the #97 amendment.

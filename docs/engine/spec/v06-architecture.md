@@ -1428,7 +1428,7 @@ A v0.6.0 **não sai** enquanto qualquer um destes estiver aberto:
    | `CONTEXT.md` § escada de remédios | seção existe |
    | `tests/test_sweep_hard_filter_ceiling.py` | **arquivo existe no `HEAD`** |
    | `tests/test_sweep_rebuild_preserves_stage_fields.py` | **arquivo existe no `HEAD`** |
-   | `tests/test_swap_in_anchor_follows_declaration_order.py` | **arquivo existe no `HEAD`** — hoje **não está**, é dívida aberta |
+   | `tests/test_swap_in_anchor_follows_declaration_order.py` | **arquivo existe no `HEAD`** — portado no ticket 3 (#159); a dívida está fechada |
    | cada ADR que o roadmap prometer | arquivo existe em `docs/adr/` |
 
    **Existência de arquivo, verificada contra a árvore, e não menção em prosa.** Um caminho citado por qualquer documento da v0.6 e ausente do `HEAD` reprova o portão. **Sem essa checagem, a v0.6 fecha com regras e provas que nenhuma sessão futura consegue ler fora do histórico de issues.**
@@ -1560,15 +1560,15 @@ Levantado ao escrever esta spec. **Não é decisão pendente; é execução que 
 |---|---|
 | ADRs 0012 (contrato de saída), 0013 (verbo de grade), 0014 (camada de seleção) | ✅ escritos e mergeados |
 | `CONTEXT.md` § *Language of the code* | ✅ presente |
-| `CONTEXT.md` § **escada de remédios** | ❌ **ausente** — e a decisão declarou explicitamente que *"só está entregue quando a seção existir no arquivo"* |
+| `CONTEXT.md` § **escada de remédios** | ✅ **escrita** (ticket 3 / #159) — a decisão declarava que *"só está entregue quando a seção existir no arquivo"*, e a seção existe |
 | **ADR do "critério de escolha não é do pacote"** | ❌ **nunca escrito**, embora declarado como entregável |
 | ADRs das demais decisões (tipos, schema, premissas, valores de verdade, mesa, rating, núcleo funcional, identidade, superfície de estágio, população do baseline, `by=`, eixo de contrato, família de verbos) | ❌ **nenhum escrito** |
 | **spec viva por tipo** | ❌ **este documento é a primeira** |
 | Layout `docs/engine/` + `docs/studio/` | ❌ **não executado** — e o número **0012**, que a decisão de layout reservava para si, foi tomado pelo contrato de saída. **O ADR de layout nunca foi escrito** |
-| Denylist mecânica do vocabulário morto, no `pre-commit` | ❌ o repo **não tem `pre-commit`** |
+| Denylist mecânica do vocabulário morto, no `pre-commit` | ✅ **escrita** (ticket 3 / #159) — `pre-commit` introduzido, e a denylist roda sobre `src/pycreditools/engine/`. O escopo é declarado: a árvore velha carrega legitimamente quase todos os nomes negados e morre inteira na contração, que é quando o `files:` alarga |
 | `docs/wayfinder/map-111-body.md` | ⚠️ **desatualizado** — 38 KB contra 57,7 KB do corpo real |
 | Pesquisas em branch efêmera, fora de `release/v0.6` | ⚠️ `verb-shape.md`, `contract-vector-address.md`, `fastpath-recalibration-cost.md`, `prototype-155-contract-axis.py` |
-| `tests/test_swap_in_anchor_follows_declaration_order.py` — o modelo executável da **DoD 3** | ❌ **fora do `HEAD`**. Existe num commit só (`2725ac8`), alcançável apenas por `origin/claude/oie-5ffmh8`. Uma versão anterior desta spec o deu como versionado; **era falso**. Portar é pré-requisito do portão 4 |
+| `tests/test_swap_in_anchor_follows_declaration_order.py` — o modelo executável da **DoD 3** | ✅ **no `HEAD`** (ticket 3 / #159), por cherry-pick de `2725ac8`, que era alcançável apenas por `origin/claude/oie-5ffmh8`. Uma versão anterior desta spec o deu como versionado; **era falso**, e a correção foi portar. Entra xfailando contra a árvore velha — 5 passam, 3 `xfail(strict=True)` —, o que é o desenhado: as três garantias abrem quando o #117/#118 matarem `score_cols` e a âncora |
 
 ### 9.4 Fatos que uma sessão futura não deve reapurar
 

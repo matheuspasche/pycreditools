@@ -1,0 +1,42 @@
+# Hygiene for the v0.6 engine surface.
+#
+# The repo had no pre-commit; ticket 3 introduces it so the dead-vocabulary
+# denylist has somewhere to ride.
+#
+# **The path scope is deliberate, and it is the whole design.** Both hooks run
+# over `src/pycreditools/engine/` and `tests/engine/` only. The old surface
+# holds 235 ruff findings and most of the denied names legitimately — it is
+# deleted whole at the contraction (ticket 16), so gating it now would be work
+# thrown away, and it would leave this ticket, which has no blocker, unable to
+# land green. `CONTEXT.md` § Language of the code sets the same scope in its own
+# words: the v0.6 renames ship with v0.6, and "the rule governs new code from
+# now on".
+#
+# **At the contraction, widen `files:` to the whole tree.** By then the old
+# surface is gone and the scope costs nothing.
+#
+# The scope itself is declared in `scripts/check_dead_vocabulary.py`, and
+# `tests/test_dead_vocabulary_gate.py` fails if the pattern below drifts off it
+# — pre-commit skips a hook matching no files and reports a pass, so a pattern
+# that stops pointing at the surface stops guarding it with a green tick.
+#
+#     pip install -e ".[dev]" && pre-commit install
+
+repos:
+  - repo: local
+    hooks:
+      - id: dead-vocabulary
+        name: dead vocabulary (CONTEXT.md § Language of the code)
+        entry: python3 scripts/check_dead_vocabulary.py
+        language: system
+        types: [python]
+        files: ^(src/pycreditools/engine/|tests/engine/)
+        pass_filenames: true
+
+      - id: ruff
+        name: ruff (v0.6 surface only)
+        entry: ruff check --force-exclude
+        language: system
+        types: [python]
+        files: ^(src/pycreditools/engine/|tests/engine/)
+        require_serial: false

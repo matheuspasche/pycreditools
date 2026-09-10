@@ -35,11 +35,10 @@ functionality**:
 |---|---|
 | `docker/`, `docker-compose.yml` | the dockerized "ralph loop" that runs Claude Code headless to implement issues |
 | `.ralph/` | ralph loop runtime logs/state (gitignored) |
-| `.agents/skills/` | agent skill definitions used while developing |
 | `scripts/` | board/queue tooling (`prd_board.py`, `github_board.py`) |
 | `docs/prd/`, `docs/adr/`, `docs/redesign/` | the design record (PRDs, decisions, specs) |
 | `tests/`, `run_v14_benchmark.py`, `dataset_v14.csv` | tests + parity oracle |
-| `CLAUDE.md`, `.claude/` | Claude Code project config |
+| `CLAUDE.md`, `.claude/` | Claude Code project config; `.claude/skills/` is the single home for the agent skills (see its README) |
 
 The boundary is enforced two ways: the build only packages `src/pycreditools`, and a
 test asserts the studio **core** never imports Streamlit (so the engine/core stays
