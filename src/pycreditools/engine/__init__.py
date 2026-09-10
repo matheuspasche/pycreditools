@@ -25,8 +25,25 @@ The shared code stays shared rather than copied — `_kernels/`, `expressions.py
 and `sample_data.py` are read from here, not duplicated. The sharing of
 `expressions.py` is read-only.
 
-Empty by construction: the four declaration types (`DataSchema`, `CreditPolicy`,
-`Premise`, `Study`) land in ticket 4, which this one unblocks.
+**What is here: the declaration block (ticket 4).** Four types, and the spine in two lines —
+the `CreditPolicy` declares what you DECIDE; the `Premise` declares what you ASSUME.
+`DataSchema` names the columns the engine reads by role, and `Study` is the encounter of the
+three, with the seed. All four are frozen to the leaf and derive through one signature-driven
+mechanism (`_value.py`). Nothing here executes yet: `simulate` lands in ticket 5.
 """
 
-__all__: list[str] = []
+from .errors import LabelRequired, PremiseError, SchemaError
+from .policy import CreditPolicy
+from .premise import Premise
+from .schema import DataSchema
+from .study import Study
+
+__all__: list[str] = [
+    "DataSchema",
+    "CreditPolicy",
+    "Premise",
+    "Study",
+    "LabelRequired",
+    "PremiseError",
+    "SchemaError",
+]
