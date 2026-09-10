@@ -107,10 +107,25 @@ Cobertura: `tests/test_validation_harness_dilution.py`, 6 testes, e só sobre o 
 
 Os candidatos 4, 5 e 7 ficam aqui, sem issue: nenhum deles trava ticket, e abrir decisão para eles agora competiria por prioridade com o caminho crítico.
 
+## O que o mapa já tinha decidido — e por que estas issues não são re-litígio
+
+Conferido card a card depois de escrito o levantamento, porque o mapa #111 tem **~30 tickets de grilling fechados** e o risco de reabrir matéria julgada é real.
+
+| matéria | o que o mapa decidiu | o que sobra aberto |
+|---|---|---|
+| congelamento fundo | **#120**, resolução §3: *"todo tipo-valor vira frozen dataclass, folhas inclusive"*. O estado medido que ele enumera são os `Stage`, as classes de stress e o `GroupingRecipe` — **`Expression` não está na lista** | **#178.** O #135 mediu o obstáculo (*"`Expression.__eq__` devolve `Expression` e quebra hasheabilidade"*) e foi declarado fora de escopo — `functional-core.md:317-318`: *"fora de escopo por ruling do dono em #135: #120 decidiu a matéria sem esperar a pesquisa"*. **O princípio e o obstáculo nunca se encontraram**, e o ticket 4 é onde colidiram |
+| `except Exception` engolindo bloco | **#132**: *"substituir por captura estreita do erro esperado, deixando erro de programação subir. **Regra do pacote**"* | **Nada, quanto ao mérito.** O inventário do #132 lista sítios de `simulation.py` e **não inclui** `_kernels/calibration.py:63-78` / `:153-169`. É sítio fora do inventário, não decisão nova. O #179 fica só com a forma da interface |
+| `suggest_hard_filters` | **#126**: *"fica intacto — sugere limiar de reprovação, com orçamento e lift. Produto de política, não de nota"* | **#180**, e só a palavra *"intacto"*: o que a função **é** não está em causa; o que a medição mostra é que ela não atravessa o ticket 16 sem tocar |
+| onde a avaliação mora | nenhum card decide, mas a §4.6 (régua dplyr) e a §5 (o `ctx` e o `Protocol` são internos) **inclinam** | **#177** |
+| população de calibração | **#139** e **#152**: a população é o livro contratado, e o nome é **`calibrate_on="hired"`**, com o registro explícito de que **`"global"` está queimado** | **#182.** A spec §4.4 shipa `"global"`, com a semântica certa e o nome que dois cards recusaram; a §9.1 enumera oito emendas declaradas e **esta não está entre elas**. O #161 já shipou o literal |
+
 ## Onde as decisões aterrissaram
 
 - **#177** — onde mora a avaliação da árvore congelada (trava o #162).
 - **#178** — uma árvore ou duas na contração (trava o #172).
-- **#179** — o kernel de calibração (trava o #163).
-- **#180** — `suggest_hard_filters` intacto é impossível (emenda a §4.9, trava o #167).
-- **#181** — as duas leituras da spec sobre a `Premise`: o default de `take_up` e o erro *"lente discreta + `bins`"*. Não saiu deste levantamento, e sim da implementação do ticket 4; fica registrada aqui porque é do mesmo lote de decisões soltas.
+- **#179** — a forma da interface do kernel de calibração, mais quando o ruling do #132 alcança o sítio dele (trava o #163).
+- **#180** — `suggest_hard_filters` intacto é impossível (revisita o #126, emenda a §4.9, trava o #167).
+- **#181** — as duas leituras da spec sobre a `Premise`: o default de `take_up` e o erro *"lente discreta + `bins`"*.
+- **#182** — `calibrate_on`: `"hired"` dos cards contra `"global"` da spec, já shipado no ticket 4.
+
+As duas últimas não saíram deste levantamento — vieram da implementação do ticket 4 e da conferência contra o mapa. Ficam aqui porque são do mesmo lote de decisões que estavam registradas só em prosa.
