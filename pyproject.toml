@@ -86,6 +86,7 @@ packages = ["src/pycreditools"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
 addopts = "-v --tb=short"
 
 [tool.ruff]
