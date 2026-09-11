@@ -61,9 +61,12 @@ def _within_k_sd(observed: float, expected: float, *, per_row_sd: float, n: int,
     """`observed` is within k standard errors of `expected`, the standard error being
     `per_row_sd / sqrt(n)`.
 
-    `per_row_sd` is the dispersion one row contributes — `sqrt(p * (1 - p))` for a rate —
-    and it does not move with n; the band does. No argument has a default: an undeclared k
-    or n is how an absolute tolerance comes back.
+    `per_row_sd` is the dispersion one row contributes to the gap — `sqrt(p * (1 - p))` for a
+    rate against an exact `expected` — and it does not move with n; the band does. When the
+    hand side is sampled too, on draws of its own, the gap carries both: pass `sqrt(2)` times
+    the per-row sd. `n` is the rows the number is taken over — the contracted rows for a
+    default rate, not the base. No argument has a default: an undeclared k or n is how an
+    absolute tolerance comes back.
     """
     if not per_row_sd > 0:
         raise ValueError(
@@ -106,6 +109,11 @@ def assert_unbiased(seed: int) -> Callable[..., Paired]:
     Pairing on the seed is what cancels the draw both sides share — with the keyed draw of
     §4.6, the same seed faces the same draw — so what is left is bias plus the residual each
     side has alone. The pair seeds derive from the test's seed.
+
+    The reading is in standard errors, as §6 reports it, but with the spread estimated from
+    the pairs themselves it follows a Student t with `pairs − 1` degrees of freedom, not a
+    normal: at 8 pairs a correct path reads past k=3 2.0% of the time and past k=4 0.5%.
+    Choose k for the pairs you run.
     """
 
     def check(
@@ -164,11 +172,13 @@ def no_global_draws() -> Callable[[], AbstractContextManager[None]]:
     return _no_global_draws
 
 
-@pytest.hookimpl(wrapper=True)
-def pytest_runtest_call(item: pytest.Item):
-    """Under `tests/engine/`, every test runs inside `no_global_draws`. The old suite outside
-    it still draws globally (`stages.py`, `simulation.py`) and dies at the contraction."""
-    if not item.path.is_relative_to(ENGINE_TESTS):
-        return (yield)
+@pytest.fixture(autouse=True)
+def _engine_tests_stay_off_the_global_stream(request: pytest.FixtureRequest) -> Iterator[None]:
+    """Under `tests/engine/`, every test — its function-scoped fixtures included — runs inside
+    `no_global_draws`, and errors at teardown if the stream moved. The old suite outside it
+    still draws globally (`stages.py`, `simulation.py`) and dies at the contraction."""
+    if not request.node.path.is_relative_to(ENGINE_TESTS):
+        yield
+        return
     with _no_global_draws():
-        return (yield)
+        yield

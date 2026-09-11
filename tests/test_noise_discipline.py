@@ -12,6 +12,7 @@ These tests pin the helpers that make the three declarations cheap, and the guar
 from __future__ import annotations
 
 import zlib
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -95,30 +96,29 @@ def test_paired_rounds_share_the_seed_within_a_pair(assert_unbiased):
     assert len(set(engine_seeds)) == 8
 
 
-def _engine(bias: float):
-    """A path that faces the seed's draw (0.01, shared with the hand side when paired on the
-    seed) plus a residual of its own (0.001) — the shape a keyed draw gives."""
+def _synthetic_path(bias: float) -> Callable[[int], float]:
+    """A stand-in for the path under test: the seed's draw (0.01, shared with the hand side
+    when paired on the seed) plus a residual of its own (0.001) — the shape a keyed draw
+    gives."""
     return lambda s: 0.25 + bias + _noise(s, 0.01) + _noise(s + 7, 0.001)
 
 
-def _hand(s: int) -> float:
+def _synthetic_hand(s: int) -> float:
     return 0.25 + _noise(s, 0.01) + _noise(s + 13, 0.001)
 
 
 def test_paired_rounds_pass_an_unbiased_noisy_path(assert_unbiased):
-    """Engine and hand disagree by noise every round, and by nothing on average."""
-    result = assert_unbiased(_engine(0.0), _hand, pairs=8, k=3)
-    assert abs(result.z) <= 3
+    """Path and hand disagree by noise every round, and by nothing on average."""
+    result = assert_unbiased(_synthetic_path(0.0), _synthetic_hand, pairs=8, k=4)
+    assert abs(result.z) <= 4
 
 
 def test_paired_rounds_catch_a_bias_hidden_in_single_round_noise(assert_unbiased):
-    """0.004 of bias under 0.01 of draw noise. One engine round against one hand round on
-    unshared draws reads it well under 1 sd; eight rounds paired on the seed cancel the shared
-    draw and read it as bias."""
-    unpaired_gap = _engine(0.004)(1) - _hand(2)
-    assert abs(unpaired_gap - 0.004) < 0.03  # the bias is inside single-round noise
-    with pytest.raises(AssertionError, match=r"bias .* sd .* k=3 .* 8 pairs"):
-        assert_unbiased(_engine(0.004), _hand, pairs=8, k=3)
+    """0.004 of bias against a single-round gap whose sd is sqrt(2 * (0.01² + 0.001²)) ≈
+    0.014 when the two sides face unshared draws: 0.28 sd, invisible to one round against one
+    round. Eight rounds paired on the seed cancel the shared draw and read it as bias."""
+    with pytest.raises(AssertionError, match=r"bias .* sd .* k=4 .* 8 pairs"):
+        assert_unbiased(_synthetic_path(0.004), _synthetic_hand, pairs=8, k=4)
 
 
 def test_paired_rounds_that_agree_exactly_are_unbiased(assert_unbiased):
@@ -159,21 +159,29 @@ def test_no_global_draws_fails_a_block_that_touches_the_stream(no_global_draws, 
 
 def test_engine_tests_fail_when_they_touch_the_global_stream(pytester):
     """`Nenhum np.random global sobra no núcleo` (§4.6): under `tests/engine/` a test that
-    draws from, or reseeds, the global stream fails — whether the call is in the test or in
-    the engine under test. The old suite outside `tests/engine/` is not policed; it dies at
-    the contraction (ticket 16)."""
+    draws from, or reseeds, the global stream errors — whether the call is in the test, in a
+    function-scoped fixture, or in the engine under test. The old suite outside
+    `tests/engine/` is not policed; it dies at the contraction (ticket 16)."""
     pytester.makeconftest(CONFTEST.read_text(encoding="utf-8"))
     pytester.mkdir("engine")
     pytester.makepyfile(
         **{
             "engine/test_draws": """
                 import numpy as np
+                import pytest
+
+                @pytest.fixture
+                def drawn_at_setup():
+                    return np.random.random()
 
                 def test_draws_globally():
                     np.random.random()
 
                 def test_reseeds_globally():
                     np.random.seed(0)
+
+                def test_draws_in_a_fixture(drawn_at_setup):
+                    pass
 
                 def test_draws_from_the_fixture(rng):
                     rng.random()
@@ -187,5 +195,8 @@ def test_engine_tests_fail_when_they_touch_the_global_stream(pytester):
         }
     )
     result = pytester.runpytest_subprocess()
-    result.assert_outcomes(passed=2, failed=2)
-    result.stdout.fnmatch_lines(["*_ test_draws_globally _*", "*global np.random stream moved*"])
+    result.assert_outcomes(passed=5, errors=3)
+    result.stdout.fnmatch_lines(
+        ["*teardown of test_draws_globally*", "*global np.random stream moved*"]
+    )
+    result.stdout.no_fnmatch_line("*teardown of test_draws_from_the_fixture*")

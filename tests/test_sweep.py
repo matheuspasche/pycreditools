@@ -147,14 +147,14 @@ class TestConfigAlwaysBinds:
     def test_analytical_and_stochastic_agree(self, risk_df, no_global_draws):
         """method= is a simulation choice: the same set of stages binds.
 
-        Pinned by ticket 2 (#158). Every row of `risk_df` is approved, so every approved
-        applicant is a keep-in with an observed outcome and the stochastic path draws
-        nothing: the two methods agree exactly, not within noise. The absolute tolerance of
-        0.05 this test used to carry hid that, and would have turned into a flake the day
-        the fixture grew a rejected band — the old engine draws swap-in outcomes from the
-        unseeded global stream (`simulation.py:664`). Measured over 100 global seeds: gap
-        0.0 on all four grid points. `no_global_draws` pins the premise: if a draw ever
-        reaches this test, it fails on that, instead of flaking on the tolerance.
+        Pinned by ticket 2 (#158). Every row of `risk_df` is approved and the policy has no
+        rate stage, so the stochastic path draws nothing — measured: the global stream is
+        untouched by the run, and the gap is 0.0 on all four grid points over 100 global
+        seeds. The two methods agree exactly, not within noise; the absolute tolerance of
+        0.05 this test used to carry was no band of anything. The old engine draws from the
+        unseeded global stream (`stages.py:469`, `simulation.py:604`, `:664`), so
+        `no_global_draws` pins the premise: if a draw ever reaches this test, it fails on
+        that, not on a tolerance.
         """
         policy = CreditPolicy(
             applicant_id_col="id",
@@ -163,14 +163,14 @@ class TestConfigAlwaysBinds:
             actual_default_col="inad",
         ).cutoff("corte_other", {"score_other": 600})
 
-        res_a = optimize_cutoffs(risk_df, policy, cutoff_steps=4, method="analytical")
         with no_global_draws():
+            res_a = optimize_cutoffs(risk_df, policy, cutoff_steps=4, method="analytical")
             res_s = optimize_cutoffs(risk_df, policy, cutoff_steps=4, method="stochastic")
-        diff = (
-            res_a.all_results["overall_approval_rate"]
-            - res_s.all_results["overall_approval_rate"]
-        ).abs()
-        assert (diff < 1e-9).all()
+        pd.testing.assert_series_equal(
+            res_a.all_results["overall_approval_rate"],
+            res_s.all_results["overall_approval_rate"],
+            check_exact=True,
+        )
 
     def test_a_fully_parameterised_policy_raises_and_names_the_escape(self, risk_df):
         policy = CreditPolicy(
