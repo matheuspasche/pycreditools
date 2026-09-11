@@ -144,8 +144,18 @@ class TestConfigAlwaysBinds:
                 result.all_results["overall_approval_rate"] <= cap + 1e-9
             ).all(), f"method={method} ignored the off-grid cutoff"
 
-    def test_analytical_and_stochastic_agree(self, risk_df):
-        """method= is a simulation choice: the same set of stages binds."""
+    def test_analytical_and_stochastic_agree(self, risk_df, no_global_draws):
+        """method= is a simulation choice: the same set of stages binds.
+
+        Pinned by ticket 2 (#158). Every row of `risk_df` is approved, so every approved
+        applicant is a keep-in with an observed outcome and the stochastic path draws
+        nothing: the two methods agree exactly, not within noise. The absolute tolerance of
+        0.05 this test used to carry hid that, and would have turned into a flake the day
+        the fixture grew a rejected band — the old engine draws swap-in outcomes from the
+        unseeded global stream (`simulation.py:664`). Measured over 100 global seeds: gap
+        0.0 on all four grid points. `no_global_draws` pins the premise: if a draw ever
+        reaches this test, it fails on that, instead of flaking on the tolerance.
+        """
         policy = CreditPolicy(
             applicant_id_col="id",
             score_cols=("score_main",),
@@ -154,12 +164,13 @@ class TestConfigAlwaysBinds:
         ).cutoff("corte_other", {"score_other": 600})
 
         res_a = optimize_cutoffs(risk_df, policy, cutoff_steps=4, method="analytical")
-        res_s = optimize_cutoffs(risk_df, policy, cutoff_steps=4, method="stochastic")
+        with no_global_draws():
+            res_s = optimize_cutoffs(risk_df, policy, cutoff_steps=4, method="stochastic")
         diff = (
             res_a.all_results["overall_approval_rate"]
             - res_s.all_results["overall_approval_rate"]
         ).abs()
-        assert (diff < 0.05).all()
+        assert (diff < 1e-9).all()
 
     def test_a_fully_parameterised_policy_raises_and_names_the_escape(self, risk_df):
         policy = CreditPolicy(
