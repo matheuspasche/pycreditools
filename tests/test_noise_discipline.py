@@ -486,9 +486,13 @@ def test_seed_offset_moves_every_seed_and_shows_in_the_header(pytester, monkeypa
 # ── The global streams, in source ────────────────────────────────────────
 
 
-def test_the_engine_source_has_no_unkeyed_draw():
-    sources = sorted(ENGINE_SOURCE.rglob("*.py"))
-    assert sources, f"no source under {ENGINE_SOURCE}: the tripwire would pass empty"
+@pytest.mark.parametrize("root", [ENGINE_SOURCE, TESTS / "engine"], ids=["engine", "tests"])
+def test_the_engine_and_its_tests_have_no_unkeyed_draw(root):
+    """Over the engine, and over its tests — where a draw at import (`DATA =
+    np.random.random(3)` at module level, or `default_rng()` through a name bound by `from
+    numpy.random import default_rng`) runs before any run-time guard can see it."""
+    sources = sorted(root.rglob("*.py"))
+    assert sources, f"no source under {root}: the tripwire would pass empty"
     found = [
         hit
         for path in sources

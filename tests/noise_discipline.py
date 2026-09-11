@@ -16,8 +16,9 @@ Plus what "exact" means for a float (`assert_exact`), what "reproduces under the
 (`assert_reproducible`), and the two guards of §4.6 — "Nenhum np.random global sobra no
 núcleo": `no_global_draws` at run time, `find_unkeyed_draws` over source.
 
-Plain functions, importable from any test (`pythonpath = ["tests"]` in `pyproject.toml`) and
-from `validation/`; `tests/conftest.py` wraps the seed policy in fixtures.
+Plain functions, importable from any test (`pythonpath = ["tests"]` in `pyproject.toml`) and,
+with `tests/` put on `sys.path`, from a script outside pytest such as `validation/`;
+`tests/conftest.py` wraps the seed policy in fixtures.
 """
 
 from __future__ import annotations
@@ -107,9 +108,11 @@ def _distinct(sequence: np.random.SeedSequence, count: int, *, exclude: Sequence
 def float_floor(observed: float, expected: float, *, terms: int) -> float:
     """The rounding a float that sums `terms` terms can carry: 2·terms·ε·max(|x|).
 
-    Higham's bound for recursive summation; running totals (`cumsum`, the mechanism of ticket
-    10) sit inside it and pairwise sums far inside. It is machine rounding, not a tolerance: at
-    3 MM terms it is 1.3e-9 relative, orders of magnitude below any sd §6 measures.
+    Higham's bound for recursive summation of terms of one sign — sums, and ratios of sums,
+    which is what a rate is; running totals (`cumsum`, the mechanism of ticket 10) sit inside
+    it and pairwise sums far inside. It does not cover cancellation: `(1e8 + 0.1) - 1e8`
+    against `0.1` carries far more than this. It is machine rounding, not a tolerance: at 3 MM
+    terms it is 1.3e-9 relative, orders of magnitude below any sd §6 measures.
     """
     terms = _integer("terms", terms, minimum=1)
     return 2 * terms * EPS * max(abs(observed), abs(expected))
@@ -285,8 +288,9 @@ def assert_unbiased(
 
 
 def assert_reproducible(fn: Callable[[int], Any], seed: int) -> None:
-    """`fn(seed)` twice gives the same result, bit for bit and dtype for dtype — §4.6's
-    "reproduz sob semente", for ticket 5 to hold `simulate` to."""
+    """`fn(seed)` twice gives the same result, value for value and dtype for dtype — §4.6's
+    "reproduz sob semente", for ticket 5 to hold `simulate` to. Equality is numeric: NaN
+    matches NaN, and -0.0 matches 0.0."""
     seed = _integer("seed", seed, minimum=0)
     _assert_identical(fn(seed), fn(seed), "fn(seed)")
 
@@ -376,8 +380,11 @@ def find_unkeyed_draws(source: str, filename: str = "<source>") -> list[str]:
     """The draws in `source` that no seed replays: stdlib `random`, any global `np.random`
     function or `RandomState`, and a Generator, SeedSequence or bit generator built without a
     seed (or with a literal `None`). Catches names bound at import (`from numpy.random import
-    default_rng`), which a run-time patch cannot. Declared hole: `np.random` passed around as
-    a value."""
+    default_rng`), which a run-time patch cannot. Declared holes — it reads names, not values:
+    `np.random` or a constructor passed around or aliased (`make = np.random.default_rng`),
+    `getattr(np.random, ...)`, and a seed that is `None` only at run time (`def f(seed=None):
+    return default_rng(seed)`) — `Study` refusing a non-int seed closes the last for the
+    engine's own draws."""
     tree = ast.parse(source, filename)
     numpy_names: set[str] = set()
     random_names: set[str] = set()

@@ -7,8 +7,10 @@
 - **Guard** (§4.6, "Nenhum np.random global sobra no núcleo"): under `tests/engine/`, every
   test and every module runs with the global streams watched and `np.random.default_rng`
   refusing to run without a seed. The old suite outside it still draws globally
-  (`stages.py`, `simulation.py`) and dies at the contraction (ticket 16). Declared hole:
-  session-scoped fixtures.
+  (`stages.py`, `simulation.py`) and dies at the contraction (ticket 16). Code that runs at
+  import is outside every fixture, so `find_unkeyed_draws` covers it at source level, over
+  `src/pycreditools/engine/` and `tests/engine/` alike. Declared hole: session-scoped
+  fixtures.
 
 `tests/studio/conftest.py` is the Studio's (ticket 13); this one is the core's.
 """
