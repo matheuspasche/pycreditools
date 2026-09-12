@@ -34,7 +34,21 @@ services:
       CLAUDE_EFFORT: medium
       MAX_ROUNDS: "8"
       CONTEXT_CAP_TOKENS: "450000"
-    entrypoint: ["bash", "/workspace/docker/ralph_loop_v06.sh"]
+    # The loop checks out a ticket branch in the SAME bind-mounted tree, so the script and
+    # the prompt templates would vanish from under the running process the moment it left
+    # a branch that carries them. Copy both OUT of the tree at startup and run from there:
+    # the loop becomes indifferent to which branch the working tree is on, and editing a
+    # prompt still needs no rebuild (just a restart, which re-copies).
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        mkdir -p "$$HOME/loop"
+        cp /workspace/docker/ralph_loop_v06.sh "$$HOME/loop/"
+        cp -r /workspace/docker/prompts "$$HOME/loop/prompts"
+        export PROMPT_DIR="$$HOME/loop/prompts"
+        exec bash "$$HOME/loop/ralph_loop_v06.sh"
     volumes:
       - .:/workspace
       - claude_home_v06:/home/ralph/.claude
