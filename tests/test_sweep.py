@@ -6,6 +6,7 @@ against another implementation, which is what let Bug 1 ship.
 import numpy as np
 import pandas as pd
 import pytest
+from noise_discipline import assert_within_k_sd, no_global_draws
 
 from pycreditools import (
     CreditPolicy,
@@ -145,7 +146,17 @@ class TestConfigAlwaysBinds:
             ).all(), f"method={method} ignored the off-grid cutoff"
 
     def test_analytical_and_stochastic_agree(self, risk_df):
-        """method= is a simulation choice: the same set of stages binds."""
+        """method= is a simulation choice: the same set of stages binds.
+
+        Pinned by ticket 2 (#158). Every row of `risk_df` is approved and the policy has no
+        rate stage, so the stochastic path draws nothing — measured: the global stream is
+        untouched by the run, and the gap is 0.0 on all four grid points over 100 global
+        seeds. The two methods agree exactly, not within noise; the absolute tolerance of
+        0.05 this test used to carry was no band of anything. The old engine draws from the
+        unseeded global stream (`stages.py:469`, `simulation.py:604`, `:664`), so
+        `no_global_draws` pins the premise: if a draw ever reaches this test, it fails on
+        that, not on a tolerance.
+        """
         policy = CreditPolicy(
             applicant_id_col="id",
             score_cols=("score_main",),
@@ -153,13 +164,14 @@ class TestConfigAlwaysBinds:
             actual_default_col="inad",
         ).cutoff("corte_other", {"score_other": 600})
 
-        res_a = optimize_cutoffs(risk_df, policy, cutoff_steps=4, method="analytical")
-        res_s = optimize_cutoffs(risk_df, policy, cutoff_steps=4, method="stochastic")
-        diff = (
-            res_a.all_results["overall_approval_rate"]
-            - res_s.all_results["overall_approval_rate"]
-        ).abs()
-        assert (diff < 0.05).all()
+        with no_global_draws():
+            res_a = optimize_cutoffs(risk_df, policy, cutoff_steps=4, method="analytical")
+            res_s = optimize_cutoffs(risk_df, policy, cutoff_steps=4, method="stochastic")
+        pd.testing.assert_series_equal(
+            res_a.all_results["overall_approval_rate"],
+            res_s.all_results["overall_approval_rate"],
+            check_exact=True,
+        )
 
     def test_a_fully_parameterised_policy_raises_and_names_the_escape(self, risk_df):
         policy = CreditPolicy(
@@ -241,18 +253,24 @@ class TestAdr0008Metrics:
         assert abs(res["approval_rate"].iloc[0] - (risk_df["score_main"] >= cut).mean()) < 1e-9
 
     def test_method_does_not_move_the_default_rate(self, risk_df, rate_policy):
+        """Declared quarantine until ticket 16 (#158). The stochastic side draws take-up from
+        the unseeded global stream (`stages.py:469`): the old engine takes no seed, so no
+        fixture can seed it without the global `np.random.seed` §6 forbids. What changes is
+        the tolerance, from 0.03 absolute to units of noise: the gap's sd, measured over 200
+        global seeds at n=4000, is 0.00588 — 0.03 was 5.1 sd, and 0 of the 200 reached it."""
         res_a = run_sweep(
             risk_df, rate_policy, cutoff_grid={"score_main": [400.0]}, method="analytical"
         )
         res_s = run_sweep(
             risk_df, rate_policy, cutoff_grid={"score_main": [400.0]}, method="stochastic"
         )
-        assert (
-            abs(
-                res_a["overall_default_rate"].iloc[0]
-                - res_s["overall_default_rate"].iloc[0]
-            )
-            < 0.03
+        assert_within_k_sd(
+            res_s["overall_default_rate"].iloc[0],
+            res_a["overall_default_rate"].iloc[0],
+            sd=0.00588,
+            at_n=4000,
+            n=len(risk_df),
+            k=5,
         )
 
     def test_constraints_bind_on_the_contracted_default_rate(self, risk_df, rate_policy):
