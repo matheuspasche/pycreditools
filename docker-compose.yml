@@ -13,5 +13,47 @@ services:
     # real crash (non-zero exit); a clean stop stays stopped for the human.
     restart: on-failure
 
+  # The v3 PAIR loop for the v0.6 engine map: one session implements, a separate fresh
+  # session audits, they argue to agreement, then the loop pushes / opens / merges the PR
+  # against release/v0.6. Same image as the v1 loop, different entrypoint — the script and
+  # the prompt templates are read from the bind-mounted tree, so editing a prompt needs no
+  # rebuild. Behind a profile so a bare `docker compose up` never starts both loops:
+  #   docker compose --profile v06 up -d --build ralph_v06
+  ralph_v06:
+    profiles: ["v06"]
+    build:
+      context: ./docker
+    env_file:
+      - .env
+    environment:
+      BASE_BRANCH: release/v0.6
+      QUEUE_LABEL: ready-for-agent
+      PARENT_ISSUE: "156"
+      MAP_ISSUE: "111"
+      CLAUDE_MODEL: claude-opus-5
+      CLAUDE_EFFORT: medium
+      MAX_ROUNDS: "8"
+      CONTEXT_CAP_TOKENS: "450000"
+    # The loop checks out a ticket branch in the SAME bind-mounted tree, so the script and
+    # the prompt templates would vanish from under the running process the moment it left
+    # a branch that carries them. Copy both OUT of the tree at startup and run from there:
+    # the loop becomes indifferent to which branch the working tree is on, and editing a
+    # prompt still needs no rebuild (just a restart, which re-copies).
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        mkdir -p "$$HOME/loop"
+        cp /workspace/docker/ralph_loop_v06.sh "$$HOME/loop/"
+        cp -r /workspace/docker/prompts "$$HOME/loop/prompts"
+        export PROMPT_DIR="$$HOME/loop/prompts"
+        exec bash "$$HOME/loop/ralph_loop_v06.sh"
+    volumes:
+      - .:/workspace
+      - claude_home_v06:/home/ralph/.claude
+    restart: on-failure
+
 volumes:
   claude_home:
+  claude_home_v06:
