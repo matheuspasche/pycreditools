@@ -13,5 +13,33 @@ services:
     # real crash (non-zero exit); a clean stop stays stopped for the human.
     restart: on-failure
 
+  # The v3 PAIR loop for the v0.6 engine map: one session implements, a separate fresh
+  # session audits, they argue to agreement, then the loop pushes / opens / merges the PR
+  # against release/v0.6. Same image as the v1 loop, different entrypoint — the script and
+  # the prompt templates are read from the bind-mounted tree, so editing a prompt needs no
+  # rebuild. Behind a profile so a bare `docker compose up` never starts both loops:
+  #   docker compose --profile v06 up -d --build ralph_v06
+  ralph_v06:
+    profiles: ["v06"]
+    build:
+      context: ./docker
+    env_file:
+      - .env
+    environment:
+      BASE_BRANCH: release/v0.6
+      QUEUE_LABEL: ready-for-agent
+      PARENT_ISSUE: "156"
+      MAP_ISSUE: "111"
+      CLAUDE_MODEL: claude-opus-5
+      CLAUDE_EFFORT: medium
+      MAX_ROUNDS: "8"
+      CONTEXT_CAP_TOKENS: "450000"
+    entrypoint: ["bash", "/workspace/docker/ralph_loop_v06.sh"]
+    volumes:
+      - .:/workspace
+      - claude_home_v06:/home/ralph/.claude
+    restart: on-failure
+
 volumes:
   claude_home:
+  claude_home_v06:
