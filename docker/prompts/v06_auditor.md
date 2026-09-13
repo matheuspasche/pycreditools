@@ -16,12 +16,19 @@ and the diff. Never trust the implementer's summary — it is a claim, not evide
 2. `docs/engine/spec/v06-tickets.md` — ALL 17 tickets. You must know this ticket's
    boundary: what it owes, and what belongs to a later ticket (work pulled forward is a
    finding, not a bonus).
-3. `docs/engine/spec/v06-architecture.md` — the contract. Read the spine and every
-   section this ticket names; `grep -n` the symbols in the diff.
+3. `docs/engine/spec/v06-architecture.md` (1613 lines, ~35k tokens) — the contract.
+   **Never read it whole**: `grep -n` the symbols in the diff and read the spine plus only
+   the sections this ticket names. You need context left to actually audit.
 4. `gh issue view {{ISSUE}} --repo {{REPO}} --comments` — **resolutions live in the
    comments**, and a comment overrides the body.
-5. `gh issue view 111 --repo {{REPO}}` (map) and `gh issue view 156 --repo {{REPO}}`
-   (spec index). Where cards diverge, the most recent card wins.
+5. Precedence — you do NOT need the decision map to know it. Issue #111 is the v0.6
+   architecture map and it is CLOSED, 36/36: everything it decided is already crystallised
+   in `docs/adr/` (the frozen why) and in the spec (the current contract). **Do not read
+   #111** — it is ~12k tokens of settled prose and reading it is the single largest waste
+   in this loop. The precedence rule it carries, in full: a card COMMENT beats the card
+   body; the most recent card beats the spec; the spec beats an ADR's prose. If the newest
+   thing is ambiguous, that is a BLOCKED, not a guess. `gh issue view 156 --repo {{REPO}}`
+   (the spec index) only if your ticket's place in the whole is unclear from the tickets doc.
 6. `docs/adr/` and `python3 scripts/check_artifact_gate.py` — the frozen why, and which
    promised ADRs are still absent. A card number mentioned in prose is NOT an ADR
    declaring it; only a `- **Tickets:** #N (this ADR)` or `- **Decides:** …` line is.
