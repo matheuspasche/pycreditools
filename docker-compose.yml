@@ -2,6 +2,11 @@ services:
   ralph_loop:
     build:
       context: ./docker
+      args:
+        # ralph must share the host user's uid/gid or it cannot write the bind-mounted
+        # tree. Defaults cover the common case; override in .env on a host that is not 1000.
+        RALPH_UID: "${RALPH_UID:-1000}"
+        RALPH_GID: "${RALPH_GID:-1000}"
     env_file:
       - .env
     volumes:
@@ -23,6 +28,11 @@ services:
     profiles: ["v06"]
     build:
       context: ./docker
+      args:
+        # ralph must share the host user's uid/gid or it cannot write the bind-mounted
+        # tree. Defaults cover the common case; override in .env on a host that is not 1000.
+        RALPH_UID: "${RALPH_UID:-1000}"
+        RALPH_GID: "${RALPH_GID:-1000}"
     env_file:
       - .env
     environment:

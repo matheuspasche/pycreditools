@@ -27,7 +27,17 @@ WORKDIR /workspace
 # Auth lives in env vars (CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN), never baked into the
 # image and never written under a mounted host home dir — HOME points at this
 # user's own isolated home inside the container, never the real host home.
-RUN useradd --create-home --home-dir /home/ralph --shell /bin/bash ralph
+# The repo arrives as a BIND MOUNT owned by the host user, so `ralph` has to BE that
+# user or every write into /workspace is denied — the loop could not create .ralph/logs,
+# could not take .git/index.lock, and died on its first ticket. The base image already
+# parks `node` on 1000 (the usual host uid), so that user is removed before ralph takes
+# the id. Override the args if your host uid/gid is not 1000 (`id -u` / `id -g`).
+ARG RALPH_UID=1000
+ARG RALPH_GID=1000
+RUN if getent passwd "${RALPH_UID}" >/dev/null; then userdel -r "$(getent passwd "${RALPH_UID}" | cut -d: -f1)" 2>/dev/null || true; fi \
+    && if getent group "${RALPH_GID}" >/dev/null; then groupdel "$(getent group "${RALPH_GID}" | cut -d: -f1)" 2>/dev/null || true; fi \
+    && groupadd --gid "${RALPH_GID}" ralph \
+    && useradd --uid "${RALPH_UID}" --gid "${RALPH_GID}" --create-home --home-dir /home/ralph --shell /bin/bash ralph
 ENV HOME=/home/ralph
 # Pre-create .claude owned by ralph — when the docker-compose named volume
 # mounts over this path, Docker copies this (now ralph-owned) directory's
