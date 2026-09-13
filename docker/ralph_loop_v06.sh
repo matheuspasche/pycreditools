@@ -35,7 +35,7 @@ SKIP_ISSUES="${SKIP_ISSUES:-}"                   # space-separated issue numbers
 MODEL="${CLAUDE_MODEL:-claude-opus-5}"
 EFFORT="${CLAUDE_EFFORT:-medium}"
 MAX_ROUNDS="${MAX_ROUNDS:-8}"                    # audit rounds per ticket before stopping
-CONTEXT_CAP_TOKENS="${CONTEXT_CAP_TOKENS:-450000}"   # per session; rotate when exceeded
+CONTEXT_CAP_TOKENS="${CONTEXT_CAP_TOKENS:-150000}"   # per session; rotate when exceeded
 RATE_LIMIT_BACKOFF_SECONDS="${RATE_LIMIT_BACKOFF_SECONDS:-1800}"
 MERGE_METHOD="${MERGE_METHOD:---merge}"          # --merge | --squash | --rebase
 LOG_DIR="${LOG_DIR:-/workspace/.ralph/logs/v06}"
@@ -54,6 +54,21 @@ if [ "${RALPH_V06_LIB_ONLY:-0}" != "1" ]; then
 fi
 
 log() { echo "[ralph_v06] $*"; }
+
+# ---------------------------------------------------------------------------
+# Text handed VERBATIM from one session to the other. A full implementer report or audit
+# can run to tens of thousands of tokens, and it is pasted again on EVERY round — the two
+# sessions end up paying for each other's prose instead of for the work. Keep the TAIL:
+# the findings and the sentinel live at the end, the preamble does not matter to the other
+# side. Pure, so docker/tests/test_ralph_v06.sh can pin it.
+# ---------------------------------------------------------------------------
+CROSS_TALK_CHARS="${CROSS_TALK_CHARS:-12000}"
+clip() {
+    local text="$1" n="${2:-$CROSS_TALK_CHARS}"
+    if [ "${#text}" -le "$n" ]; then printf '%s' "$text"; return 0; fi
+    printf '[... %s caracteres iniciais cortados pelo loop; o que importa (achados e sentinela) esta abaixo ...]\n%s' \
+        "$(( ${#text} - n ))" "${text: -n}"
+}
 
 # ---------------------------------------------------------------------------
 # Issue selection. Lowest-numbered open queue-labelled issue whose every "## Blocked by"
@@ -403,12 +418,12 @@ run_ticket() {
         round=$((round + 1))
         if [ -n "$AUDIT_SESSION" ] && [ "$round" -gt 1 ]; then
             audit_prompt=$(printf 'Audit round %s of %s on #%s. The implementer answered your findings:\n\n--- IMPLEMENTER RESPONSE ---\n%s\n--- END ---\n\nRe-read `git diff origin/%s...HEAD` (it moved), re-run the gate yourself, and check each of your earlier findings: fixed, worked around, or correctly argued down. Raise anything new the fix introduced. End with exactly one VERDICT line.' \
-                "$round" "$MAX_ROUNDS" "$n" "$impl_report" "$BASE_BRANCH")
+                "$round" "$MAX_ROUNDS" "$n" "$(clip "$impl_report")" "$BASE_BRANCH")
         else
             audit_prompt=$(render_prompt v06_auditor.md "$n" "$round")
             if [ "$round" -gt 1 ]; then
                 audit_prompt=$(printf '%s\n\n## Continuation\n\nThis audit session is fresh (the previous one hit its context cap), but the work is on round %s. The implementer last reported:\n\n%s\n' \
-                    "$audit_prompt" "$round" "$impl_report")
+                    "$audit_prompt" "$round" "$(clip "$impl_report")")
             fi
         fi
         turn_with_retries audit "$audit_prompt" AUDIT_SESSION
@@ -427,7 +442,7 @@ run_ticket() {
             CHANGES_REQUESTED)
                 log "#$n: audit round $round requested changes"
                 fix_prompt=$(printf 'The auditor reviewed your work on #%s and asked for changes (round %s of %s). Their findings, verbatim:\n\n--- AUDIT ---\n%s\n--- END ---\n\nFor each finding: fix it, or argue it down with evidence (file:line, a command and its output) if the auditor is wrong — do not cave to a wrong finding and do not hand-wave a right one. NITs may be ignored. Re-run the gate, commit, then report what you changed and what you pushed back on. End with exactly one STATUS line.' \
-                    "$n" "$round" "$MAX_ROUNDS" "$audit_findings")
+                    "$n" "$round" "$MAX_ROUNDS" "$(clip "$audit_findings")")
                 turn_with_retries impl "$fix_prompt" IMPL_SESSION
                 impl_report="$LAST_RESULT_TEXT"
                 if [ "$LAST_STATUS" != "DONE" ]; then

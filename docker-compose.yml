@@ -33,7 +33,17 @@ services:
       CLAUDE_MODEL: claude-opus-5
       CLAUDE_EFFORT: medium
       MAX_ROUNDS: "8"
-      CONTEXT_CAP_TOKENS: "450000"
+      # 450k was INERT: Opus 5's window is 200k and Claude Code compacts before it fills, so
+      # the tripwire could never fire. Below the window it becomes a real lever — the session
+      # rotates FRESH (work is in commits, both prompts are re-enterable) instead of being
+      # compacted, which is lossy and paid for twice.
+      CONTEXT_CAP_TOKENS: "150000"
+      # Ticket 13 (#160) declares no blocker, so the lowest-number queue rule would pull it
+      # second — but the tickets doc rules it "barato, fica onde esta, e nao compete por
+      # prioridade no dia zero": tests/studio stays green through tickets 1-15 and the only
+      # thing #160 unblocks is ticket 16 (#172). Skipped until the queue reaches the
+      # contraction; drop it from this list then, or #172 deadlocks the queue.
+      SKIP_ISSUES: "160"
     # The loop checks out a ticket branch in the SAME bind-mounted tree, so the script and
     # the prompt templates would vanish from under the running process the moment it left
     # a branch that carries them. Copy both OUT of the tree at startup and run from there:

@@ -81,9 +81,12 @@ eq "unknown session is 0"                        "0"      "$(session_context_tok
 eq "empty session id is 0"                       "0"      "$(session_context_tokens '')"
 
 echo "over_context_cap"
-CONTEXT_CAP_TOKENS=450000
-if over_context_cap 449999; then bad "under the cap passes" "1" "0"; else ok "under the cap passes"; fi
-if over_context_cap 450001; then ok "over the cap trips"; else bad "over the cap trips" "0" "1"; fi
+# Pinned locally so the test states the boundary it checks instead of inheriting it
+# from the environment — but it must track the script's own default, or the pair
+# below stops testing the boundary that actually ships.
+CONTEXT_CAP_TOKENS=150000
+if over_context_cap 149999; then bad "under the cap passes" "1" "0"; else ok "under the cap passes"; fi
+if over_context_cap 150001; then ok "over the cap trips"; else bad "over the cap trips" "0" "1"; fi
 if over_context_cap 0;      then bad "an unknown context (0) never trips" "1" "0"; else ok "an unknown context (0) never trips"; fi
 
 echo "slugify"
@@ -93,6 +96,16 @@ eq "pt-BR accents fold to ASCII" "adrs-das-decisoes-congeladas"    "$(slugify 'A
 eq "a real card title"           "semente-tolerancia-e-rodadas-pareadas"    "$(slugify 'Semente, tolerância e rodadas pareadas')"
 eq "no leading or trailing dashes"      "choose-grid-criterion-by" \
    "$(slugify '`choose(grid, criterion=, by=)`')"
+
+echo "clip"
+# Cross-session text is pasted again on every round, so it is capped — and the TAIL is what
+# is kept, because the findings and the sentinel live at the end of a report.
+eq "short text passes through untouched" "curto" "$(CROSS_TALK_CHARS=100 clip 'curto')"
+eq "long text keeps the tail"            "FIM"   "$(CROSS_TALK_CHARS=3 clip 'preambulo inutil FIM' | tail -1)"
+case "$(CROSS_TALK_CHARS=3 clip 'preambulo inutil FIM')" in
+    *"cortados pelo loop"*) ok "a cut says so, so neither agent reads a truncation as the whole report" ;;
+    *) bad "a cut says so" "a marker line" "no marker" ;;
+esac
 
 echo
 echo "passed=$PASS failed=$FAIL"

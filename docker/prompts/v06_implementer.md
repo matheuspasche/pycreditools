@@ -18,15 +18,21 @@ You have no prior context. Before touching a line, build the whole picture:
 2. `docs/engine/spec/v06-tickets.md` — ALL 17 tickets, not only yours. You need to know
    what the tickets before you already delivered and what the ones after you will, so
    you neither re-do nor pre-empt them.
-3. `docs/engine/spec/v06-architecture.md` (1600+ lines) — the contract. Read the spine
-   (the first sections) plus every section your ticket names. `grep -n` for the symbols
-   in your acceptance criteria. This file is the authority on shape.
+3. `docs/engine/spec/v06-architecture.md` (1613 lines, ~35k tokens) — the contract and
+   the authority on shape. **Never read it whole**: `grep -n` for the symbols in your
+   acceptance criteria and read the spine plus only the sections your ticket names. Whole-
+   file reads are what exhaust this session's context before the work starts.
 4. The ticket itself, WITH its comments: `gh issue view {{ISSUE}} --repo {{REPO}} --comments`.
    **Resolutions live in the comments.** A comment that refines or overrides the body
    wins over the body.
-5. The map and the spec umbrella: `gh issue view 111 --repo {{REPO}}` (the v0.6
-   architecture map) and `gh issue view 156 --repo {{REPO}}` (the spec index). Where two
-   cards diverge, **the most recent card wins** — that precedence rule is load-bearing.
+5. Precedence — you do NOT need the decision map to know it. Issue #111 is the v0.6
+   architecture map and it is CLOSED, 36/36: everything it decided is already crystallised
+   in `docs/adr/` (the frozen why) and in the spec (the current contract). **Do not read
+   #111** — it is ~12k tokens of settled prose and reading it is the single largest waste
+   in this loop. The precedence rule it carries, in full: a card COMMENT beats the card
+   body; the most recent card beats the spec; the spec beats an ADR's prose. If the newest
+   thing is ambiguous, that is a BLOCKED, not a guess. `gh issue view 156 --repo {{REPO}}`
+   (the spec index) only if your ticket's place in the whole is unclear from the tickets doc.
 6. `docs/adr/` — the frozen why. `ls docs/adr/` and read the ones your ticket touches.
    `python3 scripts/check_artifact_gate.py` tells you which promised ADRs are still
    missing, and what a declaration line must look like.

@@ -53,14 +53,15 @@ Set in the `ralph_v06` service (or `.env`, which the service reads first):
 | `CLAUDE_MODEL` | `claude-opus-5` | model for both roles |
 | `CLAUDE_EFFORT` | `medium` | `--effort` for both roles |
 | `MAX_ROUNDS` | `8` | audit rounds per ticket before stopping for a human |
-| `CONTEXT_CAP_TOKENS` | `450000` | per-session ceiling; over it, that role's next turn starts fresh |
+| `CONTEXT_CAP_TOKENS` | `250000` | per-session ceiling; over it, that role's next turn starts fresh |
+| `CROSS_TALK_CHARS` | `12000` | cap on the report/findings text pasted verbatim into the other role's prompt (the tail is kept) |
 | `BASE_BRANCH` | `release/v0.6` | integration branch and PR base |
 | `QUEUE_LABEL` | `ready-for-agent` | the queue |
 | `SKIP_ISSUES` | — | space-separated issue numbers to leave alone |
 | `MERGE_METHOD` | `--merge` | `--squash` / `--rebase` also accepted |
 | `RATE_LIMIT_BACKOFF_SECONDS` | `1800` | fallback only, when the reset hint is unparseable |
 
-## The 450k context ceiling, measured honestly
+## The 150k context ceiling: rotate rather than compact
 
 The cap is enforced on the **live context of each session**, read from the session
 transcript: the last assistant message's own request (`input + cache_creation +
@@ -73,10 +74,13 @@ Two things follow, and the second is the honest caveat:
 - Over the cap, the loop clears that role's session id, so its next turn starts **fresh**.
   Nothing is lost: the work lives in commits on the branch, and both prompts are written
   to be re-enterable from scratch (the auditor re-derives everything from the diff anyway).
-- Opus 5's context window is **200k**, and Claude Code compacts before it fills. So in
-  normal operation neither session can reach 450k, and the ceiling is a **tripwire**, not a
-  throttle: it fires only if compaction is off or a longer-window model is configured. If
-  you want a real per-ticket spend limit, `MAX_ROUNDS` is the lever that binds.
+- The cap was **450k** and therefore inert: Opus 5's window is **200k** and Claude Code
+  compacts before it fills, so no session could ever reach the tripwire. Set **below** the
+  window it becomes the lever it was meant to be — the session rotates fresh instead of
+  being compacted. That is the cheaper of the two: compaction pays a summarisation turn and
+  then keeps paying for a lossy summary, while a rotation re-reads the ticket (a few
+  thousand tokens) against a tree the commits already describe. `MAX_ROUNDS` still binds
+  the per-ticket ceiling.
 
 ## Rate limits: retry is resume, not restart
 
