@@ -95,7 +95,12 @@ services:
       - .:/workspace
       - claude_home_v06:/home/ralph/.claude
       - ralph_venv_v06:/home/ralph/venv
-    restart: on-failure
+    # "no", e nao "on-failure": o Docker religa um container `on-failure` tambem quando o
+    # DAEMON sobe, entao o loop ressuscitava sozinho a cada boot da maquina e disparava
+    # notificacao antes de o dono ter tela. O preco, dito por extenso: uma queda de verdade
+    # deixa de se curar sozinha — quem avisa passa a ser o watchdog e o heartbeat, e subir
+    # de novo e `docker compose --profile v06 up -d ralph_v06`.
+    restart: "no"
 
 volumes:
   claude_home:

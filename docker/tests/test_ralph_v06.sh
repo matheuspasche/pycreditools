@@ -80,15 +80,26 @@ eq "reads the LAST assistant usage, not the sum" "108257" "$(session_context_tok
 eq "unknown session is 0"                        "0"      "$(session_context_tokens sid-nope)"
 eq "empty session id is 0"                       "0"      "$(session_context_tokens '')"
 
-echo "cap_for_role — o auditor le mais por oficio, nao por descuido"
+echo "cap_for_role e o teto desligado"
 CONTEXT_CAP_IMPL=150000; CONTEXT_CAP_AUDIT=250000
 eq "o implementador usa o cap dele" "150000" "$(cap_for_role impl)"
 eq "o auditor usa o dele"           "250000" "$(cap_for_role audit)"
 eq "papel desconhecido cai no do implementador" "150000" "$(cap_for_role qualquer)"
-# O caso medido na rodada 1 do #157: 173k rotacionava o auditor e jogava fora a memoria
-# dos proprios achados. Com o cap por papel, ele segue.
-if over_context_cap 173368 audit; then bad "173k nao rotaciona o auditor" "0" "1"; else ok "173k nao rotaciona o auditor"; fi
-if over_context_cap 173368 impl;  then ok "173k rotacionaria o implementador"; else bad "173k rotacionaria o implementador" "1" "0"; fi
+# Decisao do dono: teto 0 = SEM teto. Nenhum contexto, por maior que seja, rotaciona.
+CONTEXT_CAP_IMPL=0; CONTEXT_CAP_AUDIT=0
+if over_context_cap 999999 audit; then bad "cap 0 nunca rotaciona o auditor" "0" "1"; else ok "cap 0 nunca rotaciona o auditor"; fi
+if over_context_cap 999999 impl;  then bad "cap 0 nunca rotaciona o implementador" "0" "1"; else ok "cap 0 nunca rotaciona o implementador"; fi
+
+echo "estado da negociacao em disco"
+LOG_DIR=$(mktemp -d)
+IMPL_SESSION=sid-impl; AUDIT_SESSION=sid-audit; LAST_IMPL_LOG=/tmp/i.json; LAST_AUDIT_LOG=/tmp/a.json
+save_ticket_state 157 3
+( unset ROUND IMPL_SESSION AUDIT_SESSION; . "$(state_file 157)"
+  [ "$ROUND" = "3" ] && [ "$IMPL_SESSION" = "sid-impl" ] && [ "$AUDIT_SESSION" = "sid-audit" ] ) \
+  && ok "o estado volta com rodada e as duas sessoes" || bad "o estado volta" "rodada 3 + sessoes" "outra coisa"
+clear_ticket_state 157
+[ -s "$(state_file 157)" ] && bad "pousar limpa o estado" "sem arquivo" "arquivo ainda la" || ok "pousar limpa o estado"
+rm -rf "$LOG_DIR"
 
 echo "over_context_cap"
 # Pinned locally so the test states the boundary it checks instead of inheriting it

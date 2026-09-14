@@ -34,12 +34,12 @@ QUEUE_LABEL="${QUEUE_LABEL:-ready-for-agent}"
 SKIP_ISSUES="${SKIP_ISSUES:-}"                   # space-separated issue numbers to ignore
 MODEL="${CLAUDE_MODEL:-claude-opus-5}"
 EFFORT="${CLAUDE_EFFORT:-medium}"
-# Medido no #157: uma rodada de auditoria marca 3,1 a 5,5 no medidor e uma de implementacao
-# ~0,7. Com 8 rodadas um unico ticket podia chegar a ~45 — mais de um TERCO do teto semanal
-# inteiro em um ticket so. E rodada tem retorno decrescente: se o par nao convergiu em 5, o
-# que falta nao e mais uma rodada, e uma decisao humana — que e exatamente a saida que o
-# desenho ja tem (a issue recebe os achados e o loop para).
-MAX_ROUNDS="${MAX_ROUNDS:-5}"                    # audit rounds per ticket before stopping
+# Quatro rodadas de critica, por decisao do dono (14/09). Medido no #157: uma rodada de
+# auditoria marca 3,1 a 5,5 no medidor e uma de implementacao ~0,7 — com 8 rodadas um unico
+# ticket podia comer mais de um TERCO do teto semanal. E rodada tem retorno decrescente.
+# Esgotadas as quatro SEM ACORDO, o ticket POUSA MESMO ASSIM com o que o implementador fez
+# (ver land_ticket): o auditor tem poder de exigir, nao de vetar.
+MAX_ROUNDS="${MAX_ROUNDS:-4}"                    # audit rounds per ticket before stopping
 # Um cap so para os dois papeis media coisas diferentes com a mesma regua. O trabalho do
 # auditor e intrinsecamente mais pesado — ele le o diff INTEIRO e cada arquivo alterado por
 # completo, porque "diff esconde o que o codigo ao redor faz" — e na primeira rodada do
@@ -47,8 +47,12 @@ MAX_ROUNDS="${MAX_ROUNDS:-5}"                    # audit rounds per ticket befor
 # tamanho da tarefa; rotaciona-lo ali jogava fora a memoria dos proprios achados a cada
 # rodada. CONTEXT_CAP_TOKENS continua valendo como default comum para os dois.
 CONTEXT_CAP_TOKENS="${CONTEXT_CAP_TOKENS:-150000}"
-CONTEXT_CAP_IMPL="${CONTEXT_CAP_IMPL:-$CONTEXT_CAP_TOKENS}"
-CONTEXT_CAP_AUDIT="${CONTEXT_CAP_AUDIT:-250000}"
+# DESLIGADOS por decisao do dono (14/09). Rotacionar sessao trocava um problema por outro:
+# o par perdia a memoria da negociacao no meio dela, e quem paga isso e a qualidade da
+# auditoria, nao a conta. Com o briefing tambem no system prompt (ver PROMPT_DIR/system_*),
+# compactar deixou de ser perda de identidade. 0 = sem teto; qualquer numero religa.
+CONTEXT_CAP_IMPL="${CONTEXT_CAP_IMPL:-0}"
+CONTEXT_CAP_AUDIT="${CONTEXT_CAP_AUDIT:-0}"
 RATE_LIMIT_BACKOFF_SECONDS="${RATE_LIMIT_BACKOFF_SECONDS:-1800}"
 MERGE_METHOD="${MERGE_METHOD:---merge}"          # --merge | --squash | --rebase
 LOG_DIR="${LOG_DIR:-/workspace/.ralph/logs/v06}"
@@ -60,6 +64,11 @@ LOG_DIR="${LOG_DIR:-/workspace/.ralph/logs/v06}"
 WORK_WINDOW_START="${WORK_WINDOW_START:-22:00}"
 WORK_WINDOW_END="${WORK_WINDOW_END:-08:00}"
 WORK_WINDOW_TZ="${WORK_WINDOW_TZ:-America/Sao_Paulo}"
+# Toda data que o loop MOSTRA sai nesta zona. O container roda em UTC, entao um log dizia
+# "dormindo ate 15/09 01:00" quando o correto era "hoje as 22:00": instante certo, leitura
+# enganosa — e um operador que nao confia no relogio do log nao confia no resto.
+# Os nomes de arquivo de log seguem em UTC (usam `date -u`), que e o que se quer num nome.
+export TZ="$WORK_WINDOW_TZ"
 
 # --- Teto de uso ------------------------------------------------------------------
 # ISTO NAO E DINHEIRO. A conta roda por ASSINATURA (CLAUDE_CODE_OAUTH_TOKEN), entao nada
@@ -413,6 +422,7 @@ cap_for_role() {
 over_context_cap() {
     local ctx="${1:-0}" cap
     cap=$(cap_for_role "${2:-impl}")
+    [ "$cap" -gt 0 ] || return 1      # 0 = sem teto
     [ "$ctx" -gt "$cap" ]
 }
 
@@ -429,9 +439,15 @@ run_claude_turn() {
 
     # `timeout` e o watchdog: um turno pendurado nao morre sozinho e o `restart:
     # on-failure` do compose nunca o alcanca, porque o processo continua vivo.
+    # O papel, as regras inegociaveis e o vocabulario de sentinela vao no SYSTEM prompt,
+    # nao so no prompt do turno: system prompt sobrevive a compactacao. Foi perder o
+    # briefing numa sessao reiniciada que fez o implementador inventar sentinela e dar
+    # push, as duas coisas proibidas no texto que ele nao tinha mais.
+    local sys="$PROMPT_DIR/system_${role}.md"
     local -a cmd=(timeout "$TURN_TIMEOUT_SECONDS"
                   claude --print "$prompt" --model "$MODEL" --effort "$EFFORT"
                   --output-format json --dangerously-skip-permissions)
+    [ -f "$sys" ] && cmd+=(--append-system-prompt "$(cat "$sys")")
     [ -n "$resume_id" ] && cmd+=(--resume "$resume_id")
 
     # stdout (the JSON) and stderr (occasional harmless warnings) go to separate files so
@@ -445,6 +461,7 @@ run_claude_turn() {
     [ -n "$LAST_CTX_TOKENS" ] || LAST_CTX_TOKENS=0
 
     LAST_STATUS=$(sentinel_of "$role" "$LAST_RESULT_TEXT")
+    [ "$role" = "audit" ] && LAST_AUDIT_LOG="$LAST_OUTPUT_FILE" || LAST_IMPL_LOG="$LAST_OUTPUT_FILE"
     record_usage "$LAST_OUTPUT_FILE"
 
     if [ -z "$LAST_STATUS" ]; then
@@ -604,9 +621,15 @@ land_ticket() {
     fi
     pr=$(gh pr view "$WORK_BRANCH" --repo "$REPO" --json number -q .number 2>/dev/null)
     [ -n "$pr" ] || { log "no PR for #$n — stopping"; return 1; }
-    gh pr comment "$pr" --repo "$REPO" \
-        --body "Par implementador x auditor em acordo apos ${rounds} rodada(s). Gate re-executado pelo loop: verde." \
-        >/dev/null 2>&1 || true
+    if [ -n "${DISSENT:-}" ]; then
+        gh pr comment "$pr" --repo "$REPO" \
+            --body "$(printf 'Pousado SEM acordo do par (%s). Pela regra da casa, o auditor exige mas nao veta: prevalece o que o implementador fez, e os achados em aberto estao registrados na issue #%s para voce julgar. O gate do loop (pytest + ruff) foi re-executado e esta verde — isso nao se negocia.' "$DISSENT" "$n")" \
+            >/dev/null 2>&1 || true
+    else
+        gh pr comment "$pr" --repo "$REPO" \
+            --body "Par implementador x auditor em acordo apos ${rounds} rodada(s). Gate re-executado pelo loop: verde." \
+            >/dev/null 2>&1 || true
+    fi
     if gh pr merge "$pr" --repo "$REPO" $MERGE_METHOD --delete-branch >/dev/null 2>&1; then
         log "PR #$pr merged into $BASE_BRANCH"
     else
@@ -627,7 +650,11 @@ land_ticket() {
     git checkout --quiet "$BASE_BRANCH" 2>/dev/null \
         || git checkout --quiet -B "$BASE_BRANCH" "origin/$BASE_BRANCH"
     git pull --quiet --ff-only origin "$BASE_BRANCH" 2>/dev/null || true
-    notify_info "#$n concluida" "PR #$pr mergeado em $BASE_BRANCH apos ${rounds} rodada(s) de auditoria. Issue fechada. Seguindo para o proximo ticket."
+    if [ -n "${DISSENT:-}" ]; then
+        notify_info "#$n concluida (sem acordo)" "PR #$pr mergeado apos ${rounds} rodada(s). O par nao fechou acordo — prevaleceu o implementador e os achados em aberto estao na issue. Gate verde."
+    else
+        notify_info "#$n concluida" "PR #$pr mergeado em $BASE_BRANCH apos ${rounds} rodada(s) de auditoria. Issue fechada. Seguindo para o proximo ticket."
+    fi
     return 0
 }
 
@@ -672,19 +699,69 @@ ask_valid_sentinel() {
 }
 
 # ---------------------------------------------------------------------------
+# Estado da negociacao, em disco.
+# Ele so existia em memoria, entao TODO restart do container fazia o par recomecar o ticket
+# na rodada 1 — medido no #157, que rodou o implementador tres vezes do zero (09:41, 10:15,
+# 10:26) porque o container foi recriado entre elas. Os commits sobreviviam; a negociacao,
+# nao. Com a maquina desligando e a janela de trabalho cortando a noite, restart deixou de
+# ser excecao, e perder a rodada e perder dinheiro de cota.
+# ---------------------------------------------------------------------------
+state_file() { echo "${LOG_DIR}/state_${1}.env"; }
+
+save_ticket_state() {
+    local n="$1"
+    { printf 'ROUND=%s\n' "${2:-0}"
+      printf 'IMPL_SESSION=%s\n' "${IMPL_SESSION:-}"
+      printf 'AUDIT_SESSION=%s\n' "${AUDIT_SESSION:-}"
+      printf 'LAST_AUDIT_LOG=%s\n' "${LAST_AUDIT_LOG:-}"
+      printf 'LAST_IMPL_LOG=%s\n' "${LAST_IMPL_LOG:-}"
+    } > "$(state_file "$n")" 2>/dev/null || true
+}
+
+clear_ticket_state() { rm -f "$(state_file "$1")" 2>/dev/null || true; }
+
+# Devolve o texto do resultado de um turno gravado, para reconstruir a conversa sem modelo.
+result_of_log() { [ -s "${1:-}" ] && jq -r '.result // empty' "$1" 2>/dev/null || true; }
+
+# ---------------------------------------------------------------------------
 # One ticket, end to end: implement -> audit -> argue -> land. Returns 0 when the ticket
 # landed, 1 when the loop must stop for a human.
 # ---------------------------------------------------------------------------
 run_ticket() {
     local n="$1" round=0 impl_report audit_findings audit_prompt fix_prompt
-    IMPL_SESSION=""; AUDIT_SESSION=""
+    IMPL_SESSION=""; AUDIT_SESSION=""; DISSENT=""
+    LAST_AUDIT_LOG=""; LAST_IMPL_LOG=""
     ensure_branch_for_issue "$n"
+
+    # Retomar a negociacao, se um restart a interrompeu. A rodada 1 (a implementacao) so e
+    # refeita quando nao ha estado — o trabalho ja esta nos commits e refaze-lo e pagar duas
+    # vezes pela mesma coisa.
+    local resumed=0
+    if [ -s "$(state_file "$n")" ]; then
+        # shellcheck disable=SC1090
+        . "$(state_file "$n")"
+        round="${ROUND:-0}"
+        impl_report=$(result_of_log "${LAST_IMPL_LOG:-}")
+        audit_findings=$(result_of_log "${LAST_AUDIT_LOG:-}")
+        if [ "$round" -gt 0 ] && [ -n "$impl_report" ]; then
+            resumed=1
+            log "#$n: retomando a negociacao na rodada $round (estado em disco)"
+            notify_info "v0.6 — retomando a #$n" "Um restart interrompeu o ticket na rodada $round. Retomando dali, sem refazer o que ja esta commitado."
+        else
+            round=0
+        fi
+    fi
+
     CONTEXT_PACK=$(build_context_pack "$n")
     log "pacote de contexto: $CONTEXT_PACK ($(wc -l < "$CONTEXT_PACK" 2>/dev/null || echo 0) linhas)"
 
-    turn_with_retries impl "$(render_prompt v06_implementer.md "$n" 1)" IMPL_SESSION
-    impl_report="$LAST_RESULT_TEXT"
-    ask_valid_sentinel impl
+    if [ "$resumed" -eq 0 ]; then
+        turn_with_retries impl "$(render_prompt v06_implementer.md "$n" 1)" IMPL_SESSION
+        impl_report="$LAST_RESULT_TEXT"
+        ask_valid_sentinel impl
+    else
+        LAST_STATUS=DONE   # o turno que produziu este relatorio ja tinha terminado bem
+    fi
 
     case "$LAST_STATUS" in
         DONE) ;;
@@ -705,6 +782,7 @@ run_ticket() {
 
     while [ "$round" -lt "$MAX_ROUNDS" ]; do
         round=$((round + 1))
+        save_ticket_state "$n" "$round"
         if [ -n "$AUDIT_SESSION" ] && [ "$round" -gt 1 ]; then
             audit_prompt=$(printf 'Audit round %s of %s on #%s. The implementer answered your findings:\n\n--- IMPLEMENTER RESPONSE ---\n%s\n--- END ---\n\nRe-read `git diff origin/%s...HEAD` (it moved), re-run the gate yourself, and check each of your earlier findings: fixed, worked around, or correctly argued down. Raise anything new the fix introduced. End with exactly one VERDICT line.' \
                 "$round" "$MAX_ROUNDS" "$n" "$(clip "$impl_report")" "$BASE_BRANCH")
@@ -727,6 +805,7 @@ run_ticket() {
         case "$LAST_STATUS" in
             AGREED)
                 log "#$n: pair agreed after $round round(s)"
+                clear_ticket_state "$n"
                 if ! verify_turn; then
                     issue_note "$n" "O par declarou acordo na #$n, mas o gate do loop (pytest/ruff) falhou. Nada foi empurrado. Veja \`.ralph/logs/v06/verify_${n}.log\`."
                     notify_alert "v0.6 — verificacao falhou (#$n)" "Par em acordo mas pytest/ruff vermelho. NADA foi empurrado. Veja .ralph/logs/v06/verify_${n}.log"
@@ -756,19 +835,40 @@ run_ticket() {
                     return 1
                 fi ;;
             ESCALATE)
-                issue_note "$n" "$(printf 'O par headless empatou numa decisao de projeto que os cards nao resolvem (rodada %s).\n\n%s' "$round" "$audit_findings")"
-                notify_alert "v0.6 — empate na #$n" "Implementador e auditor discordam sobre projeto, rodada $round. As duas posicoes estao na issue."
-                return 1 ;;
+                # Empate nao para mais o loop. Regra do dono: o auditor pode EXIGIR revisao,
+                # cobertura e documentacao, mas nao mandar — se nunca chegam a acordo, vale o
+                # que o implementador fez. As duas posicoes ficam registradas na issue, e o
+                # gate do loop continua sendo inegociavel.
+                log "#$n: empate na rodada $round — prevalece o trabalho do implementador"
+                clear_ticket_state "$n"
+                issue_note "$n" "$(printf 'O par empatou numa decisao de projeto na rodada %s. Pela regra da casa, prevalece o que o implementador fez; as duas posicoes ficam aqui para leitura.\n\n### Posicao do auditor\n\n%s\n\n### Posicao do implementador\n\n%s' "$round" "$audit_findings" "$impl_report")"
+                DISSENT="empate de projeto na rodada $round"
+                if ! verify_turn; then
+                    issue_note "$n" "O empate seria resolvido a favor do implementador, mas o gate do loop (pytest/ruff) falhou. Nada foi empurrado."
+                    notify_alert "v0.6 — gate vermelho na #$n" "Empate resolvido a favor do implementador, mas pytest/ruff falhou. NADA foi empurrado."
+                    return 1
+                fi
+                land_ticket "$n" "$round" || return 1
+                return 0 ;;
             *)
                 notify_alert "v0.6 — ERRO na auditoria da #$n" "Auditor terminou com VERDICT=$LAST_STATUS. Log: $LAST_OUTPUT_FILE"
                 return 1 ;;
         esac
     done
 
-    issue_note "$n" "$(printf 'O par headless nao chegou a acordo em %s rodadas. O trabalho esta na branch `%s` (nao empurrada). Ultimos achados do auditor:\n\n%s' "$MAX_ROUNDS" "$WORK_BRANCH" "$audit_findings")"
-    notify_alert "v0.6 — sem acordo na #$n" "$MAX_ROUNDS rodadas sem acordo. Trabalho preservado em $WORK_BRANCH, nada empurrado. Olhe os achados na issue."
-    log "#$n: no agreement in $MAX_ROUNDS rounds — stopping for a human"
-    return 1
+    # Esgotadas as rodadas sem acordo: PREVALECE O IMPLEMENTADOR. O auditor exige, nao veta.
+    # O que nao cede e o gate — esse o loop roda sozinho e nao negocia.
+    log "#$n: sem acordo em $MAX_ROUNDS rodadas — prevalece o trabalho do implementador"
+    clear_ticket_state "$n"
+    issue_note "$n" "$(printf 'O par nao chegou a acordo em %s rodadas de critica. Pela regra da casa, prevalece o que o implementador fez — o auditor tem poder de exigir revisao, cobertura e documentacao, nao de vetar. Os achados em aberto ficam abaixo para voce julgar depois.\n\n### Achados que o auditor manteve\n\n%s\n\n### Resposta do implementador\n\n%s' "$MAX_ROUNDS" "$audit_findings" "$impl_report")"
+    DISSENT="$MAX_ROUNDS rodadas sem acordo"
+    if ! verify_turn; then
+        issue_note "$n" "As rodadas se esgotaram a favor do implementador, mas o gate do loop (pytest/ruff) falhou. Nada foi empurrado."
+        notify_alert "v0.6 — gate vermelho na #$n" "Rodadas esgotadas, mas pytest/ruff falhou. NADA foi empurrado."
+        return 1
+    fi
+    land_ticket "$n" "$round" || return 1
+    return 0
 }
 
 # ---------------------------------------------------------------------------
