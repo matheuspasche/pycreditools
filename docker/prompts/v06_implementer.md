@@ -12,6 +12,13 @@ issue state.
 
 You have no prior context. Before touching a line, build the whole picture:
 
+**Comece pelo pacote de contexto: `{{PACK}}`.** O loop ja reuniu ali, em `gh` e `git` e
+sem custo de modelo, o card com TODOS os comentarios, o estado real de cada bloqueador
+declarado, os ultimos 25 commits da base e o portao de artefato. Leia esse arquivo UMA vez
+e **nao re-busque nada que ele contenha**: o custo de um turno e (turnos x contexto), entao
+cada descoberta sua e repaga em todos os turnos seguintes. Os itens abaixo ficam para o que
+o pacote NAO cobre.
+
 1. `CLAUDE.md` and `CONTEXT.md` at the repo root — house rules, the output vocabulary
    rule (the engine speaks English: every emitted column name and non-presentational
    value), the ladder of remedies, the branch/PR flow.
@@ -59,6 +66,10 @@ is missing, stop with `STATUS: BLOCKED`.
 
 ## Step 2 — Implement test-first, and measure instead of citing.
 
+- **Invoke the `tdd` skill** (`.claude/skills/tdd/`) and follow its loop — it is this
+  repo's own discipline, not a generic one, and the owner asked for it explicitly.
+- When your ticket touches `CONTEXT.md`, `docs/adr/`, or the domain vocabulary, invoke the
+  `domain-modeling` skill as well; when it decides an interface or a seam, `codebase-design`.
 - Red → green → refactor. Write the failing test FIRST, watch it fail for the right
   reason, then implement. A test that passes before the implementation existed is not a
   test; prove your test bites (revert the source line, see red, restore).

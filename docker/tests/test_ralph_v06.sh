@@ -142,6 +142,21 @@ eq "livro inexistente e zero"   "0.00"  "$(spend_since "$NOW" /nao/existe/ledger
 eq "o teto e a porcentagem do orcamento" "120.00" "$(WEEKLY_BUDGET_USD=150 BUDGET_STOP_PCT=80 budget_ceiling)"
 rm -f "$LEDGER"
 
+echo "budget_period_start — o reset e um INSTANTE FIXO, nao uma janela movel"
+BUDGET_PERIOD=fixed; BUDGET_RESET_DOW=friday; BUDGET_RESET_HOUR=03:00; BUDGET_TZ=America/Sao_Paulo
+# O reset real desta conta: sexta 03:00 BRT.
+pstart() { NOW_EPOCH=$(TZ="$BUDGET_TZ" date -d "$1" +%s) budget_period_start; }
+shown()  { TZ="$BUDGET_TZ" date -d "@$(pstart "$1")" '+%Y-%m-%d %H:%M'; }
+eq "numa segunda, ancora na sexta anterior"          "2026-09-11 03:00" "$(shown '2026-09-14 07:00')"
+# O caso que `date -d "last friday"` erra sozinho: numa sexta ele devolve a sexta ANTERIOR,
+# contando uma semana de gasto que a conta ja zerou de manha.
+eq "na sexta DEPOIS do reset, ancora em hoje"        "2026-09-11 03:00" "$(shown '2026-09-11 09:00')"
+eq "na sexta ANTES do reset, ancora na sexta passada" "2026-09-04 03:00" "$(shown '2026-09-11 01:00')"
+eq "a virada do reset, no minuto seguinte"           "2026-09-11 03:00" "$(shown '2026-09-11 03:01')"
+eq "rolling volta a ser 7 dias corridos"             "2026-09-07 07:00" \
+   "$(BUDGET_PERIOD=rolling; shown '2026-09-14 07:00')"
+BUDGET_PERIOD=fixed
+
 echo "sleep_until"
 # Alvo no passado retorna na hora — e por isso que suspend so ADIA o loop, nunca o trava:
 # ao acordar, o relogio de parede ja passou do alvo.
