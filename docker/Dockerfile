@@ -44,7 +44,10 @@ ENV HOME=/home/ralph
 # ownership into the fresh volume. Without this, a brand-new named volume
 # defaults to root:root and `ralph` can't write into it (session data would
 # silently fail to persist, breaking --resume across container restarts).
-RUN mkdir -p /home/ralph/.claude && chown -R ralph:ralph /home/ralph
+# Mesmo motivo para /home/ralph/venv: ele tambem e um volume nomeado, e um volume novo
+# montado sobre um caminho que NAO existe na imagem nasce root:root — `ralph` entao nao
+# consegue criar o venv do gate dentro dele ("Permission denied: /home/ralph/venv/include").
+RUN mkdir -p /home/ralph/.claude /home/ralph/venv && chown -R ralph:ralph /home/ralph
 
 COPY ralph_loop.sh notify.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/ralph_loop.sh /usr/local/bin/notify.sh

@@ -60,6 +60,64 @@ Set in the `ralph_v06` service (or `.env`, which the service reads first):
 | `SKIP_ISSUES` | — | space-separated issue numbers to leave alone |
 | `MERGE_METHOD` | `--merge` | `--squash` / `--rebase` also accepted |
 | `RATE_LIMIT_BACKOFF_SECONDS` | `1800` | fallback only, when the reset hint is unparseable |
+| `WORK_WINDOW_START` / `_END` / `_TZ` | `22:00` / `08:00` / `America/Sao_Paulo` | the loop only works inside this window |
+| `WEEKLY_BUDGET_USD` / `BUDGET_STOP_PCT` | `150` / `80` | usage meter ceiling over a rolling 7 days |
+| `NTFY_PRIORITY_ALERT` / `_INFO` | `default` / `low` | nothing is ever sent as `urgent` |
+| `HEARTBEAT_SECONDS` | `7200` | sign of life during any long wait |
+| `TURN_TIMEOUT_SECONDS` | `7200` | watchdog: kills a hung turn |
+| `VENV` | `/home/ralph/venv` | the gate's virtualenv, built inside the container |
+
+**Edit these in `.env`, not here.** `environment:` in compose **wins** over `env_file`, so a
+knob pinned in `docker-compose.yml` makes the `.env` entry decorative. Only the things that
+identify the map (branch, queue label, parent issue, model, skip list) stay in compose; the
+policy knobs live in `.env`, which the loop never touches and you can edit while it runs.
+See `.env.example`.
+
+## The work window
+
+The loop works only between `WORK_WINDOW_START` and `WORK_WINDOW_END` (owner's hours: the
+machine is his during the day). The window is checked **between turns, never inside one** —
+interrupting a turn would lose whatever has not become a commit yet. Outside it the loop
+sleeps and says so once, then heartbeats.
+
+A window that does not suspend the host is a window that does not exist: a suspended
+machine runs nothing, and a suspend in the middle of a turn kills the API call in flight.
+`scripts/ralph_awake.sh` holds a `systemd-inhibit` lock **only while the window is open**,
+so the machine still sleeps normally during the day. Run it on the host, in a terminal you
+leave open.
+
+## The usage meter, and why it is not money
+
+The account runs on a **subscription**, so nothing here is billed — what the loop spends is
+**quota**. But quota is not exposed by any API, and the only consumption figure observable
+locally is `total_cost_usd`, which the CLI reports per turn: what those tokens *would* cost
+on the API. It is a **meter, not an invoice**, and it works as a brake because it rises with
+the quota consumed.
+
+Each turn appends `<epoch>\t<meter>` to `.ralph/usage.tsv`. When the rolling 7-day sum
+reaches `BUDGET_STOP_PCT` of `WEEKLY_BUDGET_USD`, the loop **sleeps** (it does not die) and
+rechecks hourly — a rolling window recovers on its own as old turns age out. Calibrate the
+ceiling by comparing that file's running total against the percentage `/usage` reports in an
+interactive session. Measured reference: one implementer turn on ticket 1 marked **11.10**.
+
+## Nothing is urgent
+
+`urgent` on ntfy rings like an alarm and once woke the owner at 4am. This is a personal
+project running overnight and nothing in it is time-critical, so the ceiling is `default`
+(`NTFY_PRIORITY_ALERT`) and routine progress goes out at `low` (`NTFY_PRIORITY_INFO`).
+
+The counterpart is the **heartbeat**: from a phone, silence and death look identical, and
+that ambiguity once hid 8 hours of a wedged loop. Any long wait — quota, closed window,
+usage ceiling — emits a low-priority sign of life every `HEARTBEAT_SECONDS` saying what it
+is waiting for and when it expects to resume.
+
+## The gate's virtualenv is the container's, never the host's
+
+`verify_turn` and both prompts use `$VENV` (`/home/ralph/venv`, a named volume built once by
+the entrypoint). It must **not** be the tree's `.venv-linux`: that one is built by the host
+interpreter (3.14 on Fedora) and its `site-packages` is unreadable to the container's 3.11,
+so `pytest` died with `ModuleNotFoundError` on every ticket and the loop would have refused
+even correct work.
 
 ## The 150k context ceiling: rotate rather than compact
 
@@ -74,6 +132,9 @@ Two things follow, and the second is the honest caveat:
 - Over the cap, the loop clears that role's session id, so its next turn starts **fresh**.
   Nothing is lost: the work lives in commits on the branch, and both prompts are written
   to be re-enterable from scratch (the auditor re-derives everything from the diff anyway).
+- **Measured 2026-09-13:** an implementer turn on ticket 1 reached **272k** of live
+  context, so the window is larger than the 200k this runbook once assumed and the old cap
+  would still not have fired. The rotation notice is a `low` ntfy, not a problem.
 - The cap was **450k** and therefore inert: Opus 5's window is **200k** and Claude Code
   compacts before it fills, so no session could ever reach the tripwire. Set **below** the
   window it becomes the lever it was meant to be — the session rotates fresh instead of

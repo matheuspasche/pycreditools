@@ -42,12 +42,10 @@ services:
       MAP_ISSUE: "111"
       CLAUDE_MODEL: claude-opus-5
       CLAUDE_EFFORT: medium
-      MAX_ROUNDS: "8"
-      # 450k was INERT: Opus 5's window is 200k and Claude Code compacts before it fills, so
-      # the tripwire could never fire. Below the window it becomes a real lever — the session
-      # rotates FRESH (work is in commits, both prompts are re-enterable) instead of being
-      # compacted, which is lossy and paid for twice.
-      CONTEXT_CAP_TOKENS: "150000"
+      # MAX_ROUNDS, CONTEXT_CAP_TOKENS e as politicas novas (janela, teto de uso,
+      # prioridades do ntfy) moram no .env: `environment:` VENCE o env_file, entao deixa-las
+      # aqui tornaria o .env decorativo — e o .env e o arquivo que o dono edita com o loop
+      # no ar. Ver .env.example. Os defaults de verdade estao no proprio script.
       # Ticket 13 (#160) declares no blocker, so the lowest-number queue rule would pull it
       # second — but the tickets doc rules it "barato, fica onde esta, e nao compete por
       # prioridade no dia zero": tests/studio stays green through tickets 1-15 and the only
@@ -68,12 +66,27 @@ services:
         cp /workspace/docker/ralph_loop_v06.sh "$$HOME/loop/"
         cp -r /workspace/docker/prompts "$$HOME/loop/prompts"
         export PROMPT_DIR="$$HOME/loop/prompts"
+        # O venv do GATE, e ele tem que ser construido por ESTE interpretador. O
+        # .venv-linux da arvore e do Python do host (3.14 no Fedora) e seu site-packages
+        # e ilegivel para o 3.11 daqui: com ele, `pytest` morria com ModuleNotFoundError
+        # em TODO ticket e o loop recusaria ate o trabalho correto. Vive num volume
+        # nomeado, entao e construido uma vez e sobrevive a recriacao do container.
+        export VENV="$${VENV:-/home/ralph/venv}"
+        if [ ! -x "$$VENV/bin/python" ]; then
+          echo "[entrypoint] construindo o venv do gate em $$VENV (so na primeira vez)"
+          python3 -m venv "$$VENV"
+          "$$VENV/bin/pip" install -q --upgrade pip
+          "$$VENV/bin/pip" install -q -e "/workspace[dev,all]" || {
+            echo "[entrypoint] FALHA ao instalar as dependencias no venv"; exit 1; }
+        fi
         exec bash "$$HOME/loop/ralph_loop_v06.sh"
     volumes:
       - .:/workspace
       - claude_home_v06:/home/ralph/.claude
+      - ralph_venv_v06:/home/ralph/venv
     restart: on-failure
 
 volumes:
   claude_home:
   claude_home_v06:
+  ralph_venv_v06:

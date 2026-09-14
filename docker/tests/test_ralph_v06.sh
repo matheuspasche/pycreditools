@@ -107,6 +107,47 @@ case "$(CROSS_TALK_CHARS=3 clip 'preambulo inutil FIM')" in
     *) bad "a cut says so" "a marker line" "no marker" ;;
 esac
 
+echo "in_window"
+# A janela normal deste projeto ATRAVESSA a meia-noite (22:00 -> 08:00), entao o caso
+# invertido e o principal, nao a excecao — foi o que a primeira versao errou.
+yes_() { if in_window "$2" "$3" "$4"; then ok "$1"; else bad "$1" "dentro" "fora"; fi; }
+no_()  { if in_window "$2" "$3" "$4"; then bad "$1" "fora" "dentro"; else ok "$1"; fi; }
+yes_ "23:30 esta dentro de 22:00-08:00"        "23:30" "22:00" "08:00"
+yes_ "03:00 (depois da meia-noite) esta dentro" "03:00" "22:00" "08:00"
+yes_ "22:00 em ponto abre a janela"             "22:00" "22:00" "08:00"
+no_  "08:00 em ponto ja fechou"                 "08:00" "22:00" "08:00"
+no_  "14:00 esta fora"                          "14:00" "22:00" "08:00"
+yes_ "janela que nao atravessa: 10:00 em 09-18" "10:00" "09:00" "18:00"
+no_  "janela que nao atravessa: 20:00 em 09-18" "20:00" "09:00" "18:00"
+yes_ "inicio igual ao fim = 24 horas"           "04:00" "22:00" "22:00"
+yes_ "janela vazia = 24 horas"                  "04:00" ""      ""
+
+echo "valid_sentinel"
+if valid_sentinel impl DONE;     then ok "impl DONE e valida";     else bad "impl DONE e valida" "0" "1"; fi
+if valid_sentinel audit AGREED;  then ok "audit AGREED e valida";  else bad "audit AGREED e valida" "0" "1"; fi
+# A que matou a rodada 1 do #157: o agente inventou a palavra, o loop parou a noite toda.
+if valid_sentinel impl CHANGES_MADE; then bad "CHANGES_MADE nao e valida" "1" "0"; else ok "CHANGES_MADE nao e valida"; fi
+if valid_sentinel impl AGREED;   then bad "o vocabulario do auditor nao vale para o impl" "1" "0"; else ok "o vocabulario do auditor nao vale para o impl"; fi
+case "$(sentinel_vocabulary impl)"  in *"STATUS: WRONG_TICKET"*) ok "o vocabulario do impl enumera as quatro" ;; *) bad "vocabulario impl" "as quatro" "$(sentinel_vocabulary impl)" ;; esac
+case "$(sentinel_vocabulary audit)" in *"VERDICT: ESCALATE"*)    ok "o vocabulario do auditor enumera as tres" ;; *) bad "vocabulario audit" "as tres" "$(sentinel_vocabulary audit)" ;; esac
+
+echo "medidor de uso"
+LEDGER=$(mktemp)
+NOW=$(date +%s)
+printf '%s\t%s\n' "$((NOW - 86400))"  "10.00" >> "$LEDGER"   # ontem
+printf '%s\t%s\n' "$((NOW - 300))"    "5.50"  >> "$LEDGER"   # agora ha pouco
+printf '%s\t%s\n' "$((NOW - 900000))" "99.00" >> "$LEDGER"   # 10 dias atras: fora da janela
+eq "soma so os ultimos 7 dias"  "15.50" "$(spend_since "$((NOW - 604800))" "$LEDGER")"
+eq "livro inexistente e zero"   "0.00"  "$(spend_since "$NOW" /nao/existe/ledger)"
+eq "o teto e a porcentagem do orcamento" "120.00" "$(WEEKLY_BUDGET_USD=150 BUDGET_STOP_PCT=80 budget_ceiling)"
+rm -f "$LEDGER"
+
+echo "sleep_until"
+# Alvo no passado retorna na hora — e por isso que suspend so ADIA o loop, nunca o trava:
+# ao acordar, o relogio de parede ja passou do alvo.
+BEFORE=$(date +%s); sleep_until "$(( $(date +%s) - 10 ))" "teste"; AFTER=$(date +%s)
+if [ $(( AFTER - BEFORE )) -le 1 ]; then ok "alvo no passado nao dorme"; else bad "alvo no passado nao dorme" "<=1s" "$(( AFTER - BEFORE ))s"; fi
+
 echo
 echo "passed=$PASS failed=$FAIL"
 [ "$FAIL" -eq 0 ]
