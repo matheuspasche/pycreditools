@@ -52,7 +52,7 @@ Set in the `ralph_v06` service (or `.env`, which the service reads first):
 |---|---|---|
 | `CLAUDE_MODEL` | `claude-opus-5` | model for both roles |
 | `CLAUDE_EFFORT` | `medium` | `--effort` for both roles |
-| `MAX_ROUNDS` | `8` | audit rounds per ticket before stopping for a human |
+| `MAX_ROUNDS` | `5` | audit rounds per ticket before stopping for a human |
 | `CONTEXT_CAP_TOKENS` | `250000` | per-session ceiling; over it, that role's next turn starts fresh |
 | `CROSS_TALK_CHARS` | `12000` | cap on the report/findings text pasted verbatim into the other role's prompt (the tail is kept) |
 | `BASE_BRANCH` | `release/v0.6` | integration branch and PR base |
@@ -119,7 +119,22 @@ interpreter (3.14 on Fedora) and its `site-packages` is unreadable to the contai
 so `pytest` died with `ModuleNotFoundError` on every ticket and the loop would have refused
 even correct work.
 
-## The 150k context ceiling: rotate rather than compact
+## The context ceiling is per role, and rotation must carry memory
+
+The two roles are not the same size of job. The auditor reads the **whole diff and every
+changed file in full** (a diff hides what the surrounding code does), so it closes far
+higher by trade: measured on #157 round 1, **173k for the auditor against 40k for the
+implementer**. A single ceiling measured both with the same ruler and rotated the auditor
+every round.
+
+Rotating the auditor is worse than rotating the implementer, because the audit loop's whole
+mechanism is round-over-round memory: *"check each of your earlier findings — fixed, worked
+around, or correctly argued down"*. A fresh auditor that receives only the implementer's
+report gets a **claim**, not evidence, and cannot tell "fixed" from "worked around". So the
+continuation now carries **the auditor's own previous findings**, framed as its own — the
+symmetric fix to the one the implementer's correction prompt already got.
+
+## Rotate rather than compact
 
 The cap is enforced on the **live context of each session**, read from the session
 transcript: the last assistant message's own request (`input + cache_creation +

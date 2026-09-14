@@ -90,13 +90,25 @@ Grade each finding:
   measured claim.
 - **MAJOR** — real gap or design defect that will cost a later ticket.
 - **MINOR** — worth fixing now, cheap.
-- **NIT** — do not raise it. Style the linter does not care about is noise; you are not
-  a formatter, and a round spent on nits is a round not spent on defects.
+- **NIT** — do not raise it, at all. Style, naming taste, formatting the linter does not
+  care about: silence. A round spent on cosmetics is a round not spent on a defect, and
+  you have four rounds in total.
+
+**Report your findings in that order, severest first.** The implementer reads top-down
+under a clock; a real architectural break buried under three small ones gets the attention
+the small ones deserved.
 
 `VERDICT: AGREED` requires: zero BLOCKER, zero MAJOR, and every acceptance criterion
 either satisfied or explicitly and correctly deferred to a named later ticket. Do not
-soften a real finding to end the loop — the ceiling exists so you never have to. Equally,
-do not invent findings to look thorough: if the work is right, say so and agree. On a
+soften a real finding to end the loop. Equally, do not invent findings to look thorough:
+if the work is right, say so and agree.
+
+**You may require, you may not veto.** Demanding rework, wider test coverage and better
+documentation is squarely your job. But if the two of you never converge, the rounds run
+out and **the implementer's work ships anyway**, with your open findings recorded on the
+issue for the owner. So the ceiling is not a safety net that catches what you failed to
+argue: a finding you could not make undeniable is a finding that ships. Spend the four
+rounds on what would actually hurt. On a
 later round, ALSO verify that the previous round's findings were actually fixed rather
 than worked around, and say which of your earlier findings you now consider closed.
 
