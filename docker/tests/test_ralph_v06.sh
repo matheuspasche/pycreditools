@@ -179,6 +179,18 @@ eq "rolling volta a ser 7 dias corridos"             "2026-09-07 07:00" \
 BUDGET_PERIOD=fixed
 
 echo "sleep_until"
+# A espera pela janela e ESPERADA, entao ela e muda: heartbeat e para espera imprevista
+# (cota, teto), onde silencio nao se distingue de travamento. Numa tarde inteira fora da
+# janela, o modo falante cutucaria o dono cinco vezes para informar que sao 15h.
+NOTIFIED=""
+notify_info() { NOTIFIED="$NOTIFIED|$1"; }
+HEARTBEAT_SECONDS=1; SLEEP_BITE_SECONDS=1
+sleep_until "$(( $(date +%s) + 3 ))" "teste" quiet
+eq "espera muda nao notifica" "" "$NOTIFIED"
+sleep_until "$(( $(date +%s) + 3 ))" "teste"
+case "$NOTIFIED" in *"em espera"*) ok "espera imprevista notifica" ;; *) bad "espera imprevista notifica" "um heartbeat" "nenhum" ;; esac
+unset -f notify_info; SLEEP_BITE_SECONDS=60
+
 # Alvo no passado retorna na hora — e por isso que suspend so ADIA o loop, nunca o trava:
 # ao acordar, o relogio de parede ja passou do alvo.
 BEFORE=$(date +%s); sleep_until "$(( $(date +%s) - 10 ))" "teste"; AFTER=$(date +%s)

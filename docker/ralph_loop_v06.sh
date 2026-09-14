@@ -98,7 +98,12 @@ USAGE_LEDGER="${USAGE_LEDGER:-/workspace/.ralph/usage.tsv}"
 # do ntfy toca como alarme e ja acordou o dono as 4h. Teto de prioridade: "default".
 NTFY_PRIORITY_ALERT="${NTFY_PRIORITY_ALERT:-default}"
 NTFY_PRIORITY_INFO="${NTFY_PRIORITY_INFO:-low}"
-HEARTBEAT_SECONDS="${HEARTBEAT_SECONDS:-7200}"    # sinal de vida durante espera longa
+HEARTBEAT_SECONDS="${HEARTBEAT_SECONDS:-7200}"    # sinal de vida durante espera IMPREVISTA
+# Tamanho da fatia de sono. Curto o bastante para reancorar no relogio de parede depois de
+# um suspend, longo o bastante para nao acordar a toa. Configuravel tambem porque com 60s
+# uma espera curta nunca chega a uma iteracao intermediaria — e era assim que o teste do
+# heartbeat nao conseguia observar o heartbeat.
+SLEEP_BITE_SECONDS="${SLEEP_BITE_SECONDS:-60}"
 
 # --- Watchdog ---------------------------------------------------------------------
 # Um turno pendurado nao morre e o `restart: on-failure` nao o alcanca; o teto o mata.
@@ -139,15 +144,19 @@ notify_alert() { notify.sh "$1" "$2" "$NTFY_PRIORITY_ALERT" >/dev/null 2>&1 || t
 # Emite sinal de vida a cada HEARTBEAT_SECONDS — do celular, silencio e indistinguivel de
 # morte, e essa ambiguidade era um defeito de projeto para quem so acompanha por push.
 # ---------------------------------------------------------------------------
+# $3 = "quiet" quando a espera e ESPERADA (a janela de trabalho do dono). Heartbeat existe
+# para espera IMPREVISTA — cota estourada, teto de uso — em que o silencio nao se distingue
+# de travamento. A janela e o oposto: o dono sabe que sao 15h e sabe que o loop dorme ate as
+# 22h, entao um aviso a cada duas horas so interrompe o dia dele para informar o obvio.
 sleep_until() {
-    local target="$1" why="${2:-}" now last_beat bite left
+    local target="$1" why="${2:-}" quiet="${3:-}" now last_beat bite left
     now=$(date +%s); last_beat="$now"
     while [ "$now" -lt "$target" ]; do
         left=$(( target - now ))
-        bite=60; [ "$left" -lt 60 ] && bite="$left"
+        bite="$SLEEP_BITE_SECONDS"; [ "$left" -lt "$bite" ] && bite="$left"
         sleep "$bite"
         now=$(date +%s)
-        if [ $(( now - last_beat )) -ge "$HEARTBEAT_SECONDS" ] && [ "$now" -lt "$target" ]; then
+        if [ -z "$quiet" ] && [ $(( now - last_beat )) -ge "$HEARTBEAT_SECONDS" ] && [ "$now" -lt "$target" ]; then
             notify_info "v0.6 — em espera" "$why Retomo por volta de $(date -d "@$target" +%H:%M) ($(( (target - now) / 60 )) min)."
             last_beat="$now"
         fi
@@ -187,7 +196,7 @@ wait_for_window() {
     target=$(next_window_open)
     log "fora da janela de trabalho ($WORK_WINDOW_START-$WORK_WINDOW_END $WORK_WINDOW_TZ) — dormindo ate $(date -d "@$target" +%d/%m\ %H:%M)"
     notify_info "v0.6 — fora da janela" "Pausando ate $(date -d "@$target" +%H:%M). O dia e seu; o loop volta a noite."
-    sleep_until "$target" "Fora da janela de trabalho."
+    sleep_until "$target" "Fora da janela de trabalho." quiet
     notify_info "v0.6 — janela aberta" "Retomando o trabalho."
 }
 
