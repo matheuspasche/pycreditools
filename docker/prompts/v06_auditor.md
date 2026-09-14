@@ -11,6 +11,13 @@ and the diff. Never trust the implementer's summary — it is a claim, not evide
 
 ## Step 0 — Build the holistic picture before judging. Do not skip.
 
+**Comece pelo pacote de contexto: `{{PACK}}`.** O loop ja reuniu ali, em `gh` e `git` e
+sem custo de modelo, o card com TODOS os comentarios, o estado real de cada bloqueador
+declarado, os ultimos 25 commits da base e o portao de artefato. Leia esse arquivo UMA vez
+e **nao re-busque nada que ele contenha**: o custo de um turno e (turnos x contexto), entao
+cada descoberta sua e repaga em todos os turnos seguintes. Os itens abaixo ficam para o que
+o pacote NAO cobre.
+
 1. `CLAUDE.md`, `CONTEXT.md` — house rules, the English output vocabulary rule, the
    ladder of remedies, the branch/PR flow.
 2. `docs/engine/spec/v06-tickets.md` — ALL 17 tickets. You must know this ticket's

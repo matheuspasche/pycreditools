@@ -61,6 +61,14 @@ WORK_WINDOW_TZ="${WORK_WINDOW_TZ:-America/Sao_Paulo}"
 # BUDGET_STOP_PCT do teto — a janela movel se recupera sozinha com o passar dos dias.
 WEEKLY_BUDGET_USD="${WEEKLY_BUDGET_USD:-150}"
 BUDGET_STOP_PCT="${BUDGET_STOP_PCT:-80}"
+# O periodo. A cota da assinatura reseta num INSTANTE FIXO da semana, nao numa janela
+# movel — e a diferenca importa: logo depois de um reset voce tem cota cheia, mas uma
+# soma movel de 7 dias ainda carrega os seis dias anteriores e te freia justamente quando
+# ha espaco. Ancore no reset. "rolling" fica disponivel para quem nao souber o proprio.
+BUDGET_PERIOD="${BUDGET_PERIOD:-fixed}"              # fixed | rolling
+BUDGET_RESET_DOW="${BUDGET_RESET_DOW:-friday}"
+BUDGET_RESET_HOUR="${BUDGET_RESET_HOUR:-03:00}"
+BUDGET_TZ="${BUDGET_TZ:-America/Sao_Paulo}"
 USAGE_LEDGER="${USAGE_LEDGER:-/workspace/.ralph/usage.tsv}"
 
 # --- Notificacoes -----------------------------------------------------------------
@@ -178,10 +186,29 @@ spend_since() {   # $1 = epoch de corte, $2 = livro (default USAGE_LEDGER)
 
 budget_ceiling() { awk -v b="$WEEKLY_BUDGET_USD" -v p="$BUDGET_STOP_PCT" 'BEGIN{printf "%.2f", b*p/100}'; }
 
-# Verdadeiro quando a janela movel de 7 dias ja encostou no teto.
+# O inicio do periodo de cota corrente. Pura o suficiente para os testes pinarem: aceita
+# "agora" por $NOW_EPOCH.
+budget_period_start() {
+    local now="${NOW_EPOCH:-$(date +%s)}" want i d dow cand
+    [ "$BUDGET_PERIOD" = "rolling" ] && { echo $(( now - 604800 )); return; }
+    want=$(printf '%s' "$BUDGET_RESET_DOW" | tr '[:upper:]' '[:lower:]')
+    # Caminhar para tras dia a dia ate achar o dia do reset cujo horario ja passou. Feito
+    # assim, e nao com `date -d "last friday"`, porque aquela forma NUMA SEXTA devolve a
+    # sexta ANTERIOR — contaria uma semana inteira de gasto que a conta ja zerou de manha.
+    for i in 0 1 2 3 4 5 6 7; do
+        d=$(TZ="$BUDGET_TZ" date -d "@$(( now - i * 86400 ))" +%Y-%m-%d 2>/dev/null) || continue
+        dow=$(TZ="$BUDGET_TZ" date -d "$d" +%A 2>/dev/null | tr '[:upper:]' '[:lower:]')
+        [ "$dow" = "$want" ] || continue
+        cand=$(TZ="$BUDGET_TZ" date -d "$d $BUDGET_RESET_HOUR" +%s 2>/dev/null) || continue
+        [ "$cand" -le "$now" ] && { echo "$cand"; return; }
+    done
+    echo $(( now - 604800 ))
+}
+
+# Verdadeiro quando o periodo de cota corrente ja encostou no teto.
 over_budget() {
     local spent ceiling
-    spent=$(spend_since "$(( $(date +%s) - 604800 ))")
+    spent=$(spend_since "$(budget_period_start)")
     ceiling=$(budget_ceiling)
     awk -v s="$spent" -v c="$ceiling" 'BEGIN{exit !(s >= c)}'
 }
@@ -190,11 +217,14 @@ over_budget() {
 # conforme os turnos antigos saem dos 7 dias — parar de vez exigiria o dono voltar.
 wait_for_budget() {
     local spent ceiling
+    local since next
     while over_budget; do
-        spent=$(spend_since "$(( $(date +%s) - 604800 ))"); ceiling=$(budget_ceiling)
-        log "teto de uso atingido: ${spent} de ${ceiling} (${BUDGET_STOP_PCT}% de ${WEEKLY_BUDGET_USD}) nos ultimos 7 dias — aguardando a janela movel ceder"
-        notify_info "v0.6 — teto de uso" "Medidor em ${spent} dos ${ceiling} permitidos por semana (${BUDGET_STOP_PCT}% de ${WEEKLY_BUDGET_USD}). Pausado; a janela movel de 7 dias se recupera sozinha."
-        sleep_until "$(( $(date +%s) + 3600 ))" "Teto de uso semanal atingido."
+        since=$(budget_period_start); spent=$(spend_since "$since"); ceiling=$(budget_ceiling)
+        if [ "$BUDGET_PERIOD" = "rolling" ]; then next=$(( $(date +%s) + 3600 ))
+        else next=$(( since + 604800 )); fi
+        log "teto de uso atingido: ${spent} de ${ceiling} desde $(date -d "@$since" '+%d/%m %H:%M') — dormindo ate $(date -d "@$next" '+%d/%m %H:%M')"
+        notify_info "v0.6 — teto de uso" "Medidor em ${spent} dos ${ceiling} do periodo (${BUDGET_STOP_PCT}% de ${WEEKLY_BUDGET_USD}, desde $(date -d "@$since" '+%d/%m %H:%M')). Pausado ate o reset em $(date -d "@$next" '+%d/%m %H:%M')."
+        sleep_until "$next" "Teto de uso do periodo atingido."
     done
 }
 
@@ -293,6 +323,45 @@ ensure_branch_for_issue() {
 }
 
 # ---------------------------------------------------------------------------
+# O pacote de contexto: o que o loop consegue descobrir em bash, ele descobre em bash.
+#
+# Medido no turno de implementacao do #157: 32 dos 124 turnos internos foram orientacao
+# ANTES da primeira escrita — em boa parte, um `gh issue view` por card. E o consumo de um
+# turno e (turnos x contexto): 97,7% do input foi releitura do MESMO contexto a cada passo,
+# 18,87M de cache_read contra 447k de conteudo novo. Entao todo turno interno economizado
+# cedo se paga em todos os turnos seguintes.
+#
+# Nada aqui exige modelo: sao chamadas de gh e git. O agente le UM arquivo em vez de
+# descobrir a mesma coisa conversando.
+# ---------------------------------------------------------------------------
+build_context_pack() {
+    # Declaracoes separadas de proposito: sob `set -u`, um unico `local a=$1 b=${a}` cria
+    # TODOS os nomes como nao-associados antes de atribuir, e o ${a} da segunda explode.
+    local n="$1"
+    local pack="$LOG_DIR/pack_${n}.md"
+    local body b
+    body=$(gh issue view "$n" --repo "$REPO" --json body -q .body 2>/dev/null)
+    {
+        printf '# Contexto pre-coletado do ticket #%s\n\n' "$n"
+        printf 'Montado pelo loop com `gh` e `git`, sem custo de modelo. NAO refaca o que ja\n'
+        printf 'esta aqui — cada busca sua e paga de novo em todo turno seguinte.\n\n'
+        printf -- '## O card, com os comentarios (a resolucao mora nos comentarios)\n\n'
+        gh issue view "$n" --repo "$REPO" --comments 2>/dev/null
+        printf '\n\n## Bloqueadores declarados, e o estado REAL de cada um\n\n'
+        for b in $(parse_blockers "$body"); do
+            gh issue view "$b" --repo "$REPO" --json number,title,state \
+                -q '"- #\(.number) [\(.state)] \(.title)"' 2>/dev/null
+        done
+        printf '\n(Fechado no tracker nao e entregue na arvore: confirme no codigo o que voce for usar.)\n'
+        printf '\n## Os ultimos 25 commits da base (%s)\n\n' "origin/$BASE_BRANCH"
+        git log --oneline "origin/$BASE_BRANCH" -25 2>/dev/null
+        printf '\n## Portao de artefato: ADRs prometidos que ainda faltam\n\n'
+        python3 scripts/check_artifact_gate.py 2>&1 | tail -40 || true
+    } > "$pack" 2>/dev/null
+    printf '%s' "$pack"
+}
+
+# ---------------------------------------------------------------------------
 # Prompt assembly. Templates live in the bind-mounted tree, so they can be edited
 # without rebuilding the image.
 # ---------------------------------------------------------------------------
@@ -300,7 +369,8 @@ render_prompt() {
     local file="$1" n="$2" round="${3:-1}"
     sed -e "s|{{REPO}}|$REPO|g" -e "s|{{ISSUE}}|$n|g" -e "s|{{BRANCH}}|${WORK_BRANCH:-}|g" \
         -e "s|{{BASE}}|origin/$BASE_BRANCH|g" -e "s|{{ROUND}}|$round|g" \
-        -e "s|{{MAX_ROUNDS}}|$MAX_ROUNDS|g" -e "s|{{VENV}}|$VENV|g" "$PROMPT_DIR/$file"
+        -e "s|{{MAX_ROUNDS}}|$MAX_ROUNDS|g" -e "s|{{VENV}}|$VENV|g" \
+        -e "s|{{PACK}}|${CONTEXT_PACK:-}|g" "$PROMPT_DIR/$file"
 }
 
 # ---------------------------------------------------------------------------
@@ -590,6 +660,8 @@ run_ticket() {
     local n="$1" round=0 impl_report audit_findings audit_prompt fix_prompt
     IMPL_SESSION=""; AUDIT_SESSION=""
     ensure_branch_for_issue "$n"
+    CONTEXT_PACK=$(build_context_pack "$n")
+    log "pacote de contexto: $CONTEXT_PACK ($(wc -l < "$CONTEXT_PACK" 2>/dev/null || echo 0) linhas)"
 
     turn_with_retries impl "$(render_prompt v06_implementer.md "$n" 1)" IMPL_SESSION
     impl_report="$LAST_RESULT_TEXT"
