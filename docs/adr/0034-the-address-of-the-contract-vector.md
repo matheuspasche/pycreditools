@@ -83,7 +83,9 @@ would send the desk along too, and would **re-fuse the two axes #121 §1 separat
 
 ## The prototype — `contract = decision × take_up`, exact
 
-`docs/research/prototype-155-contract-axis.py`. 60k rows, 4 configurations.
+`docs/research/prototype-155-contract-axis.py` — **on an ephemeral branch** (`fe2088e`, reachable
+only from `origin/claude/aoba-b0w0o3`; §9.3 lists it under *"Pesquisas em branch efêmera, fora de
+`release/v0.6`"*). 60k rows, 4 configurations.
 
 1. **Today's funnel already factorises.** The take-up implicit in the engine's output matches
    **exactly** (`|Δ| = 0`) `_observed_probs` computed outside on the swap-ins, stays in `[0,1]` on

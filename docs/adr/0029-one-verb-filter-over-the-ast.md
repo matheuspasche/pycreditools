@@ -48,9 +48,12 @@ class only represented by accident**.
 
 Dying with it: `direction="gte"/"lte"` (the operator is in the node — killing the 53 literals
 measured in #135), the multi-column `cutoffs: dict[column, value]`, the never-used
-`StageDirection` enum, and **11 of the 20 `isinstance`-over-Stage sites** (`sweep.py:56`, `:70`,
-`optimization.py:149`, `policy.py:182`, `screening.py:381`, `stages.py:173`, `:200`,
-`studio/analyses.py:824`, `deployment.py:224`).
+`StageDirection` enum, and **11 of the 20 `isinstance`-over-Stage sites**
+(`v06-architecture.md:310`, `:373`). The `CutoffStage` subset of those is **9**, and it is all of
+them measured at `24a125a`: `sweep.py:56`,
+`:70`, `optimization.py:149`, `policy.py:182`, `screening.py:381`, `stages.py:173`, `:200`,
+`studio/analyses.py:824`, `deployment.py:224`. The spec's `11/20` is transcribed as the spec
+states it and is not re-measured here.
 
 ## Decision 2 — the condition is the AST, not the string
 
@@ -152,9 +155,14 @@ symmetric: `.filter` takes a boolean node, `.rate` takes a numeric node in [0,1]
   builder verb.
 - **The `isinstance` list shrinks and vanishes with no replacement.** This card and #121 §1 both
   planned to swap `isinstance(stage, RateStage)` for a partition by declared vector; with a
-  homogeneous list the 5 sites (`simulation.py:79`, `:229`, `:438`, `:475`, `:552`) simply go —
+  homogeneous list the five **funnel-partition** sites in `simulation.py` (`:79`, `:229`,
+  `:438`, `:475`, `:552`) simply go — and they are not the whole inventory: measured at `24a125a`,
+  `isinstance`-over-`RateStage` occurs at **nine** sites, the other four being
+  `simulation.py:341`, `visualization.py:413`, `sweep.py:173` and `deployment.py:235`. A session
+  planning the removal should start from the nine, not the five.
   `decision` is the funnel's product, and `contract = decision × take_up` is one application by
-  the engine afterwards. Measured in `docs/research/prototype-155-contract-axis.py`: the
+  the engine afterwards. Measured in `docs/research/prototype-155-contract-axis.py` (**on an ephemeral
+  branch** — `fe2088e`, reachable only from `origin/claude/aoba-b0w0o3`): the
   factorisation is **exact** (`|Δ| = 0`, 4 configurations), the stage's order is **inert**, and
   **zero rows** change `reason` or `decision` when the stage is removed.
 - **Point 3 of the card was not this card's decision.** *"Where calibration-score resolution

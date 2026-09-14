@@ -118,7 +118,7 @@ as **not executed**, and that is still true. Measured on `release/v0.6` (`24a125
 |---|---|
 | `docs/engine/` with `adr/` and `spec/` | `docs/engine/spec/` exists; `docs/engine/adr/` does not |
 | `docs/studio/` with `adr/` and `prd/` | **absent** |
-| ADRs routed by product | all 34 live in `docs/adr/` |
+| ADRs routed by product | all 18 live in `docs/adr/` (37 after this ticket) |
 | `docs/prd/`, `docs/refactor/`, `docs/redesign/`, `docs/dev/` collapse | all four still present |
 | `docs/archive/` for dated supersessions | **absent** |
 | `images/`, `scripts/`, `run_v14_benchmark.py` move down | all three still at the root |

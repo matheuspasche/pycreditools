@@ -136,8 +136,10 @@ away together with the by-class criterion.
   sides of the partition.
 - **The mechanism got cheaper.** This card decided to kill `isinstance(stage, RateStage)` by
   **replacing** it with a partition by declared vector. With the contract axis out of the list,
-  the 5 sites (`simulation.py:79`, `:229`, `:438`, `:475`, `:552`) **vanish with no
-  replacement**: `stages` is homogeneous and there is nothing left to partition. The two vectors
+  the five **funnel-partition** sites in `simulation.py` (`:79`, `:229`, `:438`, `:475`, `:552`)
+  **vanish with no replacement** (they are five of the nine `isinstance`-over-`RateStage` sites
+  measured at `24a125a` — the full inventory is in ADR 0029): `stages` is homogeneous and there
+  is nothing left to partition. The two vectors
   are computed in different places by construction — `decision` in the funnel, and
   `contract = decision × take_up` applied once by the engine.
 - **§3 is amended.** It was the decision the 2026-09-05 ruling used to justify *not* moving the
@@ -145,7 +147,8 @@ away together with the by-class criterion.
   **inert** — the funnel accumulates by product, which is commutative (`simulation.py:434`),
   partitions by type test rather than position (`:438`), the stochastic `min` is order-invariant
   (`:446`), and reason assignment already excludes `RateStage` (`:475`). The prototype
-  (`docs/research/prototype-155-contract-axis.py`) moved take-up to the **front** of the list
+  (`docs/research/prototype-155-contract-axis.py` — **on an ephemeral branch**, `fe2088e`,
+  reachable only from `origin/claude/aoba-b0w0o3`) moved take-up to the **front** of the list
   for `|Δ contract| = 0` and `|Δ decision| = 0`. §3 still governs the `decision` vector; it no
   longer governs the contract axis, whose eligibility **is** the decision vector.
 - **§4 is confirmed by measurement:** today's implicit funnel take-up is, on keep-ins,
