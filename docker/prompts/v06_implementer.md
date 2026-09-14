@@ -66,6 +66,10 @@ is missing, stop with `STATUS: BLOCKED`.
 
 ## Step 2 — Implement test-first, and measure instead of citing.
 
+- **Invoke the `tdd` skill** (`.claude/skills/tdd/`) and follow its loop — it is this
+  repo's own discipline, not a generic one, and the owner asked for it explicitly.
+- When your ticket touches `CONTEXT.md`, `docs/adr/`, or the domain vocabulary, invoke the
+  `domain-modeling` skill as well; when it decides an interface or a seam, `codebase-design`.
 - Red → green → refactor. Write the failing test FIRST, watch it fail for the right
   reason, then implement. A test that passes before the implementation existed is not a
   test; prove your test bites (revert the source line, see red, restore).

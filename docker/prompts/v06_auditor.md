@@ -61,7 +61,8 @@ every changed file IN FULL (a diff hides what the surrounding code does).
    `engine` unreachable from the top `pct.` namespace; `tests/test_packaging.py` and the
    dead-vocabulary gate green; no Studio changes. Identifiers and emitted values in
    English.
-5. **Design depth** (see `.claude/skills/codebase-design/`) — is the interface deeper
+5. **Design depth** — **invoke the `codebase-design` skill** (`.claude/skills/codebase-design/`)
+   and audit against its vocabulary, rather than against your own taste: is the interface deeper
    than its implementation, or did this leak the internals into the caller? Shallow
    wrappers, pass-through kwargs, a caller forced to know an ordering, temporal coupling.
 6. **Scope** — anything delivered that belongs to another ticket, and anything the ticket
@@ -75,6 +76,11 @@ every changed file IN FULL (a diff hides what the surrounding code does).
        ruff check src/pycreditools/engine tests/engine
        python3 scripts/check_dead_vocabulary.py <changed python files>
    with `{{VENV}}/bin/…` or after `source {{VENV}}/bin/activate`.
+
+**Do NOT invoke the `code-review` skill.** You *are* this repo's code review, and that
+skill fans out into parallel sub-agents — inside this loop it would re-read the same tree
+two more times and multiply the cost of every audit round, to reproduce the two axes
+(standards and spec) that Step 1 above already walks by hand.
 
 ## Step 2 — Severity, and what "agreed" means.
 
