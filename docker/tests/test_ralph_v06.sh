@@ -80,11 +80,21 @@ eq "reads the LAST assistant usage, not the sum" "108257" "$(session_context_tok
 eq "unknown session is 0"                        "0"      "$(session_context_tokens sid-nope)"
 eq "empty session id is 0"                       "0"      "$(session_context_tokens '')"
 
+echo "cap_for_role — o auditor le mais por oficio, nao por descuido"
+CONTEXT_CAP_IMPL=150000; CONTEXT_CAP_AUDIT=250000
+eq "o implementador usa o cap dele" "150000" "$(cap_for_role impl)"
+eq "o auditor usa o dele"           "250000" "$(cap_for_role audit)"
+eq "papel desconhecido cai no do implementador" "150000" "$(cap_for_role qualquer)"
+# O caso medido na rodada 1 do #157: 173k rotacionava o auditor e jogava fora a memoria
+# dos proprios achados. Com o cap por papel, ele segue.
+if over_context_cap 173368 audit; then bad "173k nao rotaciona o auditor" "0" "1"; else ok "173k nao rotaciona o auditor"; fi
+if over_context_cap 173368 impl;  then ok "173k rotacionaria o implementador"; else bad "173k rotacionaria o implementador" "1" "0"; fi
+
 echo "over_context_cap"
 # Pinned locally so the test states the boundary it checks instead of inheriting it
 # from the environment — but it must track the script's own default, or the pair
 # below stops testing the boundary that actually ships.
-CONTEXT_CAP_TOKENS=150000
+CONTEXT_CAP_TOKENS=150000; CONTEXT_CAP_IMPL=150000; CONTEXT_CAP_AUDIT=250000
 if over_context_cap 149999; then bad "under the cap passes" "1" "0"; else ok "under the cap passes"; fi
 if over_context_cap 150001; then ok "over the cap trips"; else bad "over the cap trips" "0" "1"; fi
 if over_context_cap 0;      then bad "an unknown context (0) never trips" "1" "0"; else ok "an unknown context (0) never trips"; fi

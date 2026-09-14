@@ -34,8 +34,21 @@ QUEUE_LABEL="${QUEUE_LABEL:-ready-for-agent}"
 SKIP_ISSUES="${SKIP_ISSUES:-}"                   # space-separated issue numbers to ignore
 MODEL="${CLAUDE_MODEL:-claude-opus-5}"
 EFFORT="${CLAUDE_EFFORT:-medium}"
-MAX_ROUNDS="${MAX_ROUNDS:-8}"                    # audit rounds per ticket before stopping
-CONTEXT_CAP_TOKENS="${CONTEXT_CAP_TOKENS:-150000}"   # per session; rotate when exceeded
+# Medido no #157: uma rodada de auditoria marca 3,1 a 5,5 no medidor e uma de implementacao
+# ~0,7. Com 8 rodadas um unico ticket podia chegar a ~45 — mais de um TERCO do teto semanal
+# inteiro em um ticket so. E rodada tem retorno decrescente: se o par nao convergiu em 5, o
+# que falta nao e mais uma rodada, e uma decisao humana — que e exatamente a saida que o
+# desenho ja tem (a issue recebe os achados e o loop para).
+MAX_ROUNDS="${MAX_ROUNDS:-5}"                    # audit rounds per ticket before stopping
+# Um cap so para os dois papeis media coisas diferentes com a mesma regua. O trabalho do
+# auditor e intrinsecamente mais pesado — ele le o diff INTEIRO e cada arquivo alterado por
+# completo, porque "diff esconde o que o codigo ao redor faz" — e na primeira rodada do
+# #157 ele fechou em 173k contra 40k do implementador. 173k nao e auditor descuidado, e o
+# tamanho da tarefa; rotaciona-lo ali jogava fora a memoria dos proprios achados a cada
+# rodada. CONTEXT_CAP_TOKENS continua valendo como default comum para os dois.
+CONTEXT_CAP_TOKENS="${CONTEXT_CAP_TOKENS:-150000}"
+CONTEXT_CAP_IMPL="${CONTEXT_CAP_IMPL:-$CONTEXT_CAP_TOKENS}"
+CONTEXT_CAP_AUDIT="${CONTEXT_CAP_AUDIT:-250000}"
 RATE_LIMIT_BACKOFF_SECONDS="${RATE_LIMIT_BACKOFF_SECONDS:-1800}"
 MERGE_METHOD="${MERGE_METHOD:---merge}"          # --merge | --squash | --rebase
 LOG_DIR="${LOG_DIR:-/workspace/.ralph/logs/v06}"
@@ -392,9 +405,15 @@ session_context_tokens() {
        "$f" 2>/dev/null || echo 0
 }
 
+# $1 = contexto medido, $2 = papel (impl|audit). Pura, para os testes pinarem.
+cap_for_role() {
+    [ "${1:-}" = "audit" ] && echo "$CONTEXT_CAP_AUDIT" || echo "$CONTEXT_CAP_IMPL"
+}
+
 over_context_cap() {
-    local ctx="${1:-0}"
-    [ "$ctx" -gt "$CONTEXT_CAP_TOKENS" ]
+    local ctx="${1:-0}" cap
+    cap=$(cap_for_role "${2:-impl}")
+    [ "$ctx" -gt "$cap" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -533,9 +552,9 @@ turn_with_retries() {
         run_claude_turn "$role" "$prompt" "${LAST_SESSION_ID:-$sid}"
     done
     [ -n "${LAST_SESSION_ID:-}" ] && eval "$var=\"\$LAST_SESSION_ID\""
-    if over_context_cap "${LAST_CTX_TOKENS:-0}"; then
-        notify_info "v0.6 — sessao rotacionada" "A sessao $role da #$ISSUE passou de ${CONTEXT_CAP_TOKENS} tokens de contexto (${LAST_CTX_TOKENS}). A proxima rodada comeca fresca, com o briefing inteiro; o trabalho esta nos commits."
-        log "#$ISSUE $role over context cap (${LAST_CTX_TOKENS} > $CONTEXT_CAP_TOKENS) — rotating session"
+    if over_context_cap "${LAST_CTX_TOKENS:-0}" "$role"; then
+        notify_info "v0.6 — sessao rotacionada" "A sessao $role da #$ISSUE passou de $(cap_for_role "$role") tokens de contexto (${LAST_CTX_TOKENS}). A proxima rodada comeca fresca, com o briefing inteiro; o trabalho esta nos commits."
+        log "#$ISSUE $role over context cap (${LAST_CTX_TOKENS} > $(cap_for_role "$role")) — rotating session"
         eval "$var=\"\""
     fi
 }
@@ -692,8 +711,13 @@ run_ticket() {
         else
             audit_prompt=$(render_prompt v06_auditor.md "$n" "$round")
             if [ "$round" -gt 1 ]; then
-                audit_prompt=$(printf '%s\n\n## Continuation\n\nThis audit session is fresh (the previous one hit its context cap), but the work is on round %s. The implementer last reported:\n\n%s\n' \
-                    "$audit_prompt" "$round" "$(clip "$impl_report")")
+                # Sem os achados da rodada anterior, um auditor fresco so recebia a
+                # ALEGACAO de quem ele auditou sobre o que corrigiu — e nao tinha como
+                # distinguir "consertado" de "contornado", que e exatamente a distincao
+                # que o Step 2 manda ele fazer. Mesmo buraco que o prompt de correcao do
+                # implementador tinha; este e o lado simetrico.
+                audit_prompt=$(printf '%s\n\n## Continuation — voce nao e a mesma sessao, e os achados abaixo sao SEUS\n\nEsta sessao de auditoria e nova (a anterior estourou o teto de contexto), mas o trabalho esta na rodada %s. Trate os achados abaixo como seus proprios, nao como sugestao: para cada um, decida por EVIDENCIA se foi consertado, CONTORNADO, ou corretamente rebatido — a alegacao do implementador e reivindicacao, nao prova.\n\n--- SEUS ACHADOS DA RODADA ANTERIOR ---\n%s\n--- FIM ---\n\nE a resposta do implementador a eles:\n\n--- RESPOSTA DO IMPLEMENTADOR ---\n%s\n--- FIM ---\n' \
+                    "$audit_prompt" "$round" "$(clip "$audit_findings")" "$(clip "$impl_report")")
             fi
         fi
         turn_with_retries audit "$audit_prompt" AUDIT_SESSION

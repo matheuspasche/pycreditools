@@ -63,8 +63,19 @@ services:
       - |
         set -e
         mkdir -p "$$HOME/loop"
-        cp /workspace/docker/ralph_loop_v06.sh "$$HOME/loop/"
-        cp -r /workspace/docker/prompts "$$HOME/loop/prompts"
+        # O codigo do loop vem de uma REF FIXA, nao da arvore. A arvore e justamente o que
+        # o loop troca de branch: copiar dali fazia a versao do loop depender de em que
+        # ticket ele estava parado na hora do restart — e um restart no meio de um ticket
+        # ressuscitava o script da branch, anterior a qualquer correcao mergeada depois.
+        git config --global --add safe.directory /workspace 2>/dev/null || true
+        git -C /workspace fetch -q origin 2>/dev/null || true
+        REF="origin/$${BASE_BRANCH:-release/v0.6}"
+        git -C /workspace archive "$$REF" docker/ralph_loop_v06.sh docker/prompts \
+          | tar -x -C "$$HOME/loop" --strip-components=1 \
+          || { echo "[entrypoint] nao consegui extrair o loop de $$REF; caindo para a arvore"; \
+               cp /workspace/docker/ralph_loop_v06.sh "$$HOME/loop/"; \
+               cp -r /workspace/docker/prompts "$$HOME/loop/prompts"; }
+        echo "[entrypoint] loop e prompts extraidos de $$REF"
         export PROMPT_DIR="$$HOME/loop/prompts"
         # O venv do GATE, e ele tem que ser construido por ESTE interpretador. O
         # .venv-linux da arvore e do Python do host (3.14 no Fedora) e seu site-packages
