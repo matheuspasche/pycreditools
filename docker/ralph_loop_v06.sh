@@ -39,6 +39,47 @@ CONTEXT_CAP_TOKENS="${CONTEXT_CAP_TOKENS:-150000}"   # per session; rotate when 
 RATE_LIMIT_BACKOFF_SECONDS="${RATE_LIMIT_BACKOFF_SECONDS:-1800}"
 MERGE_METHOD="${MERGE_METHOD:---merge}"          # --merge | --squash | --rebase
 LOG_DIR="${LOG_DIR:-/workspace/.ralph/logs/v06}"
+
+# --- Janela de trabalho -----------------------------------------------------------
+# O loop so trabalha dentro desta janela (hora local de WORK_WINDOW_TZ). Fora dela ele
+# dorme ate a proxima abertura, checando entre turnos — nunca no meio de um. Deixe
+# START e END iguais (ou vazios) para rodar 24h.
+WORK_WINDOW_START="${WORK_WINDOW_START:-22:00}"
+WORK_WINDOW_END="${WORK_WINDOW_END:-08:00}"
+WORK_WINDOW_TZ="${WORK_WINDOW_TZ:-America/Sao_Paulo}"
+
+# --- Teto de uso ------------------------------------------------------------------
+# ISTO NAO E DINHEIRO. A conta roda por ASSINATURA (CLAUDE_CODE_OAUTH_TOKEN), entao nada
+# aqui e cobrado — o que o loop gasta e COTA. Acontece que a unica grandeza de consumo
+# observavel localmente e o `total_cost_usd` que o CLI devolve por turno: o preco que
+# aqueles tokens teriam na API. E um MEDIDOR, nao uma fatura, e serve de freio porque sobe
+# junto com a cota consumida.
+# Calibre WEEKLY_BUDGET_USD empiricamente: compare o acumulado deste livro-caixa com o
+# percentual real que o `/usage` mostra numa sessao interativa. Referencia medida: o turno
+# de implementacao do ticket 1 marcou 11,10 neste medidor.
+# O loop soma a janela movel de 7 dias e PARA (dormindo, nao morrendo) ao atingir
+# BUDGET_STOP_PCT do teto — a janela movel se recupera sozinha com o passar dos dias.
+WEEKLY_BUDGET_USD="${WEEKLY_BUDGET_USD:-150}"
+BUDGET_STOP_PCT="${BUDGET_STOP_PCT:-80}"
+USAGE_LEDGER="${USAGE_LEDGER:-/workspace/.ralph/usage.tsv}"
+
+# --- Notificacoes -----------------------------------------------------------------
+# Nada aqui e urgente: e projeto pessoal, roda de madrugada, e uma notificacao "urgent"
+# do ntfy toca como alarme e ja acordou o dono as 4h. Teto de prioridade: "default".
+NTFY_PRIORITY_ALERT="${NTFY_PRIORITY_ALERT:-default}"
+NTFY_PRIORITY_INFO="${NTFY_PRIORITY_INFO:-low}"
+HEARTBEAT_SECONDS="${HEARTBEAT_SECONDS:-7200}"    # sinal de vida durante espera longa
+
+# --- Watchdog ---------------------------------------------------------------------
+# Um turno pendurado nao morre e o `restart: on-failure` nao o alcanca; o teto o mata.
+TURN_TIMEOUT_SECONDS="${TURN_TIMEOUT_SECONDS:-7200}"
+
+# --- Ambiente Python ---------------------------------------------------------------
+# NAO e o .venv-linux do host: aquele e construido pelo Python do host (3.14 no Fedora) e
+# seu site-packages e ilegivel para o Python 3.11 do container, entao o gate falhava com
+# ModuleNotFoundError em TODO ticket. Este vive no home do container (volume nomeado) e e
+# criado pelo entrypoint com o interpretador que vai roda-lo.
+VENV="${VENV:-/home/ralph/venv}"
 PROMPT_DIR="${PROMPT_DIR:-/workspace/docker/prompts}"
 mkdir -p "$LOG_DIR"
 
@@ -54,6 +95,108 @@ if [ "${RALPH_V06_LIB_ONLY:-0}" != "1" ]; then
 fi
 
 log() { echo "[ralph_v06] $*"; }
+
+notify_info()  { notify.sh "$1" "$2" "$NTFY_PRIORITY_INFO"  >/dev/null 2>&1 || true; }
+notify_alert() { notify.sh "$1" "$2" "$NTFY_PRIORITY_ALERT" >/dev/null 2>&1 || true; }
+
+# ---------------------------------------------------------------------------
+# Esperar ate um INSTANTE, nao por uma DURACAO. Esta distincao custou 8 horas: o backoff
+# calculava certo o instante do reset da cota e entregava a diferenca para `sleep`, que
+# conta em CLOCK_MONOTONIC — relogio que CONGELA enquanto a maquina esta suspensa. O PC
+# dormiu, a contagem parou junto, a cota resetou 01:51Z e o loop seguiu esperando ate as
+# 09:39Z. Dormir em fatias curtas reconferindo `date +%s` e imune a isso: cada acordada
+# reancora no relogio de parede, entao suspend so adia, nunca trava.
+# Emite sinal de vida a cada HEARTBEAT_SECONDS — do celular, silencio e indistinguivel de
+# morte, e essa ambiguidade era um defeito de projeto para quem so acompanha por push.
+# ---------------------------------------------------------------------------
+sleep_until() {
+    local target="$1" why="${2:-}" now last_beat bite left
+    now=$(date +%s); last_beat="$now"
+    while [ "$now" -lt "$target" ]; do
+        left=$(( target - now ))
+        bite=60; [ "$left" -lt 60 ] && bite="$left"
+        sleep "$bite"
+        now=$(date +%s)
+        if [ $(( now - last_beat )) -ge "$HEARTBEAT_SECONDS" ] && [ "$now" -lt "$target" ]; then
+            notify_info "v0.6 — em espera" "$why Retomo por volta de $(date -d "@$target" +%H:%M) ($(( (target - now) / 60 )) min)."
+            last_beat="$now"
+        fi
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Janela de trabalho. Pura, para os testes pinarem: $1 = agora "HH:MM", $2 = inicio,
+# $3 = fim. A janela normal aqui ATRAVESSA a meia-noite (22:00 -> 08:00), entao o caso
+# invertido e o principal, nao a excecao. Inicio igual ao fim (ou vazio) = 24 horas.
+# ---------------------------------------------------------------------------
+in_window() {
+    local now="$1" start="$2" end="$3"
+    [ -z "$start" ] || [ -z "$end" ] || [ "$start" = "$end" ] && return 0
+    now=$((10#${now//:/})); start=$((10#${start//:/})); end=$((10#${end//:/}))
+    if [ "$start" -lt "$end" ]; then
+        [ "$now" -ge "$start" ] && [ "$now" -lt "$end" ]
+    else
+        [ "$now" -ge "$start" ] || [ "$now" -lt "$end" ]
+    fi
+}
+
+now_in_window() { in_window "$(TZ="$WORK_WINDOW_TZ" date +%H:%M)" "$WORK_WINDOW_START" "$WORK_WINDOW_END"; }
+
+next_window_open() {
+    local t
+    t=$(TZ="$WORK_WINDOW_TZ" date -d "today $WORK_WINDOW_START" +%s 2>/dev/null) || { date +%s; return; }
+    [ "$t" -le "$(date +%s)" ] && t=$(TZ="$WORK_WINDOW_TZ" date -d "tomorrow $WORK_WINDOW_START" +%s)
+    echo "$t"
+}
+
+# Chamado ANTES de cada turno, nunca no meio de um: um turno interrompido perderia o
+# trabalho que ainda nao virou commit.
+wait_for_window() {
+    local target
+    now_in_window && return 0
+    target=$(next_window_open)
+    log "fora da janela de trabalho ($WORK_WINDOW_START-$WORK_WINDOW_END $WORK_WINDOW_TZ) — dormindo ate $(date -d "@$target" +%d/%m\ %H:%M)"
+    notify_info "v0.6 — fora da janela" "Pausando ate $(date -d "@$target" +%H:%M). O dia e seu; o loop volta a noite."
+    sleep_until "$target" "Fora da janela de trabalho."
+    notify_info "v0.6 — janela aberta" "Retomando o trabalho."
+}
+
+# ---------------------------------------------------------------------------
+# Livro-caixa do medidor de consumo (ver o bloco de config: e cota, nao dinheiro).
+# Puras, para os testes pinarem.
+# ---------------------------------------------------------------------------
+record_usage() {
+    local file="$1" cost
+    cost=$(jq -r '.total_cost_usd // 0' "$file" 2>/dev/null) || cost=0
+    mkdir -p "$(dirname "$USAGE_LEDGER")" 2>/dev/null || true
+    printf '%s\t%s\n' "$(date +%s)" "${cost:-0}" >> "$USAGE_LEDGER" 2>/dev/null || true
+}
+
+spend_since() {   # $1 = epoch de corte, $2 = livro (default USAGE_LEDGER)
+    awk -v c="$1" 'BEGIN{s=0} $1 >= c {s += $2} END{printf "%.2f", s}' "${2:-$USAGE_LEDGER}" 2>/dev/null || echo "0.00"
+}
+
+budget_ceiling() { awk -v b="$WEEKLY_BUDGET_USD" -v p="$BUDGET_STOP_PCT" 'BEGIN{printf "%.2f", b*p/100}'; }
+
+# Verdadeiro quando a janela movel de 7 dias ja encostou no teto.
+over_budget() {
+    local spent ceiling
+    spent=$(spend_since "$(( $(date +%s) - 604800 ))")
+    ceiling=$(budget_ceiling)
+    awk -v s="$spent" -v c="$ceiling" 'BEGIN{exit !(s >= c)}'
+}
+
+# Nao morre: dorme uma hora e reconfere. A janela e MOVEL, entao ela se recupera sozinha
+# conforme os turnos antigos saem dos 7 dias — parar de vez exigiria o dono voltar.
+wait_for_budget() {
+    local spent ceiling
+    while over_budget; do
+        spent=$(spend_since "$(( $(date +%s) - 604800 ))"); ceiling=$(budget_ceiling)
+        log "teto de uso atingido: ${spent} de ${ceiling} (${BUDGET_STOP_PCT}% de ${WEEKLY_BUDGET_USD}) nos ultimos 7 dias — aguardando a janela movel ceder"
+        notify_info "v0.6 — teto de uso" "Medidor em ${spent} dos ${ceiling} permitidos por semana (${BUDGET_STOP_PCT}% de ${WEEKLY_BUDGET_USD}). Pausado; a janela movel de 7 dias se recupera sozinha."
+        sleep_until "$(( $(date +%s) + 3600 ))" "Teto de uso semanal atingido."
+    done
+}
 
 # ---------------------------------------------------------------------------
 # Text handed VERBATIM from one session to the other. A full implementer report or audit
@@ -157,7 +300,7 @@ render_prompt() {
     local file="$1" n="$2" round="${3:-1}"
     sed -e "s|{{REPO}}|$REPO|g" -e "s|{{ISSUE}}|$n|g" -e "s|{{BRANCH}}|${WORK_BRANCH:-}|g" \
         -e "s|{{BASE}}|origin/$BASE_BRANCH|g" -e "s|{{ROUND}}|$round|g" \
-        -e "s|{{MAX_ROUNDS}}|$MAX_ROUNDS|g" "$PROMPT_DIR/$file"
+        -e "s|{{MAX_ROUNDS}}|$MAX_ROUNDS|g" -e "s|{{VENV}}|$VENV|g" "$PROMPT_DIR/$file"
 }
 
 # ---------------------------------------------------------------------------
@@ -195,7 +338,10 @@ run_claude_turn() {
     ts=$(date -u +%Y%m%dT%H%M%SZ)
     LAST_OUTPUT_FILE="$LOG_DIR/${ts}_${role}_${ISSUE}.json"
 
-    local -a cmd=(claude --print "$prompt" --model "$MODEL" --effort "$EFFORT"
+    # `timeout` e o watchdog: um turno pendurado nao morre sozinho e o `restart:
+    # on-failure` do compose nunca o alcanca, porque o processo continua vivo.
+    local -a cmd=(timeout "$TURN_TIMEOUT_SECONDS"
+                  claude --print "$prompt" --model "$MODEL" --effort "$EFFORT"
                   --output-format json --dangerously-skip-permissions)
     [ -n "$resume_id" ] && cmd+=(--resume "$resume_id")
 
@@ -210,6 +356,7 @@ run_claude_turn() {
     [ -n "$LAST_CTX_TOKENS" ] || LAST_CTX_TOKENS=0
 
     LAST_STATUS=$(sentinel_of "$role" "$LAST_RESULT_TEXT")
+    record_usage "$LAST_OUTPUT_FILE"
 
     if [ -z "$LAST_STATUS" ]; then
         # Prefer the CLI's STRUCTURED 429 over text-matching: grepping the raw JSON for
@@ -219,6 +366,8 @@ run_claude_turn() {
         api_err=$(jq -r '.api_error_status // empty' "$LAST_OUTPUT_FILE" 2>/dev/null)
         if [ "$api_err" = "429" ] || is_rate_limited_file "$LAST_OUTPUT_FILE"; then
             LAST_STATUS="RATE_LIMITED"
+        elif [ "$exit_code" -eq 124 ]; then
+            LAST_STATUS="TIMEOUT"
         elif [ "$exit_code" -ne 0 ]; then
             LAST_STATUS="CLI_ERROR"
         else
@@ -296,20 +445,26 @@ rate_limit_backoff_seconds() {
 # the work itself lives in commits, and both prompts are written to be re-enterable.
 # ---------------------------------------------------------------------------
 turn_with_retries() {
-    local role="$1" prompt="$2" var="$3" sid backoff resume_at
+    local role="$1" prompt="$2" var="$3" sid backoff target
     eval "sid=\${$var:-}"
+    # As duas politicas do dono, checadas ENTRE turnos: a janela de trabalho e o teto de
+    # uso. Nunca no meio de um turno — interromper perderia o que ainda nao virou commit.
+    wait_for_window
+    wait_for_budget
     run_claude_turn "$role" "$prompt" "$sid"
     while [ "$LAST_STATUS" = "RATE_LIMITED" ]; do
         backoff=$(rate_limit_backoff_seconds)
-        resume_at=$(date -u -d "+${backoff} seconds" +%H:%MZ 2>/dev/null || echo '?')
-        notify.sh "v0.6 — limite de uso" "Cota atingida na #$ISSUE ($role). Durmo ${backoff}s e retomo ~${resume_at} (1 min apos o reset informado)." "default"
-        log "#$ISSUE $role rate-limited — sleeping ${backoff}s, resume ~${resume_at}"
-        sleep "$backoff"
+        # O instante-alvo, nao a duracao — ver sleep_until.
+        target=$(( $(date +%s) + backoff ))
+        notify_info "v0.6 — limite de uso" "Cota atingida na #$ISSUE ($role). Retomo por volta de $(date -d "@$target" +%H:%M), um minuto apos o reset informado."
+        log "#$ISSUE $role rate-limited — waiting until $(date -d "@$target" +%H:%M:%S) (${backoff}s)"
+        sleep_until "$target" "Cota atingida na #$ISSUE."
+        wait_for_window
         run_claude_turn "$role" "$prompt" "${LAST_SESSION_ID:-$sid}"
     done
     [ -n "${LAST_SESSION_ID:-}" ] && eval "$var=\"\$LAST_SESSION_ID\""
     if over_context_cap "${LAST_CTX_TOKENS:-0}"; then
-        notify.sh "v0.6 — sessao rotacionada" "A sessao $role da #$ISSUE passou de ${CONTEXT_CAP_TOKENS} tokens de contexto (${LAST_CTX_TOKENS}). A proxima rodada comeca fresca; o trabalho esta nos commits." "low"
+        notify_info "v0.6 — sessao rotacionada" "A sessao $role da #$ISSUE passou de ${CONTEXT_CAP_TOKENS} tokens de contexto (${LAST_CTX_TOKENS}). A proxima rodada comeca fresca, com o briefing inteiro; o trabalho esta nos commits."
         log "#$ISSUE $role over context cap (${LAST_CTX_TOKENS} > $CONTEXT_CAP_TOKENS) — rotating session"
         eval "$var=\"\""
     fi
@@ -322,11 +477,13 @@ turn_with_retries() {
 # ---------------------------------------------------------------------------
 verify_turn() {
     local py="python3" pt=0 rf=0 vlog="$LOG_DIR/verify_${ISSUE}.log"
-    [ -x ".venv-linux/bin/python" ] && py=".venv-linux/bin/python"
+    # $VENV, nunca o .venv-linux do host: aquele e de outro interpretador (3.14 contra os
+    # 3.11 daqui) e o gate morria com ModuleNotFoundError em todo ticket.
+    [ -x "$VENV/bin/python" ] && py="$VENV/bin/python"
     log "verifying #$ISSUE (pytest + ruff) before accepting agreement..."
     "$py" -m pytest tests --ignore=tests/studio -q > "$vlog" 2>&1 || pt=$?
-    if [ -x ".venv-linux/bin/ruff" ]; then
-        .venv-linux/bin/ruff check src/pycreditools/engine tests/engine >> "$vlog" 2>&1 || rf=$?
+    if [ -x "$VENV/bin/ruff" ]; then
+        "$VENV/bin/ruff" check src/pycreditools/engine tests/engine >> "$vlog" 2>&1 || rf=$?
     fi
     if [ "$pt" -ne 0 ] || [ "$rf" -ne 0 ]; then
         log "verify FAILED for #$ISSUE (pytest=$pt ruff=$rf) — see $vlog"
@@ -344,7 +501,7 @@ verify_turn() {
 land_ticket() {
     local n="$1" rounds="$2" title pr body
     if ! git push -u origin "$WORK_BRANCH" 2>&1 | tail -2; then
-        notify.sh "v0.6 — falha no push" "A #$n foi implementada e auditada, mas o push falhou. Parando." "urgent"
+        notify_alert "v0.6 — falha no push" "A #$n foi implementada e auditada, mas o push falhou. Parando."
         log "push failed for #$n"
         return 1
     fi
@@ -364,18 +521,24 @@ land_ticket() {
     if gh pr merge "$pr" --repo "$REPO" $MERGE_METHOD --delete-branch >/dev/null 2>&1; then
         log "PR #$pr merged into $BASE_BRANCH"
     else
-        notify.sh "v0.6 — merge falhou" "PR #$pr (issue #$n) nao mergeou. A branch $WORK_BRANCH esta no remoto. Parando." "urgent"
+        notify_alert "v0.6 — merge falhou" "PR #$pr (issue #$n) nao mergeou. A branch $WORK_BRANCH esta no remoto. Parando."
         log "merge failed for PR #$pr"
         return 1
     fi
     # A merge into release/v0.6 is not on the default branch, so GitHub never closes the
     # issue by itself — close it here or the queue re-picks work that is already done.
+    # `|| true` fazia uma falha de API aqui virar tracker mentindo em silencio: confira o
+    # estado depois de fechar e avise se a issue continuar aberta.
     gh issue close "$n" --repo "$REPO" --reason completed >/dev/null 2>&1 || true
     gh issue edit "$n" --repo "$REPO" --remove-label "$QUEUE_LABEL" >/dev/null 2>&1 || true
+    if [ "$(gh issue view "$n" --repo "$REPO" --json state -q .state 2>/dev/null)" != "CLOSED" ]; then
+        log "WARN: #$n continua aberta depois do merge do PR #$pr"
+        notify_alert "v0.6 — issue #$n nao fechou" "O PR #$pr mergeou, mas a issue #$n continua aberta. Feche na mao para a fila nao repescar trabalho pronto."
+    fi
     git checkout --quiet "$BASE_BRANCH" 2>/dev/null \
         || git checkout --quiet -B "$BASE_BRANCH" "origin/$BASE_BRANCH"
     git pull --quiet --ff-only origin "$BASE_BRANCH" 2>/dev/null || true
-    notify.sh "#$n concluida" "PR #$pr mergeado em $BASE_BRANCH apos ${rounds} rodada(s) de auditoria. Issue fechada. Seguindo para o proximo ticket." "default"
+    notify_info "#$n concluida" "PR #$pr mergeado em $BASE_BRANCH apos ${rounds} rodada(s) de auditoria. Issue fechada. Seguindo para o proximo ticket."
     return 0
 }
 
@@ -383,6 +546,40 @@ issue_note() {
     local n="$1" text="$2"
     gh issue comment "$n" --repo "$REPO" --body "$(printf '%s' "$text" | head -c 60000)" \
         >/dev/null 2>&1 || true
+}
+
+# ---------------------------------------------------------------------------
+# O vocabulario de sentinelas de cada papel, e a segunda chance.
+# Uma sentinela fora do vocabulario parava o loop como se fosse falha — foi assim que a
+# rodada 1 do #157 morreu, com um "STATUS: CHANGES_MADE" que so queria dizer DONE. Perder
+# o trabalho de uma noite por uma palavra e desproporcional: peca a palavra certa.
+# Puras (as duas primeiras), para os testes pinarem.
+# ---------------------------------------------------------------------------
+valid_sentinel() {
+    case "$1:$2" in
+        impl:DONE|impl:BLOCKED|impl:WRONG_TICKET|impl:ERROR) return 0 ;;
+        audit:AGREED|audit:CHANGES_REQUESTED|audit:ESCALATE) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+sentinel_vocabulary() {
+    if [ "$1" = "audit" ]; then
+        echo "VERDICT: AGREED | VERDICT: CHANGES_REQUESTED | VERDICT: ESCALATE"
+    else
+        echo "STATUS: DONE | STATUS: BLOCKED | STATUS: WRONG_TICKET | STATUS: ERROR"
+    fi
+}
+
+ask_valid_sentinel() {
+    local role="$1" var="IMPL_SESSION" key="STATUS"
+    [ "$role" = "audit" ] && { var="AUDIT_SESSION"; key="VERDICT"; }
+    valid_sentinel "$role" "${LAST_STATUS:-}" && return 0
+    # Falhas de infraestrutura sao tratadas noutro lugar; aqui so vocabulario.
+    case "${LAST_STATUS:-}" in RATE_LIMITED|TIMEOUT|CLI_ERROR) return 0 ;; esac
+    log "#$ISSUE $role terminou com sentinela invalida ('${LAST_STATUS:-vazia}') — pedindo a correta"
+    turn_with_retries "$role" "$(printf 'Your last message ended with `%s: %s`, which is not one of the sentinels this loop understands. Nothing you did is lost and nothing needs redoing — the loop only needs the right word for the state you are already in.\n\nReply with a one-line summary and then exactly one of:\n\n%s\n\nNothing else.' \
+        "$key" "${LAST_STATUS:-<nenhuma>}" "$(sentinel_vocabulary "$role")")" "$var"
 }
 
 # ---------------------------------------------------------------------------
@@ -396,21 +593,22 @@ run_ticket() {
 
     turn_with_retries impl "$(render_prompt v06_implementer.md "$n" 1)" IMPL_SESSION
     impl_report="$LAST_RESULT_TEXT"
+    ask_valid_sentinel impl
 
     case "$LAST_STATUS" in
         DONE) ;;
         WRONG_TICKET)
             issue_note "$n" "$(printf 'O par headless parou antes de implementar: o ticket nao parece ser o trabalho certo agora.\n\n%s' "$impl_report")"
             gh issue edit "$n" --repo "$REPO" --add-label "needs-triage" >/dev/null 2>&1 || true
-            notify.sh "v0.6 — ticket errado (#$n)" "O implementador sustenta que a #$n nao e o trabalho certo agora. Comentei na issue com a evidencia e parei." "urgent"
+            notify_alert "v0.6 — ticket errado (#$n)" "O implementador sustenta que a #$n nao e o trabalho certo agora. Comentei na issue com a evidencia e parei."
             return 1 ;;
         BLOCKED)
             issue_note "$n" "$(printf 'O par headless parou: BLOCKED.\n\n%s' "$impl_report")"
             gh issue edit "$n" --repo "$REPO" --add-label "needs-info" >/dev/null 2>&1 || true
-            notify.sh "v0.6 — issue bloqueada (#$n)" "Precisa de uma decisao sua. Comentei na issue. Log: $LAST_OUTPUT_FILE" "urgent"
+            notify_alert "v0.6 — issue bloqueada (#$n)" "Precisa de uma decisao sua. Comentei na issue. Log: $LAST_OUTPUT_FILE"
             return 1 ;;
         *)
-            notify.sh "v0.6 — ERRO na #$n" "Implementador terminou com STATUS=$LAST_STATUS. Log: $LAST_OUTPUT_FILE" "urgent"
+            notify_alert "v0.6 — ERRO na #$n" "Implementador terminou com STATUS=$LAST_STATUS. Log: $LAST_OUTPUT_FILE"
             return 1 ;;
     esac
 
@@ -428,40 +626,51 @@ run_ticket() {
         fi
         turn_with_retries audit "$audit_prompt" AUDIT_SESSION
         audit_findings="$LAST_RESULT_TEXT"
+        ask_valid_sentinel audit
 
         case "$LAST_STATUS" in
             AGREED)
                 log "#$n: pair agreed after $round round(s)"
                 if ! verify_turn; then
                     issue_note "$n" "O par declarou acordo na #$n, mas o gate do loop (pytest/ruff) falhou. Nada foi empurrado. Veja \`.ralph/logs/v06/verify_${n}.log\`."
-                    notify.sh "v0.6 — verificacao falhou (#$n)" "Par em acordo mas pytest/ruff vermelho. NADA foi empurrado. Veja .ralph/logs/v06/verify_${n}.log" "urgent"
+                    notify_alert "v0.6 — verificacao falhou (#$n)" "Par em acordo mas pytest/ruff vermelho. NADA foi empurrado. Veja .ralph/logs/v06/verify_${n}.log"
                     return 1
                 fi
                 land_ticket "$n" "$round" || return 1
                 return 0 ;;
             CHANGES_REQUESTED)
                 log "#$n: audit round $round requested changes"
-                fix_prompt=$(printf 'The auditor reviewed your work on #%s and asked for changes (round %s of %s). Their findings, verbatim:\n\n--- AUDIT ---\n%s\n--- END ---\n\nFor each finding: fix it, or argue it down with evidence (file:line, a command and its output) if the auditor is wrong — do not cave to a wrong finding and do not hand-wave a right one. NITs may be ignored. Re-run the gate, commit, then report what you changed and what you pushed back on. End with exactly one STATUS line.' \
-                    "$n" "$round" "$MAX_ROUNDS" "$(clip "$audit_findings")")
+                fix_prompt=$(printf 'The auditor reviewed your work on #%s and asked for changes (round %s of %s). Their findings, verbatim:\n\n--- AUDIT ---\n%s\n--- END ---\n\nFor each finding: fix it, or argue it down with evidence (file:line, a command and its output) if the auditor is wrong — do not cave to a wrong finding and do not hand-wave a right one. NITs may be ignored. Re-run the gate, commit, then report what you changed and what you pushed back on.\n\nEnd your final message with exactly ONE sentinel line, one of: %s' \
+                    "$n" "$round" "$MAX_ROUNDS" "$(clip "$audit_findings")" "$(sentinel_vocabulary impl)")
+                # Sessao rotacionada = sessao SEM MEMORIA do briefing. Na rodada 1 do
+                # #157 este prompt era so a lista de achados, e a sessao fresca que o
+                # recebeu inventou uma sentinela ("STATUS: CHANGES_MADE", que parou o
+                # loop) e deu `git push` — as duas coisas proibidas no briefing que ela
+                # nao tinha. Sem sessao para retomar, o prompt carrega o briefing inteiro.
+                if [ -z "${IMPL_SESSION:-}" ]; then
+                    fix_prompt=$(printf '%s\n\n## Briefing completo (esta sessao e nova)\n\nA sessao anterior foi rotacionada por tamanho de contexto, entao voce NAO tem memoria do briefing original. Ele esta abaixo na integra. O trabalho ja feito esta nos commits da branch: leia `git log --oneline %s..HEAD` e `git diff %s...HEAD` antes de mexer em qualquer coisa.\n\n%s' \\
+                        "$fix_prompt" "origin/$BASE_BRANCH" "origin/$BASE_BRANCH" "$(render_prompt v06_implementer.md "$n" "$round")")
+                fi
                 turn_with_retries impl "$fix_prompt" IMPL_SESSION
                 impl_report="$LAST_RESULT_TEXT"
+                ask_valid_sentinel impl
                 if [ "$LAST_STATUS" != "DONE" ]; then
                     issue_note "$n" "$(printf 'O implementador parou na rodada %s com STATUS=%s.\n\n%s' "$round" "$LAST_STATUS" "$impl_report")"
-                    notify.sh "v0.6 — implementador parou (#$n)" "STATUS=$LAST_STATUS na rodada $round. Log: $LAST_OUTPUT_FILE" "urgent"
+                    notify_alert "v0.6 — implementador parou (#$n)" "STATUS=$LAST_STATUS na rodada $round. Log: $LAST_OUTPUT_FILE"
                     return 1
                 fi ;;
             ESCALATE)
                 issue_note "$n" "$(printf 'O par headless empatou numa decisao de projeto que os cards nao resolvem (rodada %s).\n\n%s' "$round" "$audit_findings")"
-                notify.sh "v0.6 — empate na #$n" "Implementador e auditor discordam sobre projeto, rodada $round. As duas posicoes estao na issue." "urgent"
+                notify_alert "v0.6 — empate na #$n" "Implementador e auditor discordam sobre projeto, rodada $round. As duas posicoes estao na issue."
                 return 1 ;;
             *)
-                notify.sh "v0.6 — ERRO na auditoria da #$n" "Auditor terminou com VERDICT=$LAST_STATUS. Log: $LAST_OUTPUT_FILE" "urgent"
+                notify_alert "v0.6 — ERRO na auditoria da #$n" "Auditor terminou com VERDICT=$LAST_STATUS. Log: $LAST_OUTPUT_FILE"
                 return 1 ;;
         esac
     done
 
     issue_note "$n" "$(printf 'O par headless nao chegou a acordo em %s rodadas. O trabalho esta na branch `%s` (nao empurrada). Ultimos achados do auditor:\n\n%s' "$MAX_ROUNDS" "$WORK_BRANCH" "$audit_findings")"
-    notify.sh "v0.6 — sem acordo na #$n" "$MAX_ROUNDS rodadas sem acordo. Trabalho preservado em $WORK_BRANCH, nada empurrado. Olhe os achados na issue." "urgent"
+    notify_alert "v0.6 — sem acordo na #$n" "$MAX_ROUNDS rodadas sem acordo. Trabalho preservado em $WORK_BRANCH, nada empurrado. Olhe os achados na issue."
     log "#$n: no agreement in $MAX_ROUNDS rounds — stopping for a human"
     return 1
 }
@@ -472,17 +681,17 @@ run_ticket() {
 # ---------------------------------------------------------------------------
 main() {
 log "starting — model=$MODEL effort=$EFFORT rounds<=$MAX_ROUNDS ctx_cap=$CONTEXT_CAP_TOKENS base=$BASE_BRANCH"
-notify.sh "v0.6 — loop iniciado" "Par implementador x auditor no ar. Modelo $MODEL (effort $EFFORT), ate $MAX_ROUNDS rodadas por ticket, PRs contra $BASE_BRANCH." "low"
+notify_info "v0.6 — loop iniciado" "Par implementador x auditor no ar. Modelo $MODEL (effort $EFFORT), ate $MAX_ROUNDS rodadas por ticket, PRs contra $BASE_BRANCH."
 
 while true; do
     ISSUE=$(next_issue)
     if [ -z "$ISSUE" ]; then
         remaining=$(count_open_queue)
         if [ "$remaining" -gt 1 ]; then
-            notify.sh "v0.6 — fila travada" "Restam $remaining issue(s) com $QUEUE_LABEL, todas bloqueadas por dependencia aberta. Veja o grafo de Blocked by." "urgent"
+            notify_alert "v0.6 — fila travada" "Restam $remaining issue(s) com $QUEUE_LABEL, todas bloqueadas por dependencia aberta. Veja o grafo de Blocked by."
             log "$remaining queue issue(s) left but all blocked — stopping for a human."
         else
-            notify.sh "v0.6 — fila vazia" "Nenhum ticket acionavel restante. Revise $BASE_BRANCH." "default"
+            notify_info "v0.6 — fila vazia" "Nenhum ticket acionavel restante. Revise $BASE_BRANCH."
             log "queue empty — nothing actionable. Review $BASE_BRANCH."
         fi
         break

@@ -67,7 +67,7 @@ every changed file IN FULL (a diff hides what the surrounding code does).
        pytest tests --ignore=tests/studio -q
        ruff check src/pycreditools/engine tests/engine
        python3 scripts/check_dead_vocabulary.py <changed python files>
-   with `.venv-linux/bin/…` or after `source .venv-linux/bin/activate`.
+   with `{{VENV}}/bin/…` or after `source {{VENV}}/bin/activate`.
 
 ## Step 2 — Severity, and what "agreed" means.
 

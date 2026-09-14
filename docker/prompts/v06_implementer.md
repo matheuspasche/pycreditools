@@ -80,8 +80,8 @@ is missing, stop with `STATUS: BLOCKED`.
 
 ## Step 3 — The green gate, run by you before you claim anything.
 
-Use the project's Linux virtualenv: `source .venv-linux/bin/activate` (or call
-`.venv-linux/bin/pytest` / `.venv-linux/bin/ruff` directly).
+Use the project's Linux virtualenv: `source {{VENV}}/bin/activate` (or call
+`{{VENV}}/bin/pytest` / `{{VENV}}/bin/ruff` directly).
 
     pytest tests --ignore=tests/studio -q
     ruff check src/pycreditools/engine tests/engine
